@@ -73,7 +73,7 @@
     "@playwright/test": "^1.30.0",
     "@vitejs/plugin-vue": "^6.0.6",
     "@vue/compiler-sfc": "^3.5.32",
-    "babel-jest": "^23.6.0",
+    "babel-jest": "^30.3.0",
     "babel-register": "^6.22.0",
     "eslint": "^10.2.1",
     "eslint-plugin-vue": "^10.9.0",
