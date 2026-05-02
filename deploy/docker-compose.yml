@@ -199,7 +199,10 @@ services:
     # 协议完全等价，且镜像已在本地不需重新拉取。Lab UI 在容器内 :3000，
     # 不向 host 暴露不影响 grafana。等 memgraph 官方修复 v3.x 在
     # WSL2 6.6 上的 segfault 后再切回轻量镜像。
-    image: memgraph/memgraph-platform:latest
+    # ECS 部署用 memgraph/memgraph:2.14.1（纯 binary，entrypoint 接受 --memory-limit
+    # 等参数）。memgraph-platform:latest 是带 Lab UI 的复合镜像 entrypoint 不一样，
+    # 启动时报 "exec: --memory-limit=600: executable file not found"。
+    image: memgraph/memgraph:2.14.1
     container_name: java-oj-memgraph
     restart: unless-stopped
     healthcheck:
