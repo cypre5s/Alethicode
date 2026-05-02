@@ -193,6 +193,10 @@ public class AITutorWelcomeService {
 
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> buildStarterActions(Map<String, Object> ctx) {
+        // 起手页只保留两个按钮：知识点回顾 + 思路分析。
+        // 错误诊断（"我遇到了错误，帮我看看"）已下线 — 学生看到错误诊断入口
+        // 容易绕过题目直接跳到答案，且做题页内的提交记录区已有"复盘错题"入口，
+        // 起手页保留容易混淆。如果未来想恢复，把 ERROR_FEEDBACK action 加回即可。
         List<Map<String, Object>> actions = new ArrayList<>();
         List<Map<String, Object>> weakKcs = (List<Map<String, Object>>) ctx.get("weak_kcs");
 
@@ -200,15 +204,6 @@ public class AITutorWelcomeService {
             actions.add(action("knowledge_review", "帮我回顾相关知识点", "KNOWLEDGE_REVIEW"));
         }
         actions.add(action("problem_guide", "分析这道题的思路", "READING"));
-
-        String recentFailedSubmissionId = (String) ctx.get("recent_failed_submission_id");
-        if (recentFailedSubmissionId != null) {
-            Map<String, Object> errorAction = action("error_chain", "我遇到了错误，帮我看看", "ERROR_FEEDBACK");
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("submission_id", recentFailedSubmissionId);
-            errorAction.put("payload", payload);
-            actions.add(errorAction);
-        }
         return actions;
     }
 

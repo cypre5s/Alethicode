@@ -149,7 +149,9 @@ class AITutorWelcomeServiceTest {
     }
 
     @Test
-    void starterActionsIncludeErrorChainWhenRecentFailedSubmissionExists() {
+    void starterActionsOmitErrorChainEvenWhenRecentFailedSubmissionExists() {
+        // 起手页已下线"我遇到了错误"按钮 — 即便存在最近失败提交也不应出现，
+        // 避免学生绕过题目直接跳到错误诊断。
         mockQueries(
                 List.of(),
                 List.of(),
@@ -159,19 +161,19 @@ class AITutorWelcomeServiceTest {
         Map<String, Object> welcome = service.getWelcome(42L, 100L);
 
         List<Map<String, Object>> starterActions = extractStarterActions(welcome);
-        assertThat(starterActions).hasSize(2);
-        Map<String, Object> errorAction = starterActions.get(1);
-        assertThat(errorAction)
-                .containsEntry("key", "error_chain")
-                .containsEntry("label", "我遇到了错误，帮我看看")
-                .containsEntry("event", "ERROR_FEEDBACK");
-        @SuppressWarnings("unchecked")
-        Map<String, Object> payload = (Map<String, Object>) errorAction.get("payload");
-        assertThat(payload).containsEntry("submission_id", "abc123def456xyz");
+        assertThat(starterActions).hasSize(1);
+        assertThat(starterActions.get(0))
+                .containsEntry("key", "problem_guide")
+                .containsEntry("label", "分析这道题的思路")
+                .containsEntry("event", "READING");
+        assertThat(starterActions)
+                .extracting(a -> a.get("key"))
+                .doesNotContain("error_chain");
     }
 
     @Test
-    void starterActionsIncludeAllThreeWhenWeakKcsAndFailedSubmissionBothExist() {
+    void starterActionsIncludeKnowledgeReviewAndProblemGuideWhenWeakKcsExist() {
+        // 起手页保留 2 个按钮：知识点回顾（条件触发）+ 思路分析（恒在）。
         mockQueries(
                 List.of(),
                 List.of(Map.of("name", "循环结构", "mastery", 0.2)),
@@ -181,10 +183,10 @@ class AITutorWelcomeServiceTest {
         Map<String, Object> welcome = service.getWelcome(42L, 100L);
 
         List<Map<String, Object>> starterActions = extractStarterActions(welcome);
-        assertThat(starterActions).hasSize(3);
+        assertThat(starterActions).hasSize(2);
         assertThat(starterActions)
                 .extracting(a -> a.get("event"))
-                .containsExactly("KNOWLEDGE_REVIEW", "READING", "ERROR_FEEDBACK");
+                .containsExactly("KNOWLEDGE_REVIEW", "READING");
     }
 
     @SuppressWarnings("unchecked")
