@@ -84,7 +84,7 @@
     "pngjs": "^7.0.0",
     "postcss": "^8.5.10",
     "terser": "^5.46.1",
-    "vite": "^7.1.5",
+    "vite": "^8.0.10",
     "vite-plugin-pwa": "^1.2.0",
     "vue-eslint-parser": "^10.4.0",
     "workbox-window": "^7.4.0"
