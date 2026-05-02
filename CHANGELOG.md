@@ -135,12 +135,15 @@
 
 - 2026-05-02 **[修复/memgraph image 与 entrypoint 不匹配]** 本地 `image: memgraph/memgraph-platform:latest`（带 Memgraph Lab UI 复合镜像）entrypoint 是 supervisor 启动 lab + memgraph，**不接受**直接 `command: --memory-limit=600` 等参数 → `exec: --memory-limit=600: executable file not found`。ECS 之前部署用 `memgraph/memgraph:2.14.1`（纯 binary，entrypoint 直接是 memgraph 进程，接受 `--xxx` 参数）。修复：`deploy/docker-compose.yml` 改 `image: memgraph/memgraph:2.14.1` 与 ECS 历史一致。**通用规则**：任何用 `command:` 传 binary 参数的 service，image 必须是 `entrypoint=该 binary` 的纯镜像，不能是 platform/all-in-one 复合镜像。
 
-- 2026-05-02 **[运维/部署 checklist]** 沉淀 5 个 ECS fresh clone 部署的预检查项，下次重新部署务必执行：
+- 2026-05-02 **[修复/frontend port 仅本机]** 本地 `deploy/docker-compose.yml` 的 frontend 服务 ports 映射 `127.0.0.1:18080:80`（WSL 开发避端口冲突），fresh clone 到 ECS 后导致 frontend 仅 listen 本机不在公网，浏览器访问 `http://47.98.184.170/` 502。修复：参数化为 `"${FRONTEND_BIND:-0.0.0.0}:${FRONTEND_HOST_PORT:-80}:80"`，**生产默认公网可达 + 80 端口**；WSL 本地开发要避冲突时在自己的 `.env` 设 `FRONTEND_BIND=127.0.0.1 FRONTEND_HOST_PORT=18080`。这种 "本地开发友好的默认 → 生产部署陷阱" 是典型反模式：默认值应该取**生产正确值**（毕竟 docker-compose.yml 是部署用的），开发环境靠 env override 而不是反过来。
+
+- 2026-05-02 **[运维/部署 checklist]** 沉淀 6 个 ECS fresh clone 部署的预检查项，下次重新部署务必执行：
   1. `git ls-tree HEAD frontend/ | grep package-lock` 确认 lock 在 git；
   2. `grep -E 'image: bitnami/' deploy/docker-compose.yml` 应为空（无未迁移的 bitnami 老命名空间）；
   3. `grep -E 'image:.*memgraph-platform' deploy/docker-compose.yml` 应为空；
   4. 部署脚本中所有 mv data 操作必须用 `${PROJECT}/deploy/data` 而非 `${PROJECT}/data`；
-  5. 部署命令必须 nohup + tail，不可直接前台跑 `docker compose build`。
+  5. 部署命令必须 nohup + tail，不可直接前台跑 `docker compose build`；
+  6. `grep -E '127.0.0.1:18080|127.0.0.1:80' deploy/docker-compose.yml` 应为空（生产 frontend 必须 0.0.0.0:80）。
 
 ## [Unreleased] - 2026-05-01
 

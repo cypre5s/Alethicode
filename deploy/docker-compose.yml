@@ -569,7 +569,9 @@ services:
         limits:
           memory: ${FRONTEND_MEMORY_LIMIT:-32m}
     ports:
-      - "127.0.0.1:18080:80"
+      # 生产部署默认 0.0.0.0:80（公网可达）；WSL 本地开发可在 .env 设
+      # FRONTEND_BIND=127.0.0.1 FRONTEND_HOST_PORT=18080 避端口冲突。
+      - "${FRONTEND_BIND:-0.0.0.0}:${FRONTEND_HOST_PORT:-80}:80"
     volumes:
       # 维护开关：host 上 touch ./data/runtime/maintenance.flag 即时启用维护页，
       # rm 即时关闭，无需 reload nginx（worker 在每个请求里 if -f 判断）。
