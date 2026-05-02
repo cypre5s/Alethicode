@@ -1,4 +1,5 @@
-package-lock.json
+# package-lock.json 必须进 git，因为 frontend.Dockerfile 用 npm ci，
+# 没 lock 文件 docker build 失败。
 
 # Logs
 logs
