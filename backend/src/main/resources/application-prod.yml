@@ -1,0 +1,106 @@
+server:
+  shutdown: graceful
+  tomcat:
+    threads:
+      # HIGH-3 (2026-05-02 渗透报告): 单线程 150 请求时 17% timeout，
+      # 4C8G 实例完全可承受 200 工作线程；同时把 max-connections 翻倍。
+      max: 200
+      min-spare: 8
+    max-connections: 400
+    accept-count: 100
+  servlet:
+    session:
+      cookie:
+        # MED-1 (2026-05-02 渗透报告): 部署 HTTPS 后把 ALETHICODE_SYSTEM_COOKIE_SECURE=true，
+        # 同时让 SESSION 与 csrftoken cookie 都带 Secure；HTTP 部署保留 false 以免登录失败。
+        # 这里复用同一开关，避免运维忘记同步两处。
+        secure: ${ALETHICODE_SYSTEM_COOKIE_SECURE:false}
+        http-only: true
+        same-site: lax
+
+spring.lifecycle:
+  timeout-per-shutdown-phase: 20s
+
+spring:
+  datasource:
+    hikari:
+      maximum-pool-size: 8
+      minimum-idle: 2
+      # PgBouncer transaction pool 下 connection-timeout 拉到 5s，给排队留余量。
+      connection-timeout: 5000
+      validation-timeout: 2000
+      # PgBouncer server_idle_timeout=180s，HikariCP 的 idle-timeout / max-lifetime 必须更短，
+      # 否则会用上 PgBouncer 已切断的 server 连接，导致瞬时报错。
+      idle-timeout: 60000
+      max-lifetime: 300000
+      leak-detection-threshold: 30000
+      connection-init-sql: "SET statement_timeout = 30000"
+      # 2C4G + PgBouncer transaction pool 兼容：双保险关闭 server-side prepared statements。
+      # URL 已经设了 prepareThreshold=0，这里再写一次防御被框架默认值覆盖。
+      data-source-properties:
+        prepareThreshold: 0
+        preparedStatementCacheQueries: 0
+        socketTimeout: 60
+        loginTimeout: 5
+        connectTimeout: 5
+        reWriteBatchedInserts: true
+        ApplicationName: alethicode-backend
+  jpa:
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          batch_size: 20
+          fetch_size: 20
+        order_inserts: true
+        order_updates: true
+        # Hard cap per query / transaction at the JDBC level.
+        query.timeout: 30
+  data:
+    redis:
+      timeout: 500ms             # socket read timeout for every Lettuce command
+      connect-timeout: 2s
+      lettuce:
+        shutdown-timeout: 5s
+        pool:
+          enabled: true
+          max-active: 32
+          max-idle: 8
+          min-idle: 2
+          max-wait: 100ms
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,metrics
+  endpoint:
+    health:
+      show-details: never
+    prometheus:
+      enabled: true
+  metrics:
+    enable:
+      all: false
+      jvm: true
+      process: true
+      http: true
+      hikaricp: true
+      llm: true
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+# 公测前安全基线（SEC-5）：生产 profile 强制 HTTPS。
+# `start.sh` 在生产环境必须以 `--spring.profiles.active=prod` 启动。
+alethicode:
+  system:
+    force-https: true
+    # MED-1: 默认 false（HTTP 部署兼容），上线 HTTPS 后置 ALETHICODE_SYSTEM_COOKIE_SECURE=true。
+    cookie-secure: ${ALETHICODE_SYSTEM_COOKIE_SECURE:false}

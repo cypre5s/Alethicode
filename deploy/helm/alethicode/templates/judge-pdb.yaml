@@ -1,0 +1,15 @@
+{{- if .Values.judge.hpa.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "alethicode.fullname" . }}-judge
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "alethicode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: judge
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: judge
+{{- end }}

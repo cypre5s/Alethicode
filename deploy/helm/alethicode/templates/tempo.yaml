@@ -1,0 +1,121 @@
+{{- if .Values.observability.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "alethicode.fullname" . }}-tempo-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "alethicode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tempo
+data:
+  tempo.yaml: |
+    server:
+      http_listen_port: 3200
+
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+
+    ingester:
+      max_block_duration: 5m
+
+    compactor:
+      compaction:
+        block_retention: 48h
+
+    storage:
+      trace:
+        backend: local
+        wal:
+          path: /var/tempo/wal
+        local:
+          path: /var/tempo/blocks
+
+    metrics_generator:
+      registry:
+        external_labels:
+          source: tempo
+          cluster: alethicode
+      storage:
+        path: /var/tempo/generator/wal
+        remote_write:
+          - url: http://prometheus:9090/api/v1/write
+            send_exemplars: true
+
+    overrides:
+      defaults:
+        metrics_generator:
+          processors: [service-graphs, span-metrics]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "alethicode.fullname" . }}-tempo
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "alethicode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tempo
+spec:
+  serviceName: {{ include "alethicode.fullname" . }}-tempo
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: tempo
+  template:
+    metadata:
+      labels:
+        {{- include "alethicode.labels" . | nindent 8 }}
+        app.kubernetes.io/component: tempo
+    spec:
+      containers:
+        - name: tempo
+          image: "{{ .Values.observability.tempo.image.repository }}:{{ .Values.observability.tempo.image.tag }}"
+          args: ["-config.file=/etc/tempo/tempo.yaml"]
+          ports:
+            - containerPort: 3200
+              name: http
+            - containerPort: 4317
+              name: otlp-grpc
+          resources:
+            {{- toYaml .Values.observability.tempo.resources | nindent 12 }}
+          volumeMounts:
+            - name: tempo-config
+              mountPath: /etc/tempo
+            - name: tempo-data
+              mountPath: /var/tempo
+      volumes:
+        - name: tempo-config
+          configMap:
+            name: {{ include "alethicode.fullname" . }}-tempo-config
+  volumeClaimTemplates:
+    - metadata:
+        name: tempo-data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: {{ .Values.observability.tempo.storage.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "alethicode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tempo
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3200
+      targetPort: http
+      name: http
+    - port: 4317
+      targetPort: otlp-grpc
+      name: otlp-grpc
+  selector:
+    app.kubernetes.io/component: tempo
+{{- end }}

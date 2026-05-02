@@ -1,0 +1,169 @@
+@startuml Alethicode-用例图-学生教师管理员
+' ==============================================================
+'  Alethicode 项目用例图（学生 / 教师 / 管理员 三 Actor 中文版）
+'  · 与代码库 backend/src/main/java/com/alethicode/controller/**
+'    及 frontend/src/pages/{oj,admin}/router/* 严格对应
+'  · 渲染：plantuml -charset UTF-8 uml-use-case-zh.puml
+' ==============================================================
+
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Noto Sans CJK SC"
+skinparam shadowing false
+skinparam ArrowColor #415167
+skinparam usecase {
+  BackgroundColor #FFFFFF
+  BorderColor      #2D557A
+  FontColor        #142033
+}
+skinparam actor {
+  BackgroundColor #FFFFFF
+  BorderColor      #111827
+}
+skinparam package {
+  BackgroundColor #F8FAFC
+  BorderColor      #24364A
+  FontStyle        bold
+}
+
+left to right direction
+title Alethicode 项目用例图（学生 / 教师 / 管理员）
+
+' ---------------- Actors ----------------
+actor "学生"   as 学生
+actor "教师"   as 教师
+actor "管理员" as 管理员
+
+' 教师拥有"管理员的子集"——管理员通过角色泛化获得教师所有用例
+管理员 --|> 教师 : 角色泛化
+
+' ============================================================
+' 系统边界
+' ============================================================
+rectangle "Alethicode OJ + AI 教学平台" {
+
+  ' ---------------- 1. 基础 OJ ----------------
+  package "基础 OJ" as P1 {
+    usecase "账户访问\n注册 / 登录 / 找回密码 / 双因素" as UC_AUTH
+    usecase "浏览学习内容\n公告 / 题库 / 题目详情 / 标签"  as UC_BROWSE
+    usecase "OJ 编程闭环\n编写 / 调试 / 提交 / 历史"      as UC_OJ
+    usecase "真实判题\n通过 / 错误 / 编译失败 / 超时"     as UC_JUDGE
+    usecase "个人学习空间\n主页 / 设置 / 学习者笔记"      as UC_PROFILE
+    usecase "数据隐私\n数据导出 / 账户注销"              as UC_PRIVACY
+  }
+
+  ' ---------------- 2. AI 导学 ----------------
+  package "AI 导学" as P2 {
+    usecase "AI 导学会话\n题目页统一入口"          as UC_TUTOR
+    usecase "审题导读"                          as UC_READ
+    usecase "思路分析"                          as UC_IDEATE
+    usecase "骨架代码 / 代码拼装练习"             as UC_SKEL
+    usecase "自由对话 / 知识回顾"                 as UC_CHAT
+    usecase "错误诊断"                          as UC_DIAG
+    usecase "通过复盘"                          as UC_AC
+    usecase "迁移练习"                          as UC_TRANSFER
+    usecase "检查点恢复 / 人工确认"               as UC_CKPT
+    usecase "可视化与代码拼装卡片"                as UC_VIS
+    usecase "学习画像标定 (冷启动)"              as UC_CALIB
+  }
+
+  ' ---------------- 3. 课件 / 学情 / 班级 ----------------
+  package "课件 / 学情 / 班级" as P3 {
+    usecase "课件问答\n基于课程语言包"            as UC_QA
+    usecase "课件原页查看\nPDF / 引用"           as UC_CITE
+    usecase "学情与自适应\n技能雷达 / 掌握度 / 推荐题" as UC_MASTERY
+    usecase "学习笔记本\n反思生成 / 周报"          as UC_NB
+    usecase "专项错题复习包"                     as UC_REVIEW
+    usecase "班级教学\n创建 / 加入 / 邀请码 / 成员"  as UC_CLASS
+    usecase "作业流转\n发布 / 提交 / 批改"         as UC_ASSIGN
+    usecase "课堂协作监控\n实时 / 错误聚类 / 干预"   as UC_MON
+    usecase "班级学情分析\n周脉冲 / 风险学生"       as UC_ANALYTICS
+    usecase "班级 AI 题目\n生成 / 审核 / 发布"     as UC_AICLASS
+  }
+
+  ' ---------------- 4. 后台管理 / 运维 ----------------
+  package "后台管理 / 运维" as P4 {
+    usecase "题库与测试用例管理\nCRUD / 导入导出"      as UC_PROBADMIN
+    usecase "知识点 KC 管理"                       as UC_KC
+    usecase "AI 变体题 / 误解挖掘审核"               as UC_AIVAR
+    usecase "课程语言包初始化\n上传课件 / 解析 / 抽取 KC / 生成题" as UC_LANGPACK
+    usecase "跨班级教学洞察\n全平台学情"             as UC_INSIGHT
+    usecase "用户与公告管理\n账号 / 公告"            as UC_USERADMIN
+    usecase "判题机管理\n增删改 / 心跳"              as UC_JUDGEADMIN
+    usecase "系统配置\n邮件 / 验证码 / 注册开关"       as UC_CONF
+    usecase "AI 治理与观测\n调用链路 / 质量 / 灰度 / 公测反馈" as UC_AIOPS
+    usecase "系统监控与基础设施密钥\n监控面板 / 路径 / 训练数据" as UC_OPS
+  }
+}
+
+' ============================================================
+' 学生 — 关联（实线带箭头，参与者发起用例）
+' ============================================================
+学生 --> UC_AUTH
+学生 --> UC_BROWSE
+学生 --> UC_OJ
+学生 --> UC_PROFILE
+学生 --> UC_PRIVACY
+学生 --> UC_TUTOR
+学生 --> UC_QA
+学生 --> UC_MASTERY
+学生 --> UC_NB
+学生 --> UC_REVIEW
+学生 --> UC_CLASS
+学生 --> UC_ASSIGN
+学生 --> UC_CALIB
+
+' ============================================================
+' 教师 — 关联（管理员通过泛化继承全部）
+' ============================================================
+教师 --> UC_AUTH
+教师 --> UC_CLASS
+教师 --> UC_ASSIGN
+教师 --> UC_MON
+教师 --> UC_ANALYTICS
+教师 --> UC_AICLASS
+教师 --> UC_PROBADMIN
+教师 --> UC_KC
+教师 --> UC_AIVAR
+教师 --> UC_LANGPACK
+
+' ============================================================
+' 管理员 — 独占
+' ============================================================
+管理员 --> UC_INSIGHT
+管理员 --> UC_USERADMIN
+管理员 --> UC_JUDGEADMIN
+管理员 --> UC_CONF
+管理员 --> UC_AIOPS
+管理员 --> UC_OPS
+
+' ============================================================
+' 包含（include）：箭头由基本用例指向被包含的子用例
+' ============================================================
+UC_OJ        ..> UC_JUDGE     : <<include>>
+UC_TUTOR     ..> UC_READ      : <<include>>
+UC_TUTOR     ..> UC_IDEATE    : <<include>>
+UC_TUTOR     ..> UC_SKEL      : <<include>>
+UC_TUTOR     ..> UC_CHAT      : <<include>>
+UC_TUTOR     ..> UC_CKPT      : <<include>>
+UC_TUTOR     ..> UC_VIS       : <<include>>
+UC_QA        ..> UC_CITE      : <<include>>
+UC_MASTERY   ..> UC_NB        : <<include>>
+UC_CLASS     ..> UC_ASSIGN    : <<include>>
+UC_CLASS     ..> UC_MON       : <<include>>
+UC_CLASS     ..> UC_ANALYTICS : <<include>>
+UC_PROBADMIN ..> UC_KC        : <<include>>
+UC_LANGPACK  ..> UC_KC        : <<include>>
+
+' ============================================================
+' 扩展（extend）：箭头由扩展用例指向被扩展的基本用例
+' ============================================================
+UC_DIAG     ..> UC_TUTOR    : <<extend>>
+UC_AC       ..> UC_TUTOR    : <<extend>>
+UC_TRANSFER ..> UC_AC       : <<extend>>
+UC_DIAG     ..> UC_JUDGE    : <<extend>> [判题失败]
+UC_AC       ..> UC_JUDGE    : <<extend>> [判题通过]
+UC_REVIEW   ..> UC_MASTERY  : <<extend>>
+UC_AICLASS  ..> UC_CLASS    : <<extend>>
+UC_AIVAR    ..> UC_PROBADMIN: <<extend>>
+
+@enduml

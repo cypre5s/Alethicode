@@ -1,0 +1,211 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "alethicode.fullname" . }}-backend
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "alethicode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  replicas: {{ .Values.backend.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "alethicode.labels" . | nindent 8 }}
+        app.kubernetes.io/component: backend
+    spec:
+      # 必须 > Spring Boot application.yml 的 spring.lifecycle.timeout-per-shutdown-phase (20s)
+      # 再加上 preStop sleep，才能真正走完 graceful shutdown。
+      terminationGracePeriodSeconds: 45
+      {{- if .Values.backend.otel.enabled }}
+      initContainers:
+        - name: otel-agent-init
+          image: "busybox:1.36"
+          command:
+            - wget
+            - -O
+            - /otel/opentelemetry-javaagent.jar
+            - "https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v{{ .Values.backend.otel.javaAgentVersion }}/opentelemetry-javaagent.jar"
+          volumeMounts:
+            - name: otel-agent
+              mountPath: /otel
+      {{- end }}
+      containers:
+        - name: backend
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: {{ .Values.backend.env.SPRING_PROFILES_ACTIVE }}
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:postgresql://postgres:5432/alethicode
+            - name: SPRING_DATASOURCE_USERNAME
+              value: onlinejudge
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "alethicode.fullname" . }}-secrets
+                  key: DB_PASSWORD
+            - name: SPRING_DATA_REDIS_HOST
+              value: redis
+            - name: SPRING_DATA_REDIS_PORT
+              value: "6379"
+            - name: SPRING_DATA_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "alethicode.fullname" . }}-secrets
+                  key: REDIS_PASSWORD
+            - name: JUDGE_SERVER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "alethicode.fullname" . }}-secrets
+                  key: JUDGE_SERVER_TOKEN
+            # Shared with tutor_graph; required by InternalServiceKeyValidator in prod profile.
+            - name: INTERNAL_SERVICE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "alethicode.fullname" . }}-secrets
+                  key: INTERNAL_SERVICE_KEY
+            - name: INTERNAL_SERVICE_PREVIOUS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "alethicode.fullname" . }}-secrets
+                  key: INTERNAL_SERVICE_PREVIOUS_KEY
+            # LLM provider keys — empty string is acceptable for local demo
+            # (AI features will fail-fast when invoked but the rest of the app boots).
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "alethicode.fullname" . }}-secrets
+                  key: OPENAI_API_KEY
+            - name: EMBEDDING_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "alethicode.fullname" . }}-secrets
+                  key: EMBEDDING_API_KEY
+            - name: INIT_LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "alethicode.fullname" . }}-secrets
+                  key: INIT_LLM_API_KEY
+            # Phase 1 切流：Java backend 通过 alethicode-rag service 走 RAG。
+            - name: RAG_SERVICE_URL
+              value: "http://alethicode-rag:8200"
+            - name: RAG_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "alethicode.fullname" . }}-secrets
+                  key: RAG_INTERNAL_TOKEN
+            - name: RAG_INTERNAL_PREVIOUS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "alethicode.fullname" . }}-secrets
+                  key: RAG_INTERNAL_PREVIOUS_TOKEN
+            {{- range $key, $value := .Values.backend.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- if .Values.backend.otel.enabled }}
+            - name: JAVA_TOOL_OPTIONS
+              value: >-
+                -javaagent:/otel/opentelemetry-javaagent.jar
+                -Dotel.service.name=alethicode-backend
+                -Dotel.exporter.otlp.endpoint=http://otel-collector:4317
+                -Dotel.exporter.otlp.protocol=grpc
+                -Dotel.metrics.exporter=otlp
+                -Dotel.logs.exporter=otlp
+                -Dotel.traces.exporter=otlp
+                -Dotel.resource.attributes=service.namespace=alethicode,deployment.environment=production
+            {{- end }}
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            {{- toYaml .Values.backend.resources | nindent 12 }}
+          volumeMounts:
+            - name: test-case
+              mountPath: /test_case
+            - name: public-data
+              mountPath: /data/public
+            - name: classroom-lessons
+              mountPath: /data/classroom_lessons
+            - name: language-pack
+              mountPath: /data/language_pack
+            - name: submission
+              mountPath: /data/submission
+            {{- if .Values.backend.otel.enabled }}
+            - name: otel-agent
+              mountPath: /otel
+              readOnly: true
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 15
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 30
+          lifecycle:
+            preStop:
+              # Give the Ingress / Service 15 s to stop routing to this pod before
+              # Spring Boot starts rejecting new requests. 与 `terminationGracePeriodSeconds`
+              # 的剩余 30 s 配合 `spring.lifecycle.timeout-per-shutdown-phase=20s` 消化在飞请求。
+              exec:
+                command: ["/bin/sh", "-c", "sleep 15"]
+      volumes:
+        - name: test-case
+          persistentVolumeClaim:
+            claimName: {{ include "alethicode.fullname" . }}-test-case
+        - name: public-data
+          persistentVolumeClaim:
+            claimName: {{ include "alethicode.fullname" . }}-public-data
+        - name: classroom-lessons
+          persistentVolumeClaim:
+            claimName: {{ include "alethicode.fullname" . }}-classroom-lessons
+        - name: language-pack
+          persistentVolumeClaim:
+            claimName: {{ include "alethicode.fullname" . }}-language-pack
+        - name: submission
+          persistentVolumeClaim:
+            claimName: {{ include "alethicode.fullname" . }}-submission
+        {{- if .Values.backend.otel.enabled }}
+        - name: otel-agent
+          emptyDir: {}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "alethicode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      name: http
+  selector:
+    app.kubernetes.io/component: backend

@@ -1,0 +1,132 @@
+# Prometheus alerting rules for Alethicode, aligned with docs/sre/slo.md.
+#
+# 国内部署：Prometheus 本体从 prometheus-cn 仓库自托管即可，对象存储备份建议走阿里云
+# OSS（prometheus-operator 的 remote_write 已支持）。通知走企业微信 / 钉钉 / 飞书
+# 机器人，具体配置在 alertmanager.yml。
+#
+# 加载方式：prometheus.yml 的 rule_files 里追加 - /etc/prometheus/alerts.yml
+
+groups:
+  - name: alethicode-backend
+    interval: 30s
+    rules:
+      - alert: BackendErrorRateHigh
+        expr: |
+          sum(rate(http_server_requests_seconds_count{application="alethicode-java",status=~"5.."}[5m]))
+          /
+          sum(rate(http_server_requests_seconds_count{application="alethicode-java"}[5m]))
+          > 0.01
+        for: 10m
+        labels:
+          severity: warning
+          slo: S1
+        annotations:
+          summary: "Backend 5xx rate > 1% for 10m"
+          runbook: "docs/sre/runbooks/backend-5xx.md"
+
+      - alert: BackendLatencyP95High
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(http_server_requests_seconds_bucket{application="alethicode-java"}[5m])) by (le)
+          ) > 0.4
+        for: 15m
+        labels:
+          severity: warning
+          slo: S1
+        annotations:
+          summary: "Backend p95 latency > 400ms for 15m"
+
+  - name: alethicode-tutor-workflow
+    interval: 30s
+    rules:
+      - alert: TutorWorkflowActiveRunsSpike
+        expr: sum(tutor_workflow_active_runs) > 500
+        for: 5m
+        labels:
+          severity: warning
+          slo: S2
+        annotations:
+          summary: "tutor workflow active runs exceed 500; possible leak"
+
+      - alert: TutorGraphPollFailureRate
+        expr: |
+          sum(rate(tutor_graph_poll_errors_total[5m]))
+          /
+          sum(rate(tutor_graph_poll_total[5m]))
+          > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          slo: S2
+        annotations:
+          summary: "Java → tutor-graph poll failure > 5%"
+
+  - name: alethicode-ai-provider
+    interval: 30s
+    rules:
+      - alert: AiCircuitBreakerOpen
+        expr: ai_circuit_breaker_state{state="OPEN"} == 1
+        for: 1m
+        labels:
+          severity: critical
+          slo: S4
+        annotations:
+          summary: "AI circuit breaker is OPEN; LLM provider likely down"
+          description: "Check AiCircuitBreaker metrics and switch to backup provider if available"
+
+      - alert: AiCallForJsonFailureRate
+        expr: |
+          sum(rate(ai_model_gateway_call_total{type="json",outcome="failure"}[10m]))
+          /
+          sum(rate(ai_model_gateway_call_total{type="json"}[10m]))
+          > 0.03
+        for: 15m
+        labels:
+          severity: warning
+          slo: S4
+        annotations:
+          summary: "AiModelGateway.callForJson failure rate > 3% for 15m"
+
+  - name: alethicode-compliance
+    interval: 60s
+    rules:
+      - alert: AigcAuditWriteFailing
+        expr: rate(aigc_audit_write_failed_total[10m]) > 0
+        for: 15m
+        labels:
+          severity: critical
+          compliance: aigc
+        annotations:
+          summary: "AIGC audit writes are failing — regulatory retention at risk"
+          description: |
+            《生成式人工智能服务管理暂行办法》第 10 / 11 / 19 条要求 6 个月审计留存。
+            持续失败意味着合规风险，必须尽快修复底层数据库或降级 AI 生成功能。
+
+      - alert: PiiAccessLogWriteFailing
+        expr: rate(pii_access_log_write_failed_total[10m]) > 0
+        for: 15m
+        labels:
+          severity: critical
+          compliance: pipl
+        annotations:
+          summary: "PII access log writes failing — PIPL audit trail at risk"
+
+  - name: alethicode-infra
+    interval: 30s
+    rules:
+      - alert: PostgresDown
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Postgres instance is down"
+
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis instance is down"

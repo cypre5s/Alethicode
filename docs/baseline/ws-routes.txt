@@ -1,0 +1,53 @@
+"""
+ASGI 路由配置
+
+包含:
+- HTTP 请求 → Django WSGI
+- WebSocket 请求 → Django Channels
+"""
+import os
+
+from channels.auth import AuthMiddlewareStack
+from channels.routing import ProtocolTypeRouter, URLRouter
+from django.core.asgi import get_asgi_application
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'oj.settings')
+
+# 初始化 Django ASGI 应用
+django_asgi_app = get_asgi_application()
+
+from utils.telemetry import init_telemetry  # noqa: E402
+init_telemetry("alethicode-ws")
+
+# WebSocket URL 路由
+from django.urls import re_path
+
+from ai_tutor.consumers import AIInferenceConsumer, WorkflowProgressConsumer
+from classroom.consumers import CollaborationConsumer, MonitoringConsumer
+from oj.consumers import NotFoundConsumer
+
+websocket_urlpatterns = [
+    # AI 推理流式推送
+    re_path(r'ws/chat/stream/(?P<task_id>[^/]+)/?$', AIInferenceConsumer.as_asgi()),
+
+    # Workflow 进度推送
+    re_path(r'ws/workflow/(?P<session_id>[^/]+)/?$', WorkflowProgressConsumer.as_asgi()),
+
+    # 智慧数字教室
+    re_path(r'ws/classroom/collab/(?P<session_id>[^/]+)/?$', CollaborationConsumer.as_asgi()),
+    re_path(r'ws/classroom/monitor/(?P<classroom_id>[^/]+)/?$', MonitoringConsumer.as_asgi()),
+
+    # 兜底：未定义的 WebSocket 路径，避免 traceback
+    re_path(r'', NotFoundConsumer.as_asgi()),
+]
+
+# ASGI 应用
+application = ProtocolTypeRouter({
+    # HTTP 请求由 Django 处理
+    "http": django_asgi_app,
+
+    # WebSocket 请求由 Channels 处理
+    "websocket": AuthMiddlewareStack(
+        URLRouter(websocket_urlpatterns)
+    ),
+})

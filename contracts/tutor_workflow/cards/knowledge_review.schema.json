@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "KnowledgeReviewCard",
+  "type": "object",
+  "required": ["review_content", "related_kcs"],
+  "properties": {
+    "review_content": { "type": "string", "minLength": 1 },
+    "related_kcs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "courseware_refs": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "practice_suggestions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "visualize_intent": { "type": "string" },
+    "visualize_prompt": { "type": "string" }
+  },
+  "additionalProperties": false
+}

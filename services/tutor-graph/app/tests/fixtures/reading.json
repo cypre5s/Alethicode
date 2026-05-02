@@ -1,0 +1,13 @@
+{
+  "problem_guide": {
+    "problem_restatement": "请编写一个程序，输入一个整数 n，输出 1 到 n 的所有整数的和。",
+    "input_output_focus": "输入为一个正整数 n（1 ≤ n ≤ 1000），输出为一个整数，即 1+2+...+n 的结果。",
+    "key_observation": "这是一个累加求和问题，可以用循环或公式 n*(n+1)/2 解决。",
+    "starter_questions": [
+      "你能想到几种方法来计算 1 到 n 的和？",
+      "如果 n 很大，哪种方法更高效？"
+    ],
+    "related_kcs": ["循环", "累加器"],
+    "courseware_refs": []
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ExecutionTraceExplainerCard",
+  "type": "object",
+  "required": ["explanation"],
+  "properties": {
+    "explanation": { "type": "string", "minLength": 1 },
+    "trace_steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "line": { "type": "integer" },
+          "description": { "type": "string" },
+          "variables": { "type": "object" }
+        }
+      }
+    },
+    "key_insight": { "type": "string" }
+  },
+  "additionalProperties": false
+}

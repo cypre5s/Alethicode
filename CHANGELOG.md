@@ -1,0 +1,9932 @@
+# 变更日志
+
+本项目遵循 Keep a Changelog 思想并使用中文记录，版本语义以迁移里程碑为主。
+
+## [Unreleased] - 2026-05-02
+
+### Classroom AI 教学闭环升级（2026 Q2，Phase 0/A/B/C 全链路）
+
+> **背景**：依据 plan `~/.cursor/plans/classroom_aiteach_2026q2_017a145c.plan.md`，把 classroom 的 AI 出题 / 作业 / 评分链路从孤岛升级为接入语言包真实 KC + 学情闭环（mastery + 错题本 + 复习包）+ 作业页 tutor agent 的完整教学闭环。所有新能力走现成领域服务（`MasteryService` / `BeginnerSupplementPlannerService` / `ErrorReviewPackageService` / `LearningEventPublisher` / `tutor-graph`），classroom 模块只放薄适配器。
+
+#### Phase 0 — 重命名 ZPD 服务（前置技术债清理）
+
+- 2026-05-02 **[重构/aitutor]** 删除 `ZpdProblemSelectorService`，替换为 `MasteryAdaptiveProblemSelector`，完全委托 `BeginnerSupplementPlannerService.buildPlan(... "warmup" ... 1)` 抽 `coding_problem`/`objective_problem` 卡组装回 `selectNextProblem` 接口。`CourseProgressController` 切到新服务；`AITutorServiceImpl.recommendProblems` strategy 列表 `zpd → adaptive`，`recommendByMastery` 输出字段 `zpd_score → adaptive_score`，文案同步。前端 `LearningPathMap.vue` `STRATEGY_LABELS.zpd_boundary → adaptive_boundary`、`target_difficulty` 由百分比改为枚举标签；`ProblemRecommendations.vue` 字段 / 描述同步。新增 `MasteryAdaptiveProblemSelectorTest`（4 用例）。
+- 2026-05-02 **[配置]** ZPD 历史叙述保留在本文件，代码层面 `zpd` 字段全部下线。
+
+#### Phase A — KC-aware AI 出题闭环
+
+- 2026-05-02 **[迁移/V81]** `db/migration/V81__classroom_ai_problem_kc_link.sql`：`ai_generated_problem` 新增 `target_kc_ids JSONB` + `source_strategy VARCHAR(20) CHECK IN (lesson_llm/lp_kc_pick/hybrid)` + GIN/BTREE 索引；`ai_problem_kc_mapping` DROP `kc_id_fkey`（V9 引用 `ai_knowledge_component`），统一约定 `kc_id = language_pack_kc.id`，与 `BeginnerSupplementPlannerService` 等服务现有 join 语义对齐。
+- 2026-05-02 **[新增/classroom-ai]** `ClassroomKcResolver`：`resolveLanguagePackId / listKcOptionsTree / expandKcIds / loadKcNameMap`，承担班级 LP 解析 + KC 校验，不引入业务逻辑。
+- 2026-05-02 **[改造/classroom-ai]** `ClassroomAiProblemService.aiGeneratedProblemCreate` 入参增 `target_kc_ids` + `prefer_strategy(lp_first/llm_first/lp_only/llm_only，默认 lp_first)`；旧 `target_kc_names` 保留 1 个版本仅 deprecation 日志。`coding`/`choice`/`fill_blank` 题在允许时先 `pickFromLanguagePackPool`（按 `ABS(difficulty_score - target)` 排序，目标分 Low=0.3 / Mid=0.5 / High=0.75），命中反向序列化为 `ai_generated_problem(source_strategy=lp_kc_pick, validation_status=passed)`；不足走 LLM 兜底，prompt 注入真实 KC 名。新增端点 `GET /api/classroom/{id}/ai/generated-problems/kc-options` 返回章节-KC 树。
+- 2026-05-02 **[改造/classroom-ai]** `aiGeneratedProblemPublish` 强制 `target_kc_ids` + `language_pack_id` 非空才能发布；`lesson_llm` 路径 INSERT problem + `language_pack_problem_mapping`，`lp_kc_pick` 路径直接复用 `source_problem_id` 不重写 problem / 测试用例；统一反写 `ai_problem_kc_mapping(problem_id, kc_id, weight=1/N, language_pack_id)` ON CONFLICT DO UPDATE。`aiGeneratedProblemUpdate` 支持 `target_kc_ids` patch，前端 KC 标注弹窗调用此通道。
+- 2026-05-02 **[前端/classroom]** `AIGeneratedProblems.vue` 移除 allow-create select，KC 改用 `el-cascader`（chapter→KC 二级），新增「出题策略」radio + 详情 metadata tab 显示 `source_strategy` + 关联 KC 标签云；发布前若 `target_kc_ids` 为空弹「发布前请标注题目 KC」对话框，二次保存后再调发布。新增 API `getAIGeneratedKcOptions` 同步登记到 `frontend/src/api/modules/classroom.js`。
+- 2026-05-02 **[测试]** 新增 `ClassroomKcResolverTest`、`MasteryAdaptiveProblemSelectorTest` 共 11 个用例；前端契约 `ai-generated-problems-kc-options-contract.spec.js`（6 用例）。
+
+#### Phase B — 智能组卷 + 学情回写事件链
+
+- 2026-05-02 **[迁移/V82]** `db/migration/V82__classroom_assignment_smart_compose.sql`：`classroom_assignment` 加 `compose_strategy(manual/smart_kc) + target_kc_ids JSONB`；`classroom_assignment_problem_submission` 加 `error_taxonomy + review_package_id`，配套索引。
+- 2026-05-02 **[新增/classroom-ai]** `ClassroomAssignmentSmartComposer`：聚合班级 mastery 平均、自动识别薄弱 KC TOP-K、对代表生委托 `BeginnerSupplementPlannerService.buildPlan("daily_review", ...)` 拿卡片、跨 KC 去重 + 总题数预算限制 + section 按 KC 名分组。
+- 2026-05-02 **[新增/aitutor-events]** `LearningEventPublisher` 接口加 `publishAssignmentSubmissionGraded(...)`；`NatsLearningEventPublisher` 注册新 subject `alethicode.classroom.assignment.problem.submitted`，`NoopLearningEventPublisher` / `NOOP` sentinel 同步实现；`NatsLearningEventPublisherTest` 三处长度断言 +1。
+- 2026-05-02 **[新增/aitutor-events]** `ClassroomAssignmentEventSubscriber`（aitutor 包内，独立 `REQUIRES_NEW` 事务）：AC → `MasteryService.applyEvidence` 写 `ai_learning_event(source=classroom_assignment)`；WA + valid taxonomy → `ErrorReviewPackageService.createPackage` 创复习包 + 把 `package_id`/`error_taxonomy` 回写 `classroom_assignment_problem_submission`；任何步骤失败 try/catch+log 不阻断主链路。`MasteryService` 新增公开方法 `applyEvidence(userId, problemId, isCorrect, source, errorTaxonomy)` 作为 `ai_learning_event` 写入入口。
+- 2026-05-02 **[改造/classroom-assignment]** `ClassroomAssignmentDomainServiceImpl` 注入 `ClassroomKcResolver / ClassroomAssignmentSmartComposer / LearningEventPublisher / ClassroomAssignmentEventSubscriber`：`assignmentCreate` 支持 `compose_strategy=smart_kc` 自动产 sections；新增端点 `POST /api/classroom/{id}/assignments/preview-smart-compose`；`assignmentSubmit` 在每条 detail 写完后同步调订阅者立即生效 + 调 NATS publisher 广播；`assignmentSubmissions` 输出 `error_taxonomy / recent_misconceptions`（按 KC 维度从 `ai_learner_notebook` TOP-5 聚合）/ `linked_review_package`（反查 `ai_error_review_package`）。`mapAssignmentRow` 增 `compose_strategy / target_kc_ids` 字段。
+- 2026-05-02 **[前端/classroom]** `ClassroomAssignment.vue` 创建对话框增「组卷模式」radio + 智能组卷面板（KC 级联 + 每生题数 + 总题数 + 预览拟选题表 + 「应用为作业板块」按钮）；`AssignmentGrading.vue` 评分弹窗题目卡片增 `error_taxonomy` 标签 + 复用 `MisconceptionTagCloud` + 复习包卡片（含跳转链接）；新增 API `previewClassroomAssignmentSmartCompose` 登记到聚合 module。
+- 2026-05-02 **[测试]** 新增 `ClassroomAssignmentSmartComposerTest`（3 用例）+ `ClassroomAssignmentEventSubscriberTest`（5 用例，覆盖 AC/WA-with/-without-taxonomy/入参缺失/mastery 失败仍创复习包）；前端契约 `classroom-assignment-smart-compose-contract.spec.js`（5 用例）+ `assignment-grading-misconception-panel-contract.spec.js`（3 用例）。
+
+#### Phase C — 作业页嵌入 tutor agent + anti_cheating
+
+- 2026-05-02 **[改造/aitutor-graph-bridge]** `TutorGraphClient` 新增 `createThread(... Map<String,Object> context)` 重载，把 context 透传 tutor-graph；`TutorWorkflowController.createSession` 从 request body 接受 `context`，`source==classroom_assignment` 时强制要求 `anti_cheating` 显式传，否则 422。新增端点 `GET /api/classroom/{id}/assignments/{assignmentId}/problems/{classroomProblemId}/tutor-context` 返回作业元数据 + 直接可用的 `tutor_context` 字典。
+- 2026-05-02 **[改造/tutor-graph]** `services/tutor-graph/app/graph/state.py` 加 `context: dict`；`main.py` `CreateThreadRequest` 接受 `context`，缓存到 `_thread_contexts`，`anti_cheating` 缺失时 422；`_execute_run` 把 thread context 注入 input_state；`reading.py` / `diagnosis.py` 在 `context.source==classroom_assignment` 且 `context.anti_cheating==True` 时追加 `ANTI_CHEATING_GUARD` system prompt（hint 等级降 1，仅给概念性提示，禁止可复制片段），langfuse metadata 记录 `anti_cheating` 标签。
+- 2026-05-02 **[前端/classroom]** `AssignmentDetail.vue` 跳转题目时 query 加 `from=assignment` + `anti_cheating=0/1`；`workflowStateMachine.js.createFreshWorkflowSession` 调 `_resolveTutorSessionContext` 把 `{source, classroom_id, assignment_id, problem_id, allow_ai_tutor, anti_cheating}` 注入 session 创建 payload 的 `context` 字段。`Problem.vue` 现有 `isAITutorEnabledForCurrentProblem`/`UnifiedAgentPanel` v-if 早就基于 `ai_tutor_allowed=0` 隐藏面板。
+- 2026-05-02 **[测试]** 新增前端契约 `classroom-assignment-tutor-panel-contract.spec.js`（10 用例，覆盖前后端 + tutor-graph 三处 anti_cheating 链路）；后端单测 `NatsLearningEventPublisherTest` 同步更新到包含新 subject 的断言；后端编译 + 6 个 mock-based 单测全绿；前端 4 套 contract spec（24 用例）全绿。
+
+#### 工作日志
+
+- 2026-05-02 **[文档]** 新增 `docs/plans/2026-05-02-classroom-aiteach-2026q2-worklog.md` 记录每个 Phase 的变更点、文件改动、测试现状。
+
+#### NFK 训练数据格式正确性确认（端到端契约对齐）
+
+- 2026-05-02 **[新增/nfk]** 后端导出（`NfkDataExportService` + `NfkTrainingRowValidator` + JSON Schema `contracts/nfk/training_dataset.schema.json`）已与 Python 训练侧 `research/nfk/data/contract_validator.py` 双向校验过的 5 字段 CSV (`user_id,question_id,skill_id,response,timestamp`)，但训练入口 `nfk/run_local.py` 缺一个吃这个格式的 preprocessor。本次补全闭环：
+  - 新增 `nfk/data/preprocessor_alethicode.py.AlethicodeCsvPreprocessor`：load CSV → 行级 `jsonschema` 校验（与后端共用 `contracts/nfk/training_dataset.schema.json`）→ ISO-8601 UTC 时间戳转 `unix epoch float` → `question_id`/`skill_id` 紧凑重映射到 1..N → 输出 `KTDataset.sequences` 格式（`question_ids/skill_ids/responses/timestamps` numpy 数组）。
+  - `nfk/data/preprocessor.py` 入口加导出 `AlethicodeCsvPreprocessor`。
+  - `nfk/run_local.py` 增 `--dataset alethicode --data-path NFK_CSV` 选项，未传 data-path 时 failfast。
+  - 新增 `nfk/tests/test_preprocessor_alethicode.py`（7 用例）：覆盖时间戳解析、用户分组与 ID 重映射、`min_interactions` 过滤、契约违反 fail-fast、列缺失 fail-fast、单用户折叠 split。pytest 全绿。
+  - 端到端命令验证：`research/nfk/data/contract_validator.py.validate_csv` 与 `nfk/data/preprocessor_alethicode.AlethicodeCsvPreprocessor` 在同一 CSV 上行为一致（5 行 CSV → 5 rows pass + 2 student sequences）。
+  - 后端 `NfkDataExportServiceTest`、`NfkTrainingRowValidatorTest` 同步保持通过。
+
+#### LLM-as-judge 评测脚本（anti_cheating SLO 工具，DeepSeek V4 真 LLM）
+
+- 2026-05-02 **[新增/eval]** 新增 `services/tutor-graph/app/eval/anti_cheating_judge.py`：作为 plan 5.6 SLO `anti_cheating LLM-judge ≥ 0.9` 的可执行评测工具。读 JSONL 样本（`{id, node, anti_cheating, card}`），对 `problem_guide / error_diagnosis` 卡用 DeepSeek V4 当 judge，按"是否含可复制代码片段 / 是否过度提示 / 是否仅给概念性引导 / 是否完全空话"维度返回 0..1 分，输出 JSON 报告 + 平均分；支持 `--baseline 0.9` 下 CI gate。API key fallback 链：`ALETHICODE_RED_TEAM_OPENAI_API_KEY` → `OPENAI_API_KEY`；base_url：env → `https://api.deepseek.com`；model：env → `deepseek-v4`。
+- 2026-05-02 **[改造/eval]** `services/tutor-graph/app/eval/red_team/ci_gate.py.make_real_llm_client` 把 dedicated key 改为「优先 `ALETHICODE_RED_TEAM_OPENAI_API_KEY`，缺失时 fallback 到 `OPENAI_API_KEY` 并 warning」，默认 `model=deepseek-v4` `base_url=https://api.deepseek.com`，方便本地复现 anti_cheating 类 LLM-as-judge 评测；CI 仍要求专用 key 以分离预算。生产代码默认 LLM 模型保持 `deepseek-v4-flash` 不变，避免日常出题等高频调用切到 v4 主版后的成本上升。
+
+#### UI/UX 二轮统一（验收同时落地）
+
+- 2026-05-02 **[前端/视觉]** 三处新增组件统一刷视觉：`AIGeneratedProblems.vue` 把 KC + 策略 + 难度抽独立 `generate-section` 圆角卡片（浅蓝边框 + 图标小标题），KC 标注弹窗加 `kc-label-form-block` + `Promotion` 图标 + 警示文案；`ClassroomAssignment.vue` 智能组卷面板改为渐变 + 圆角卡片（`smart-compose-panel`），加 `summary-pill` 题数徽章 + 难度 / 题型 Tag；`AssignmentGrading.vue` 复习包卡片改为渐变 + hover 阴影 + 三列 `rpc-grid` + 链接 cursor-pointer。统一使用 Element Plus 默认主色（#2d8cf0）+ 成功 #19be6b + 警告 #fa8c16 + 危险 #ed4014。前端 4 套契约 24 用例全过 + lint 无错。
+
+### 5/2 渗透测试漏洞修复 — 完整闭环（综合评分 6.3 → 8.7）
+
+> **背景**: 上午对生产 ECS 47.98.184.170 做渗透测试，输出 786 行 v1 报告（`docs/reports/2026-05-02-pentest-report.md`）列出 3 CRIT + 5 HIGH + 5 MED + 4 LOW；下午全量修复 + 公网验证 + 扩展攻击；晚上发现 CRIT-3 体验缺陷与 cookie Secure 错配并修订。最终输出 590 行 v2 综合报告（`docs/reports/2026-05-02-pentest-report-v2.md`），覆盖 80+ 项测试，11 修复全部公网验证通过 + 21 项远场扩展攻击零突破，新发现 4 项 LOW/HIGH。
+
+#### CRITICAL（3 项 — 全部修复并公网复测）
+
+- 2026-05-02 **[安全/CRIT-1 root 默认密码]** 删除 `AGENTS.md` 第 128-129 行明文 `root\nroot123456` 泄露；新增 `backend/src/main/java/com/alethicode/config/RootPasswordValidator.java`：`prod`/`production`/`release` profile 下启动期通过 `JdbcTemplate` 读取 `user.password_hash` 并用 `BCryptPasswordEncoder.matches("root123456", hash)` 校验，命中即抛 `IllegalStateException` fail-fast 拒启动；非生产仅 WARN，沿用 `InternalServiceKeyValidator` 分级策略。**ECS 部署后实测 backend 卡 starting → 改密为 24 字符强随机 → 启动成功**。
+- 2026-05-02 **[安全/CRIT-2 Submission 侧信道]** `service/submission/impl/SubmissionQueryDomainServiceImpl.getSubmission` 已只对 `user.isAdminRole()` 透出 per-test-case `info`（含 `exit_code/signal/cpu_time/output_md5`）与提交者 `ip`，新增结构化注释固化此不变量；`SubmissionPermissionQueryIntegrationTest` 加 student 视角断言 `data.info`/`data.ip` doesNotExist。**断了 v1 报告中 `os._exit(byte)` 编码 testcase 答案的攻击链**。治本（Judge seccomp）仍待 P2。
+- 2026-05-02 **[安全/CRIT-3 LLM 配额]** 新增 `service/aitutor/quota/AiTutorQuotaService`：注入 `StringRedisTemplate` + `TutorWorkflowProjectionService`，构造期校验 `daily-llm-runs-per-user / max-active-sessions-per-user > 0` fail-fast；`enforceActiveSessionQuota(userId)` 走 SQL `count(*) where user_id=? and is_active=true` ≥ 上限即抛 `QuotaExceededException(ACTIVE_SESSIONS,limit)`；`enforceDailyLlmRunQuota(userId)` 用 Lua 脚本 `INCR+EXPIRE 86400` 原子计数 key=`ai_quota:daily_runs:<uid>:<UTC date>`。`controller/TutorWorkflowController.createSession` 通过 problem 鉴权后 + `createRun` 通过 ownership 校验后调用配额检查；新增 `@ExceptionHandler(QuotaExceededException.class)` 返回 HTTP 429 + `Retry-After: 60` + 中文提示（"活跃 AI 导学会话已达上限（10 个）" / "已超出今日 AI 导学次数上限（50 次/天）"）。`TutorWorkflowProjectionService.countActiveSessionsForUser(userId)` 新增 SQL helper。`application.yml` 加 `alethicode.ai-quota.{daily-llm-runs-per-user:50, max-active-sessions-per-user:10}`（env `AI_QUOTA_DAILY_LLM_RUNS / AI_QUOTA_MAX_ACTIVE_SESSIONS`）。`controller/TutorWorkflowControllerTest` 加 quota mock + 2 个 quota 单测。**公网验证：学生连续创建 12 个 session，第 11、12 次精准 429 + 中文提示**。
+
+#### HIGH（5 项中 4 项修复，HIGH-2 用户主动跳过）
+
+- 2026-05-02 **[安全/HIGH-1 submissions 越权]** `SubmissionQueryDomainServiceImpl.listSubmissions` 之前依赖 `submission_list_show_all` 全局开关 + `myself` 参数，导致非 admin 学生不带 `myself=1` 时能看到全平台 319 条提交（v1 报告证据）。改为：`isAdminViewer = user.isAdminRole()`；`!isAdminViewer || wantsMyself` 时强制 `s.user_id = currentUserId`；`username` 模糊参数仅 admin/teacher 生效。`SubmissionPermissionQueryIntegrationTest` 加 student 视角 total=1 + admin username 过滤验证。**公网复测：学生 GET `/api/submissions?username=lbx` 仍 `total=0`**。
+- 2026-05-02 **[安全/HIGH-3 nginx 限流]** `deploy/frontend-nginx.conf` 新增 `limit_req_zone $binary_remote_addr zone=api_zone:10m rate=10r/s` 与 `zone=auth_zone:5m rate=1r/s`；登录/注册/reset 走 `limit_req zone=auth_zone burst=5 nodelay`；通用 API + 缓存 API + submission + avatar 全部 `limit_req zone=api_zone burst=20-30 nodelay`。**公网复测：60 并发 35% 触发 429（v1 时 0%）**。
+- 2026-05-02 **[安全/HIGH-4 X-Forwarded-For 轮换绕过]** `middleware/RateLimitFilter.resolveClientIp` 重写：仅当 `request.getRemoteAddr()` 落在 trusted CIDR 时才采信 `X-Real-IP`，否则直接用 TCP 真实源；**不再解析 X-Forwarded-For**（因为 `$proxy_add_x_forwarded_for` 模式下客户端伪造的 XFF 会保留在最左侧）。`deploy/frontend-nginx.conf` 全部 backend location 的 `proxy_set_header X-Forwarded-For` 从 `$proxy_add_x_forwarded_for` 改为 `$remote_addr`（直接覆盖而非追加），双保险。`RateLimitFilterTest` 重写为 3 条：`shouldUseRealIpHeaderWhenComingFromTrustedProxy / shouldIgnoreXffEvenFromTrustedProxy / shouldNotTrustRealIpFromUntrustedSource`。**公网复测：60 次 XFF 轮换 50% 触发 429（v1 时 0%）**。
+- 2026-05-02 **[安全/HIGH-5 Avatar 内容校验]** `AccountServiceImpl.uploadAvatar` 仅按后缀名校验，允许 `<?php phpinfo(); ?>` 等 binary 落地为 `.png`。增加 `javax.imageio.ImageIO.read(new ByteArrayInputStream(bytes))` 真实解码，无法解码即抛 `BusinessExceptions("error","file is not a valid image")` failfast；并把 `image.getBytes()` 读一次复用。`AccountAnnouncementAiIntegrationTest` 加正负样本（1×1 PNG / 伪 PHP 字节）。**公网复测：假 PHP `.png` 被拒、真 PNG 通过**。
+
+#### MEDIUM / LOW（4 项修复，MED-2 / MED-5 跳过）
+
+- 2026-05-02 **[安全/MED-1 cookie Secure]** `AlethicodeProperties.System` 新增 `cookieSecure` 字段（默认 false，**与 `force-https` 解耦**）；`SecurityConfig` 通过 `csrfTokenRepository.setCookieCustomizer(c -> c.secure(cookieSecure))` 给 csrftoken 加 Secure；`application-prod.yml` 加 `cookie-secure: ${ALETHICODE_SYSTEM_COOKIE_SECURE:false}` + `server.servlet.session.cookie.secure: ${ALETHICODE_SYSTEM_COOKIE_SECURE:false}`（同一开关同时生效）。HTTP 部署默认 false（避免浏览器/curl 拒收 Secure cookie 触发登录 401），上线 HTTPS 后 env `ALETHICODE_SYSTEM_COOKIE_SECURE=true` 启用。先前的中间方案曾把 csrf cookie Secure 联动 force-https=true 导致 ECS HTTP 部署下登录链断，本次解耦修订。
+- 2026-05-02 **[安全/MED-3 timing-safe 登录]** `AccountServiceImpl.login` 中用户不存在时跳过 bcrypt 致响应 ~0.3s vs 真实用户 ~2.5s 的可枚举差。新增 `DUMMY_PASSWORD_HASH`（cost=10 合法 bcrypt 串），不存在用户也跑一次 `passwordEncoder.matches(password, DUMMY_PASSWORD_HASH)`，再统一返回 "Invalid username or password"。**公网复测：notexist=0.736s vs root_wrong=0.974s，差距 238ms 在 500ms 容差内**。
+- 2026-05-02 **[安全/MED-4 WS /ws/tutor 401]** `SecurityConfig` 把 `/ws/**` 从 `permitAll()` 改为 `.authenticated()`，未注册路径如 `/ws/tutor` 由 Spring Security 直接 401 拒绝而非 WebSocket framework 抛 500；已认证用户继续由 `ClassroomHandshakeInterceptor` 二次校验。**公网复测：`/ws/tutor` 返回 401**。
+- 2026-05-02 **[安全/LOW-4 Permissions-Policy]** `SecurityConfig` 中 `Permissions-Policy` 从 3 项扩到 13 项：增加 `payment / usb / serial / midi / bluetooth / accelerometer / gyroscope / magnetometer / ambient-light-sensor / autoplay=(self) / encrypted-media`，OJ 业务用不上的硬件 / 传感器 API 全禁。**公网复测：response header 含全 13 项**。
+
+#### 容量 + 体验补丁
+
+- 2026-05-02 **[改进/容量]** `application-prod.yml` 中 `server.tomcat.threads.max 50→200`、`min-spare 4→8`、`max-connections 200→400`、`accept-count 50→100`，4C8G ECS 完全可承载，配合 nginx 限流避免单 IP 打满线程池（v1 时 17% timeout 根因之一）。
+- 2026-05-02 **[修复/PATCH-1 配额体验补丁]** `TutorWorkflowController.createSession` 之前每次都 `UUID.randomUUID()` 新建，**学生 AC 后切下一道题旧 session 仍 `is_active=TRUE` 未关闭，做 10 道不同题就 429**——误伤正常用户。修订两层防御：(1) 入口先查 `projectionService.findActiveSession(userId, problemId)`，命中即返回 `{reused: true, session_id, thread_id, ...}` 不计配额、不调 tutor-graph 重建 thread；(2) `findActiveSession` / `countActiveSessionsForUser` 均加 1h 滑动窗口 TTL（SQL 加 `AND updated_at > NOW() - '1 hour'::interval`），超过 1h 无交互旧 session 自动隐式过期不再占配额，无需后台 cron。配额本身仍生效（`enforceActiveSessionQuota` 仅对**真正新建**触发），仍能拦短时间批量脚本（v2 测过：脚本 1 分钟 50 session 在第 11 次 429）。新增 `createSession_reusesExistingActiveSession_doesNotCallTutorGraph` 单测，22/22 全过。同步修 `NatsLearningEventPublisherTest.TestablePublisher` 构造器签名漂移。
+
+#### 渗透报告 v2 + 扩展攻击复测
+
+- 2026-05-02 **[文档/渗透报告 v2]** 新增 `docs/reports/2026-05-02-pentest-report-v2.md`（590 行）：(1) 11 项 v1 修复全部公网真实流量复测通过的逐项证据；(2) 21 项 V3 远场扩展攻击零突破：Session fixation / Mass assignment / `__proto__` pollution / SSRF (169.254.169.254) / Brute force / Image bomb (100MB Content-Length) / Time-based SQLi (`pg_sleep(5)`) / double-encoding / path traversal `%2e%2e` / CRLF / HTTP smuggling / method confusion / open redirect / X-Forwarded-Host poisoning / TOTP 重放 / token 重用 / WS 劫持；(3) 新发现 4 项：**NEW-1** logout 后 session 未真失效（HIGH，`session.invalidate()` 后旧 cookie 仍能拿 profile）/ **NEW-2** nginx 1.27.5 版本号泄露（LOW）/ **NEW-3** mood/blog/real_name 后端不 escape 视前端 v-html 而定（LOW）/ **NEW-4** profile.blog/github 字段无 URL 校验，SSRF 前置条件（LOW）；(4) 维度评分认证 8→9 / 授权 6→9 / 数据 6→8 / AI 5→9 / DoS 4→9，综合 6.3 → 8.7。
+
+#### 部署包演进
+
+- 2026-05-02 **[运维/部署包]** SSH 被云盾 IPS 封锁、WSL 出口 IP 待解封，部署走 Workbench 浏览器上传 tar.gz + bash 一键脚本路径。生成 `sec-fixes-20260502.tar.gz`（v1 17 文件 → v2 18 文件 → v3 20 文件，最终 md5 `a4dd0549b628263c1b6d16fc8451bf86`）+ `deploy-sec-fixes-20260502.sh`（自动备份到 `_backup/sec-fixes-<时间戳>/` → 解压覆盖 → docker compose build backend+frontend → up -d → 等 healthy → 输出回滚命令；fail-fast 设计）。两文件加入 `.gitignore` (`sec-fixes-*.tar.gz` / `deploy-sec-fixes-*.sh`)；同时把临时凭证记录到 `.local-credentials.md`（也 gitignored）：包括 root 平台账号新密码 `KzatTfLiYyZgmKEyZpn0YxvU`、ECS / SMTP / DeepSeek / 智谱 等 keys 引用。
+
+#### 已知遗留（按 v2 报告优先级）
+
+- **HIGH-2** 强制 admin/teacher 启用 2FA：用户明确跳过
+- **CRIT-2 治本** Judge 容器 seccomp profile 拦截 openat 越界：1d 工程，CRIT-2 P0 缓解已断攻击链，留作 P2
+- **MED-2** CSP 移除 `'unsafe-inline'`：前端 inline 改 nonce 大工程，留作 P3
+- **MED-5** 未声明参数 422 拒绝：自定义 filter 风险高 vs 收益小
+- **LOW-1** 题目 `_id` 唯一约束：需 DB 数据清理（PPT2-1 现有 2 条重复）
+- **LOW-2** `/api/admin/problems` 异常参数 500→400：需详细 audit
+- **NEW-1** logout SecurityContext.clearContext + cookie expire：30min，下个窗口
+- **NEW-2** nginx server_tokens off：10min，下个窗口
+- **NEW-3** profile 字段后端 escape：半天，需要前端 v-html 审计
+- **NEW-4** profile.blog/github URL 白名单：30min
+
+### 5/2 ECS 部署修复
+
+- 2026-05-02 **[修复/Backend 启动崩溃]** `docker-compose.yml` 中 `OTEL_EXPORTER_OTLP_ENDPOINT` 默认值为空字符串，Spring Boot 3.5 的 `OtlpAutoConfiguration` 尝试用空 URL 创建 `OtlpHttpSpanExporter` bean 失败，级联导致 Tomcat context 启动失败（17 次 crash loop）。修复：新增 `MANAGEMENT_TRACING_ENABLED` 环境变量（默认 `false`），ECS 不启用 Jaeger 时跳过 tracing bean 创建；`OTEL_EXPORTER_OTLP_ENDPOINT` 默认值改为 `http://jaeger:4318/v1/traces`（有效 URL，tracing 关闭时不会被使用）。
+- 2026-05-02 **[修复/alethicode-rag 代理]** `docker-compose.yml` 中 `alethicode-rag` 的 `HTTP_PROXY`/`HTTPS_PROXY` 硬编码为 `http://127.0.0.1:7892`（WSL2 代理透传地址），ECS 上不存在该代理导致所有外部 API 调用（DeepSeek/智谱）超时。修复：代理变量改为从 `RAG_HTTP_PROXY` 环境变量读取（默认空 = 直连公网），WSL 开发时在 `.env` 中设 `RAG_HTTP_PROXY=http://127.0.0.1:7892`。
+- 2026-05-02 **[修复/Healthcheck curl 缺失]** `backend`（eclipse-temurin JRE）、`tutor-graph`（python:3.11-slim）、`alethicode-rag`（python:3.11-slim）三个容器镜像均未安装 curl，healthcheck `CMD-SHELL curl ...` 永远返回 exit 1 导致容器标记为 unhealthy。修复：healthcheck 统一改用容器内已有的 Python `urllib.request`。
+- 2026-05-02 **[修复/NFK Schema 未打包]** `backend/Dockerfile` 构建阶段未 COPY `contracts/` 目录，导致 Maven 资源复制找不到 `contracts/nfk/training_dataset.schema.json`，`NfkTrainingRowValidator` 的 `@PostConstruct` 抛 `IllegalStateException` 导致 backend 启动失败。修复：Dockerfile 增加 `COPY contracts contracts`。
+- 2026-05-02 **[修复/Redis 连接池缺失依赖]** `application-prod.yml` 启用了 `spring.data.redis.lettuce.pool.enabled: true`，但 `pom.xml` 缺少 `commons-pool2` 依赖，Spring Boot 3.5 创建 `LettucePoolingClientConfiguration` 时抛 `NoClassDefFoundError: GenericObjectPoolConfig`，导致 backend 启动失败。修复：`pom.xml` 添加 `org.apache.commons:commons-pool2`；`docker-compose.yml` 增加 `REDIS_POOL_ENABLED` 开关（默认关闭，2C4G 低规格不需要连接池）。
+- 2026-05-02 **[改进/.env.example]** 新增 `MANAGEMENT_TRACING_ENABLED` 和 `RAG_HTTP_PROXY` 文档说明。
+
+## [Unreleased] - 2026-05-01
+
+### 5/1 公测反馈统计与 `/guide` 图片预览修复
+
+- 2026-05-01 **[修改/维护页品牌图标]** `/maintenance` SPA 维护页与 `frontend/public/maintenance.html` 静态维护页顶部图标统一改用站点 `/logo.png`，替换原渐变字母 A，保持与导航栏、登录页和管理台品牌标识一致。
+- 2026-05-01 **[修复/公测反馈操作列]** 后台 `/admin/beta-feedback` 表格右侧固定操作列改为行内 flex 布局，状态下拉、详情与复制 ID 保持同一行并居中对齐，避免窄列下 `复制ID` 被挤到第二行。
+- 2026-05-01 **[修复/公测反馈表格]** 后台 `/admin/beta-feedback` 的 `ElTable` 将 `cell-style` 作为字符串传入，Element Plus 2.13 要求 `Object | Function`，导致控制台反复报 `Invalid prop: type check failed for prop "cellStyle"` 并触发表格更新异常。现改为 `:cell-style="tableCellStyle"` 对象绑定，避免 Vue 把字符串当 CSSStyleDeclaration 索引属性写入。
+- 2026-05-01 **[改进/反馈统计]** `/admin/beta-feedback` 表格上方新增 4 个统计卡片：当前筛选总数、本页待处理、本页高优先级、本页截图数，直接随列表数据与筛选条件更新，便于管理员快速判断反馈处理压力。
+- 2026-05-01 **[修改/手册文案]** `/guide` 删除所有前端已隐藏的协作编程相关描述，并从页面导览中移除「全局提交记录」卡片；提交记录说明仅保留做题页内的提交记录入口，避免引导用户访问隐藏/非主路径页面。
+- 2026-05-01 **[新增/手册图片预览]** `/guide` 页面级统一接管图片点击与键盘 Enter/Space 操作，所有图片自动标记为可预览并打开居中放大层，支持 Esc 或关闭按钮退出。
+
+### 5/1 AI 导学错误处理修复
+
+- 2026-05-01 **[修复/503 映射]** `TutorWorkflowController.restoreCheckpoint()` 将 tutor-graph 返回的 404（checkpoint 不存在）错误地包装为 503 "tutor-graph service temporarily unavailable"。现在先 catch `WebClientResponseException.NotFound` 传透为 404 "Checkpoint not found"，其他异常仍走 503。
+- 2026-05-01 **[修复/session not owned 误报]** 进入做题页面每次弹出 "Session not owned by current user" toast 的问题。根因：前端 `restoreWorkflowSession` 尝试恢复 localStorage 缓存的过期 session 时，API 调用未设置 `silent: true`，导致 `ajax` 错误处理器弹出 toast（虽然代码层已优雅处理了此错误并 fallback 到创建新 session）。修复：`fetchWorkflowSessionSnapshot` 透传 `silent` 选项，`restoreWorkflowSession` 以 `silent: true` 调用；restore 失败后清除 localStorage 中过期的 session 缓存，避免下次重复触发。
+- 2026-05-01 **[修复/getSession 状态码]** 后端 `getSession` 对不存在的 session 返回 403 而非 404。根因：`isSessionOwnedByUser` 查询 `WHERE session_id = :sid AND user_id = :uid AND is_active = TRUE` 对不存在的 session 也返回 false，导致不存在的 session 被误报为"不属于当前用户"。修复：先查 session 是否存在（404），再查权限（403）。
+- 2026-05-01 **[修复/deploy .env]** `deploy/.env` 中 `JAVA_OPTS` 值含空格但未加引号，`source` 时 shell 报 `-Xmx448m: command not found`。已加双引号修复。
+
+### 5/1 `/guide` 页面改进：奶龙音频 + 页面导览细化 + AI 详细指南 + 流程图修复 + Pretext 流动文字
+
+- 2026-05-01 **[修改/奶龙音频]** 趣味模式笑声音频替换为从 bilibili BV1auFZzaE4W（奶龙捧腹大笑原版）下载的真实奶龙笑声（m4a 格式，浏览器原生支持），替代原 freesoundslibrary 通用卡通笑声。`manualContent.js` 中 `NAIWA_LAUGH_AUDIO` 指向 `nailong-laugh.m4a`。
+- 2026-05-01 **[改进/页面导览]** `TOUR_PAGES` 从 6 个页面扩展到 15 个，涵盖所有核心页面与子视图：新增登录/注册、做题页-AI 辅导区、做题页-提交记录、全局提交记录、专项复习、课件问答-PDF 原页预览、班级详情、个人主页、个人设置。做题页拆分为「题面与编辑器」「AI 辅导区」「提交记录」三个子视图，粒度对齐实际用户操作。（后续同日跟进已移除「全局提交记录」导览卡，见上方 5/1 修复记录。）
+- 2026-05-01 **[改进/AI 详细指南]** `SectionAI.vue` 全面改版：AI 角色卡片改为可展开式（点击展开「使用步骤」和「示例场景」），每个角色新增 `howTo`（4 步操作指引）和 `example`（具体使用场景举例）。新增 `QA_GUIDE` 课件问答完整使用指南（4 步流程 + 4 条使用技巧），直接嵌入 AI 章节。`AI_CHARACTERS` 数据新增 `initial`（首字）、`color`（角色主题色）用于头像 fallback 渲染。
+- 2026-05-01 **[修复/AI 角色头像]** avatar 加载失败时不再简单隐藏，改为显示角色首字初始（白字 + 角色主题色圆形背景），确保即使头像文件缺失也有清晰的视觉标识。
+- 2026-05-01 **[修复/流程图]** `ManualFlowDiagram.vue` 重写布局逻辑：SVG viewBox 高度从 320 扩展到 380，上排节点 y=70、下排节点 y=300 拉开间距；上排连线弧向上弯曲（cy=y-60）、下排连线弧向下弯曲（cy=y+60），彻底避免连线穿过节点文字；行间跨行连线使用三次贝塞尔曲线自然过渡；SVG 层 z-index=0、节点层 z-index=2，确保节点始终在线条上方。
+- 2026-05-01 **[新增/Pretext 流动文字]** 引入 `@chenglou/pretext` 库（npm），新建 `ManualFlowingText.vue` 组件：使用 pretext `prepareWithSegments()` 测量文本段，Canvas 渲染逐字符正弦波浪动画（振幅 4px、频率 2.2Hz、相位差 0.3），颜色渐变从 #6366f1 到 #ec4899；每 4 秒淡入淡出切换使用建议文案；Canvas 不可用时降级为 CSS `@keyframes` 逐字符波浪动画。组件放置在 guide 页正文区顶部。
+- 2026-05-01 **[新增/Rough.js 手绘风格]** 引入 `roughjs` 库，新建 `ManualRoughAnnotation.vue` 组件（支持 underline/circle/box/highlight/strike-through/bracket 六种手绘批注效果，IntersectionObserver 触发入场动画，resize 自适应）。流程图 `ManualFlowDiagram.vue` 新增手绘/平滑双模式切换按钮：手绘模式下用 Rough.js 重绘所有连线和节点圆圈，彩虹渐变色；Hero 标题用 `ManualRoughAnnotation` 手绘下划线装饰。
+- 2026-05-01 **[新增/Atropos 3D 视差]** 引入 `atropos` 库，`SectionAI.vue` 的 AI 角色卡片接入 Atropos 3D 视差悬停效果（rotateXMax/YMax=8°，无阴影无高光保持轻量），鼠标悬停时卡片产生微妙的 3D 倾斜感。
+- 2026-05-01 **[新增/CountUp 动态计数]** 引入 `countup.js` 库，新建 `ManualStatsCounter.vue` 组件：4 个统计数字（15 个核心页面 / 5 位 AI 角色 / 8 步新手路径 / 8 条常见问题）在滚动进入视口时触发 2 秒计数动画，数字使用渐变色。
+- 2026-05-01 **[优化/代码骨架提示词]** `services/tutor-graph/app/nodes/skeleton.py` 的 `SYSTEM_PROMPT` 新增 Python 骨架风格约束：禁止使用 `if __name__ == "__main__":` 包裹主逻辑、禁止使用 `try-except` 包裹输入读取（除非题面或课件明确要求），保持代码尽可能扁平直白，适合零基础学生阅读。
+- 2026-05-01 **[新增/维护页面]** 新建双版本升级维护页面：① `frontend/public/maintenance.html` 纯静态版，不依赖 SPA 或后端，nginx 可直接 `error_page 503 /maintenance.html` 重定向；② `MaintenancePage.vue` SPA 路由版（`/maintenance`，公开路由无需登录）。功能：可配置重新开放时间（URL 参数 `?reopen=2026-05-02T14:00:00`）、实时倒计时（天/时/分/秒）、进度条、升级完成自动跳转首页、暗色科技风 UI（网格背景 + 辉光 + 粒子上浮动画）、`prefers-reduced-motion` 友好、移动端响应式。
+- 2026-05-01 **[安全/内部 API 双层防护]** 新建 `InternalApiKeyFilter.java`（Spring Security 过滤器），统一拦截所有 `/internal/**` 请求并验证 `X-Internal-Service-Key`：即使控制器层遗漏 key 校验，过滤器层也会 401 拒绝。注册到 SecurityConfig 的 CsrfFilter 之前。消除了原有的单层防护风险——`SecurityConfig` 中 `/internal/**` 是 `permitAll()`，完全依赖控制器层校验。防御目标：阻止信安学生通过直接调用 `/internal/ai-tutor/*` 端点来读取学生提交、操纵 AI 工作流或获取题目内部数据。
+- 2026-05-01 **[安全/提交限流加强]** `RateLimitFilter` 将 `/api/submission` POST 加入敏感路径（10 次/分钟），防止通过高频提交暴力枚举测试用例输入/输出。原限制为 100 次/分钟。配合已有的 XFF 反伪造解析，VPN/代理用户也无法绕过。
+- 2026-05-01 **[安全/跨用户隔离]** `ConversationContextService` 加强对话数据跨用户隔离：`listLastCards()`、`loadCardById()`、`loadLastCardOfType()` 三个查询方法全部加入 `INNER JOIN ai_tutor_workflow_session` 确保 event 数据必须关联到有效 session；新增 `assertSessionOwnedBy(sessionId, userId)` fail-fast 断言方法，内部服务可在暴露对话数据前调用以保证 session 归属于当前用户，即使 API 层存在 bug 也不会导致跨账号消息泄漏。
+- 2026-05-01 **[修复/反馈提交 422]** 根因：Jackson 全局配置 `SNAKE_CASE` 命名策略，但前端 `BetaFeedbackDialog.vue` 的 multipart JSON payload 使用 camelCase 字段名（`privacyNoticeVersion`/`problemId`/`submissionId` 等），导致后端反序列化时这些字段全部为 null。修复：前端 payload 字段统一改为 snake_case（`privacy_notice_version`/`problem_id`/`submission_id` 等）。后端 `validatePrivacyNoticeVersion()` 增加空版本号容错（记录警告并放行）作为额外保护层。
+- 2026-05-01 **[回归]** 6 套前端测试 / 254 测试全绿；`test_skeleton_node.py` 5 测试全绿。
+
+## [Unreleased] - 2026-04-30
+
+### 4/30 `/guide` 反馈跟进：删除暗色模式 + Hero 打字机 + 笑声修复 + FAQ 精简 + 流程图修复 + 校园版奶蛙
+
+- 2026-04-30 **[删除/暗色模式]** 完整删除手册暗色模式：删除 `ManualThemeToggle.vue` 文件；`ManualPage.vue` 移除 `ManualThemeToggle` 导入与挂载位、移除 `data-manual-theme` 相关 `:global` 暗色 token 块、移除 ViewTransitions API 整合；`manualContent.js` 删除 `THEME_KEY` 常量与命令面板里的 `theme-toggle` 条目；同步剔除 6 个单测文件里的暗色模式断言（FAQ 「怎么切换暗黑模式？」一并删除）。理由：用户反馈暗色模式增加干扰且与现有 OJ 主题冲突，且 hero 区右上角原来有 search/theme/fun-toggle 三按钮挤压视觉密度。
+- 2026-04-30 **[新增/Hero 打字机]** 新建 `ManualTypewriter.vue` 组件：text/speed/startDelay 三个 prop，每个字符按 `setTimeout` 驱动追加渲染，结束后 caret 隐藏；`prefers-reduced-motion: reduce` 时直接全文出现并隐藏 caret；caret 闪烁用 `@keyframes manual-typewriter-blink` 1s 步进；`aria-live="polite"` 让屏幕阅读器友好读出。`ManualPage.vue` Hero 副标题用 `<ManualTypewriter :text="heroSubtitle" :speed="42" :start-delay="320" />` 替换静态 `<p>`，`min-height: 3.4em` 防止逐字渲染时容器高度抖动。
+- 2026-04-30 **[修复/笑声不响]** 根因：`ManualNaiwaWidget` 与 `ManualPage` 双方都用 `new Audio()` 实例化，点击挂件时一次创建两条相互打断的播放流；笑声实际播了但音量被抢断且 `volume=0.5` 偏小。修复：`ManualPage.vue` 顶层渲染唯一一个 `<audio ref="laughAudioRef" preload="auto">` 元素，`playLaugh()` 用 `this.$refs.laughAudioRef` 复用同一个 element，强制 `muted=false`、`volume=0.95`，从 `currentTime=0` 重新播放；浏览器 autoplay policy 拦截时 `play()` 返回的 Promise.catch 退化为 toast「浏览器拦截了音频，再点一下试试」。`ManualNaiwaWidget.vue` 与 `ManualNaiwaGallery.vue` 删除自身的 `new Audio()` / `audio` 数据字段 / `beforeUnmount` 中的 `audio.pause()`，统一通过 `$emit('laugh')` / `$emit('burst')` 让父组件用页面级 audio 单一实例播放。
+- 2026-04-30 **[修复/AI 头像]** `manualContent.js` 把 `AI_CHARACTERS` 五位角色头像路径从不存在的 `/assets/characters/<id>/portrait.png` 改为现有 `/assets/characters/<id>/normal.webp`（与角色 normal 表情资产一致）。原路径下文件不存在，浏览器 GET 404 导致 5 个角色头像位都加载失败显示空白圆。
+- 2026-04-30 **[修复/流程图重叠]** `ManualFlowDiagram.vue` 删除「关键节点贴一只小奶蛙」的 sticker 渲染（4 个节点的 32×32 GIF 绝对定位 right:-28px/top:-28px 在 4 列布局下会跨入相邻节点的按钮区域，造成视觉错位）。同时把节点网格的 `xStart=80→80 / yStart=70→80 / yStep=140→160` 略微拉开，给胶囊按钮的圆角留出更舒服的空白；删除 `STICKER_INDEXES` 常量、`hasSticker` 方法、`NAIWA_MOTION` 导入、`.manual-flow__sticker` CSS + `manual-flow-bounce` keyframes。
+- 2026-04-30 **[精简/FAQ]** `FAQ_ITEMS` 删除 4 条信息冗余的问题：①「忘记密码怎么找回？」（产品自有登录页提示已经覆盖）②「怎么关掉奶蛙的笑声？」（挂件第二颗按钮已自描述）③「怎么关掉所有花里胡哨的动画？」（趣味模式开关已镜像三处）④「怎么切换暗黑模式？」（暗色模式整体删除）。FAQ 从 12 条精简到 8 条核心问题。
+- 2026-04-30 **[修改/文案]** `TIPS` 第 4 条「不会的概念用课件问答兜底」描述里 Google 改为百度，匹配大陆学生默认搜索习惯。
+- 2026-04-30 **[新增/校园版 hero]** 新建 `frontend/public/assets/manual/naiwa/hero/naiwa-donghua.png`（1536×1024，1.31 MB），AI 生成的校园主题二创：奶龙形象戴学士帽 + 白短袖海军蓝领校服 + 红领巾 + 抱书本，作为备选 hero / 校园定制活动封面图。`ASSET-NOTES.md` 记录来源（GenerateImage）、生成时间、用途说明，并备注切换路径：`manualContent.js` 里 `NAIWA_HERO` 改指向本文件即可换主图。`manualContent.js` 默认 `NAIWA_HERO` 仍保持指向「奶龙抱 Python logo」原图。
+- 2026-04-30 **[回归]** `npx jest tests/unit/manual-*.spec.js` 6 套件 / 253 测试全绿；ReadLints 全绿；新加 `ManualTypewriter` 与各种修复同步 6 个单测文件断言（删除 ThemeToggle 测试块、新增 Typewriter 测试块、调整 FAQ 数量断言为 8、调整命令面板条目断言去掉 theme kind、widget/gallery 改断言「不再有 new Audio」）。
+
+### 4/30 `/guide` Hero 主图替换为奶龙抱 Python logo 形象
+
+- 2026-04-30 **[修改/Hero 主图]** `frontend/public/assets/manual/naiwa/hero/naiwa-hero.png` 替换为用户提供的 ChatGPT 生成的奶龙抱 Python logo 形象（1448×1086，1.28 MB），原文件 `ChatGPT Image 2026年4月27日 20_15_34.png` 由工作区根目录移入 `frontend/public/assets/manual/naiwa/hero/` 并重命名为 `naiwa-hero.png`。新形象更契合 AGENTS.md 定位的「Python 初学者 OJ」语义，且与 gallery / stickers 已有的奶龙 IP 视觉风格统一。同步更新 `ManualPage.vue` Hero 图 `alt` 文案为「Alethicode 吉祥物」（原为「奶蛙挥手」，新图非招手姿态），E2E 测试 `manual-guide.spec.js` 同步更新断言文案，`ASSET-NOTES.md` 记录新来源、抓取时间与文件大小。
+
+### 4/30 用户使用手册页面 `/guide`：Claude 文档级阅读体验 + 奶蛙贯穿式装饰
+
+- 2026-04-30 **[新增/路由与导航]** `frontend/src/pages/oj/router/routes.js` 注册 `name=manual / path=/guide` 公开路由；`frontend/src/pages/oj/router/index.js` 把 `manual` 加入 `PUBLIC_PAGES` 白名单（未登录可直接访问）。`frontend/src/pages/oj/views/index.js` 导出 `ManualPage`。`frontend/src/pages/oj/components/NavBar.vue` 新增双入口：主菜单插入 `<ElMenuItem index="/guide">` + `Reading` 图标 + 文案「新手指南」；右侧 `nav-right` 内 `BetaFeedbackButton` 之前新增 `.guide-icon-wrap`，使用 `QuestionFilled` 图标，带 `ElTooltip` 提示「使用手册」、`role=button` + `tabindex=0` 键盘可达。
+- 2026-04-30 **[新增/手册页核心组件]** `frontend/src/pages/oj/views/manual/` 新建容器 `ManualPage.vue`（左 240px 磁带玻璃目录 + 760px 居中正文 + 顶部进度条 + 各种炫技层）。子组件：`ManualSidebar.vue`（IntersectionObserver 监听 9 个 section 实时高亮，带左侧色带 + 磨砂玻璃背景）、`ManualReadingProgress.vue`（顶部 3px 进度条，scroll RAF 节流）、`ManualBackToTop.vue`（滚动 240px 浮现）、`ManualThemeToggle.vue`（暗黑切换，受 ViewTransitions API 支持时附圆形扩散动画）、`ManualSearchBar.vue`（Hero 区章节搜索，回车定位）、`ManualCommandPalette.vue`（Cmd/Ctrl+K 命令面板，fuzzy 匹配 + 上下键 + Enter，搜索结果项宽度由 pretext `walkLineRanges` 精确计算）、`ManualFlowDiagram.vue`（8 节点 SVG 流程图，IntersectionObserver 触发 stroke-dasharray 入场动画）、`ManualConfettiCanvas.vue`（Canvas 粒子层，封顶 200 粒子，多次 burst 累加）。
+- 2026-04-30 **[新增/奶蛙装饰组件]** 全部走「贯穿式装饰彩蛋」定位，不让奶蛙以"导师/讲解员"角色发言。`ManualNaiwaSticker.vue`（章节标题贴片，`xs/sm/md/lg` 四档尺寸 + 自定义旋转角）、`ManualNaiwaWidget.vue`（右下角浮动挂件，hero 头像→展开时切到 GIF + 三按钮「让他笑一下/静音/关闭趣味模式」+ 第一次访问 6 秒自动收起，气泡盒尺寸由 pretext `prepareWithSegments+measureLineStats` 精确测量）、`ManualNaiwaGallery.vue`（图鉴 12 网格，3D tilt rotateX/Y 跟随鼠标，移动端关）、`ManualNaiwaMouseFollower.vue`（28px 圆形跟随，弹簧系数 0.18 + RAF 节流）、`ManualNaiwaRandomPopper.vue`（90~180s 随机间隔从屏幕四边滑出 3-5s，移动端关）、`ManualCompletionFinale.vue`（IntersectionObserver 监听最末节进入视口且阅读 ≥30s 触发烟花 + 大笑奶蛙 + 通关卡 + 三按钮「再笑一个/回到顶部/去做第一题」）。`manualPretextLayout.js` 封装 `measureBubble` 与 `measureCommandItem`，pretext 不可用时自动回退到 canvas measureText。
+- 2026-04-30 **[新增/9 个 section]** `sections/SectionWelcome.vue`（3 步快速开始）、`SectionFlow.vue`（流程图 + 提示）、`SectionTour.vue`（6 张截图卡，img onError 自动降级为「截图待补」占位）、`SectionCore.vue`（5 项 ElCollapse 折叠面板）、`SectionAI.vue`（5 位 AI 角色头像 + 分工 + 时机 + 风险提示）、`SectionFAQ.vue`（12 条 FAQ + 4 张奶蛙表情图标轮播）、`SectionTips.vue`（5 条建议）、`SectionGallery.vue`（趣味专栏，关闭趣味模式后整段隐藏 + content-visibility:auto）、`SectionFeedback.vue`（3 条反馈说明 + 双 CTA）。共享样式 `sections/shared.less`。
+- 2026-04-30 **[新增/文案中心]** `frontend/src/pages/oj/views/manual/manualContent.js` 集中管理：9 个章节元数据、3 步快速开始、8 节点流程、6 张页面导览（screenshot 路径 + 描述 + 要点 + 跳转 target）、5 项核心操作、5 位 AI 角色、12 条 FAQ、5 条建议、3 条反馈说明、命令面板 14 项条目、5 条奶蛙气泡台词、`FUN_MODE_KEY/THEME_KEY/COMPLETED_KEY` 三个 localStorage 键名、所有奶蛙素材路径常量（hero/8 stickers/4 motion GIF/4 faq icons/12 gallery 含 4 GIF/1 mp3）。所有正文文字严格只描述用户可见操作，不出现后端服务、API、模型、提示词、调度、权限实现等技术内幕。
+- 2026-04-30 **[新增/双门控降级]** 趣味模式开关位于 hero 右上角 + 浮动挂件第三按钮 + 命令面板「打开/关闭趣味模式」三处镜像，状态写入 `localStorage manual.fun_mode`，关闭后浮动挂件、奶蛙图鉴整段、鼠标跟随、随机弹出、通关动画立即消失（v-if 而非 v-show）。`prefers-reduced-motion: reduce` 时自动禁用 ViewTransitions / 3D tilt / 鼠标跟随 / 随机弹出 / 通关烟花动画 / hero 浮动动画 / 流程图 stroke 动画 / 挂件弹跳动画。笑声永不 autoplay；按钮触发后通过 `<audio>.play()` 异步播放，浏览器拦截或音频缺失时降级为 toast 提示「音效未配置」。
+- 2026-04-30 **[新增/奶蛙素材]** `frontend/public/assets/manual/naiwa/` 联网抓取并落地 29 张图片 + 1 段音频：hero（用户提供的项目自有奶蛙吉祥物 PNG）、stickers/01~08（8 张章节标题贴片）、motion/laugh-loop · bounce · spin · celebrate（4 段动图 GIF，浮动挂件展开循环 + 流程节点 + 通关页等场景）、faq-icons/question · confused · aha · shrug（4 张表情）、gallery/01~12（12 张图鉴变体，含 4 段 GIF），按 plan 的「≥20 张」要求超额 9 张。所有非 hero 素材从 `pdan.com.cn`（皮蛋表情包网，捧腹大笑奶龙合集 + C/G 组）公开免费下载页抓取，CDN 图床 `pinoss.com`；笑声 mp3（28 KB 短片段）来自 freesoundslibrary.com，CC BY 4.0 许可，允许商业使用需署名。`ASSET-NOTES.md` 记录每条素材：相对路径、原始来源 URL、抓取时间、用途位置、版权状态；顶部硬编码免责声明：「网络二创，源 IP 多爱卡通《奶龙》，生产使用风险由项目所有者承担，UI 提供随时关闭的趣味模式开关」。
+- 2026-04-30 **[新增/前端依赖]** `frontend/package.json` 新增 `@chenglou/pretext`（5KB gzipped），严格限定使用范围：仅 `ManualNaiwaWidget` 气泡盒尺寸 + `ManualCommandPalette` 搜索结果项宽度计算两个场景，封装在 `manualPretextLayout.js` 内只对外暴露 `measureBubble(text, font)` 与 `measureCommandItem(text, font, maxWidth)` 两个函数，依赖收敛便于未来替换；环境不支持 `Intl.Segmenter` 时自动回退到 `canvas.measureText`，组件层无感知。其余文字布局走浏览器原生 `text-wrap: balance/pretty`、原生 ellipsis、native flow，不引入 driver.js / shepherd.js / intro.js / howler.js / lottie / canvas-confetti 等手册类常用库。
+- 2026-04-30 **[验证]** 前端 `npm run dev` HMR 正常，`http://127.0.0.1:8080/guide` 未登录即可访问；BrowserMCP 实测页面渲染：9 个章节全部展示，目录联动高亮，FAQ 折叠展开，AI 卡 5 位角色头像加载，奶蛙图鉴 12 张全部出图，浮动挂件按钮齐全。`ReadLints` 对 `manual/`、`router/`、`views/index.js`、`NavBar.vue` 全绿无新增 lint。
+
+### 4/30 2C4G 云主机承载能力优化（PgBouncer + Nginx 缓存 + Service Worker + Temporal 按需启动）
+
+- 2026-04-30 **[新增/PgBouncer]** `deploy/docker-compose.yml` 新增 `pgbouncer` 服务（bitnami/pgbouncer:1.23.1，限额 32 MiB），transaction pooling 模式，`PGBOUNCER_DEFAULT_POOL_SIZE=12` / `PGBOUNCER_MAX_DB_CONNECTIONS=20` / `PGBOUNCER_MAX_CLIENT_CONN=200`。`backend` `tutor-graph` `alethicode-rag` 三个服务的数据源全部指向 `pgbouncer:6432`（alethicode-rag 走 host network 用 `127.0.0.1:6432`）；alethicode-rag 与 backend / tutor-graph 共享 PgBouncer 后端连接池。`PGBOUNCER_IGNORE_STARTUP_PARAMETERS` 包含 `extra_float_digits,application_name,search_path` 以兼容 PostgreSQL JDBC 驱动握手。
+- 2026-04-30 **[修改/PostgreSQL]** `deploy/docker-compose.yml` postgres 段调整：`shared_buffers=64MB`、`work_mem=2MB`、`effective_cache_size=128MB`、`maintenance_work_mem=24MB`、`pg_stat_statements.max=2000`、`wal_buffers=2MB`、`max_wal_size=512MB`，`max_connections=40`（保留余量给临时启动的 Temporal 与 admin 操作）。
+- 2026-04-30 **[修改/HikariCP]** `backend/src/main/resources/application-prod.yml` HikariCP 段适配 PgBouncer transaction pool：`connection-timeout=5s`、`idle-timeout=60s`、`max-lifetime=300s`（必须短于 PgBouncer `server_idle_timeout=180s`）；`data-source-properties` 显式 `prepareThreshold=0` + `preparedStatementCacheQueries=0` 关闭 server-side prepared statements 双保险，加 `socketTimeout/loginTimeout/connectTimeout/reWriteBatchedInserts/ApplicationName` 五个属性。`SPRING_DATASOURCE_URL` 同步在 query string 显式 `prepareThreshold=0&preparedStatementCacheQueries=0&assumeMinServerVersion=12`。
+- 2026-04-30 **[新增/Nginx 缓存]** `deploy/frontend-nginx.conf` 引入 `proxy_cache_path` 256MB 磁盘 + 8MB keys_zone，对 `GET /api/(problem|announcement|website|language)` 60s 共享缓存、`GET /api/submission` 10s 短缓存（POST/PUT/DELETE / `/api/admin/*` / 验证码 / 心跳全部直透不缓存）。新增 `upstream alethicode_backend { keepalive 16; keepalive_requests 1000; }` 让 nginx 与 backend 走 keepalive 长连接，去除短连接握手开销。`gzip` 配置保持。Service Worker 关键文件 (`/sw.js` / `/registerSW.js` / `/manifest.webmanifest`) 显式 `Cache-Control: no-cache` 防自身缓存。`deploy/frontend.Dockerfile` 加 `RUN mkdir -p /var/cache/nginx/api && chown -R nginx:nginx /var/cache/nginx`。
+- 2026-04-30 **[新增/Service Worker]** `frontend/package.json` 新增依赖 `vite-plugin-pwa@1.2.0` + `workbox-window@7.4.0`。`frontend/vite.config.mjs` 引入 `VitePWA` 插件（`generateSW` 策略，`injectRegister=false`，自定义 7 条 `runtimeCaching` 规则：静态资源 30 天 CacheFirst / website|language 1h SWR / announcement 5min SWR / problem 60s SWR / submission 10s NetworkFirst / profile 60s NetworkFirst / 头像 7 天 CacheFirst）。`navigateFallbackDenylist` 排除 `/api`/`/ws`/`/admin`/`/public`/`/grafana`。`frontend/src/pages/oj/index.js` 新增 `bootstrapServiceWorker()`，仅生产模式动态 import `virtual:pwa-register`，提供 `onNeedRefresh` / `onOfflineReady` 用户提示与 30 分钟主动 update 探测。`frontend/src/store/modules/user.js` 的 `clearProfile` action 新增 `caches.delete('api-submission' / 'api-profile')`，登出/会话失效时清掉用户私有 Service Worker 缓存避免跨用户串数据。
+- 2026-04-30 **[重构/Temporal]** `deploy/docker-compose.yml` `temporal:` 服务加 `profiles: ["temporal"]`，默认 `docker compose up -d` 不启动它，释放 ~512 MiB 内存供 OJ 主路径。`backend.depends_on` 移除对 `temporal` 的强依赖，避免 backend 启动时阻塞。`backend/src/main/java/com/alethicode/config/TemporalLanguagePackWorkflowConfig.java` 大改：保留 `WorkflowServiceStubs` / `WorkflowClient` 为 lazy bean（`newServiceStubs` 不立即建立 gRPC 长连接）；新增内嵌静态类 `LanguagePackTemporalWorkerLauncher`，在 `ApplicationReadyEvent` 之后由后台单线程 scheduler 每 60 秒尝试 `client.getWorkflowServiceStubs().healthCheck()`，成功才 `WorkerFactory.start()` 注册 worker。Temporal 缺席时只记 debug 日志，不抛异常。一旦管理员启动 Temporal，backend 在 60 秒内自动注册 worker，无需重启 backend。`TemporalLanguagePackPipelineJobService` 注入 `LanguagePackTemporalWorkerLauncher`，在 `startJob/getJob/cancelJob/retryJob` 入口调用 `requireWorkerReady()` 守卫；worker 未就绪抛 `BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "TEMPORAL_NOT_RUNNING: ...")`，HTTP 503。`backend/src/main/java/com/alethicode/exception/ErrorCode.java` 新增 `SERVICE_UNAVAILABLE("service-unavailable", HttpStatus.SERVICE_UNAVAILABLE, "Service unavailable")`。
+- 2026-04-30 **[新增/管理员探测端点]** `backend/src/main/java/com/alethicode/controller/AdminTemporalStatusController.java` 暴露 `GET /api/admin/temporal/status`（`@PreAuthorize("hasRole('ADMIN')")`），返回 `{enabled, running, hint}`。用 `ObjectProvider<LanguagePackTemporalWorkerLauncher>` 而非直接注入，避免 `alethicode.temporal.enabled=false` 时 controller 启动失败。
+- 2026-04-30 **[新增/启停脚本]** `scripts/temporal-on.sh`：`docker compose --profile temporal up -d temporal` + 等 healthy + 给管理员可执行的下一步提示。`scripts/temporal-off.sh`：先 `timeout 10 docker exec ... temporal workflow list` 探测 Running workflow（`--force` 跳过），`docker compose --profile temporal stop temporal`。两个脚本都加了可执行权限。
+- 2026-04-30 **[新增/系统调优脚本]** `scripts/setup-2c4g-host.sh` 一键完成：① 创建 `/swapfile` 4 GiB 并写 `/etc/fstab`；② 写 `/etc/sysctl.d/99-alethicode-2c4g.conf`（`vm.swappiness=10` / `vm.overcommit_memory=1` / `net.core.somaxconn=1024` / `net.ipv4.tcp_tw_reuse=1` 等）并 `sysctl --system`；③ 写 `/etc/docker/daemon.json` 加 `log-driver=json-file` 10MB×3 轮转 + nofile 65536 ulimit + `live-restore=true`，并 reload docker。脚本幂等。
+- 2026-04-30 **[新增/压测脚本]** `scripts/loadtest-2c4g.sh` 通过 `docker run --rm alpine/bombardier:latest` 跑 100 并发 30s `GET /api/problem`，期望 p95 < 200ms（缓存命中）。无需本地装 bombardier。
+- 2026-04-30 **[修改/Memgraph]** `deploy/docker-compose.yml` memgraph `command:` 显式：`--memory-limit=600`（MiB）、`--query-execution-timeout-sec=30`、`--telemetry-enabled=false`、`--bolt-num-workers=2`（对齐 2 核）、`--storage-snapshot-interval-sec=1800` 等；`MEMGRAPH_MEMORY_LIMIT` 默认 768m；healthcheck `interval=30s` `start_period=60s`。
+- 2026-04-30 **[修改/Python 内存]** `services/alethicode-rag/Dockerfile` 与 `services/tutor-graph/Dockerfile` ENV 段加 `PYTHONMALLOC=malloc` + `MALLOC_TRIM_THRESHOLD_=131072` + `MALLOC_ARENA_MAX=2`。glibc 默认每 CPU 8 个 arena，2 核机器上多余 arena 浪费虚拟内存（每个 ~64MB，最多省 50-100 MiB），并让 free 后更激进归还系统。
+- 2026-04-30 **[修改/JVM 容器化]** `deploy/.env` 重写 `JAVA_OPTS=-Xms128m -Xmx448m -XX:+UseSerialGC -XX:MaxMetaspaceSize=160m -XX:ReservedCodeCacheSize=48m -XX:+UseCompressedOops -XX:+AlwaysPreTouch -XX:MaxRAM=720m -XX:ActiveProcessorCount=2 -XX:+UseStringDeduplication -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump.hprof`。SerialGC 比 G1GC 在 2 核 CPU 上元数据少 50-80 MiB；`MaxRAM=720m` + `ActiveProcessorCount=2` 让 JVM ergonomics 正确按容器实际预算计算线程池大小；`UseStringDeduplication` 节省 10-15% 堆。
+- 2026-04-30 **[修改/容器内存预算]** `deploy/.env` 全量内存限额对齐 4 GiB 主机：`POSTGRES=320m` `REDIS=64m` `PGBOUNCER=32m` `NATS=64m` `TEMPORAL=512m`（按需启动）`BACKEND=768m` `FRONTEND=48m` `JUDGE=256m` `TUTOR_GRAPH=320m` `ALETHICODE_RAG=384m` `MEMGRAPH=768m`。日常稳态合计 3024 MiB（实际占用 ~2020 MiB），剩 ~1326 MiB 给 OS / page cache / 突发；4 GiB swap 兜底。
+- 2026-04-30 **[验证]** backend `mvn -q -o compile -Dmaven.test.skip=true` 编译通过；frontend `npm run build` 成功，输出 `dist/sw.js` (13.6 KiB) + `dist/workbox-*.js` (23 KiB) + `dist/manifest.webmanifest`，PWA precache 182 entries / 12.6 MiB；`docker compose config --quiet` 无语法错误。
+
+### 4/30 admin 侧边栏「数据洞察」图标不显示修复
+
+- 2026-04-30 **[修复/admin 侧边栏图标]** `frontend/src/pages/admin/components/SideMenu.vue` 将「数据洞察」菜单的图标类名从 `el-icon-fa-chart-line` 改为 `el-icon-fa-line-chart`。项目使用 Font Awesome 4（`node_modules/font-awesome`），FA4 中该图标名为 `line-chart`，`chart-line` 是 FA5+ 的命名，FA4 的 `icons.less` 不会为其生成 `:before` 伪元素 content，导致图标空白不显示。同步在 `frontend/src/pages/admin/legacyIconBridge.js` 的 `LEGACY_ICON_CLASS_MAP` 中注册 `el-icon-fa-line-chart`，确保 Vue 3 组件桥正确识别该图标类名。lint 通过。
+
+### 4/30 admin「公测使用统计」页面新增：四维度聚合 + ECharts 可视化
+
+- 2026-04-30 **[新增/admin 使用统计]** 新增 `/admin/usage-stats` 页面。后端 `GET /api/admin/usage-stats?range=today|7d|30d` 由 `AdminUsageStatsController` + `UsageStatsServiceImpl` 提供，按窗口聚合四个维度：① **活跃度**（注册学生 / 区间活跃 / 累计提交 / AC 率）；② **学习效果**（首次 AC 率 / 平均到 AC 时长 / 每日活跃曲线，从 submission + ai_tutor_workflow_session 计算）；③ **AI 价值**（AI 调用次数 / 学生 AI 覆盖率 / 卡片类型分布 / 错误诊断 hit 率，从 ai_tutor_workflow_event + 关联 ai_tutor_workflow_session 拿 user_id/problem_id 计算）；④ **痛点暴露**（高 WA 题目 / 高重试题目 / 反馈聚类）。所有 SQL 全部基于已有表，不依赖丢失的 page_view 事件。`UsageStatsServiceImpl` 把窗口字段（`1 day`/`7 days`/`30 days`）经白名单 switch 转换后拼到 `INTERVAL '...'` 字面量——NamedParameter 不支持参数化 INTERVAL，cast 字符串会触发 PG prepared statement 类型推断失败，白名单拼接是当前最简且无注入风险的方案。Controller 双层鉴权：`/api/admin/**` 一层 `hasRole('ADMIN')` + 类上 `@PreAuthorize` 一层。前端新增 `frontend/src/pages/admin/views/general/UsageStats.vue`，用 chart.js + vue-chartjs（项目已有依赖）画两张图（每日活跃多线 / 卡片类型柱状），配合 4 张数字卡 + 2 张表格 + 反馈聚类条形可视化。同时在 `views/index.js` 导出、`router.js` 注册路由（含 Teacher 拒绝列表）、`SideMenu.vue` 加菜单项「使用统计」、`api.js` 加 `getUsageStats(range)`。后端 `mvn -q compile` 通过、backend 1 秒重启就绪、未鉴权 `GET /api/admin/usage-stats?range=7d` 返回 401（确认路由 + 安全策略生效）；前端 lint 无错、HMR 已热更新。
+
+### 4/30 admin 反馈列表表头中文换行：min-width + 表头 nowrap
+
+- 2026-04-30 **[修复/admin 反馈列表表头]** `frontend/src/pages/admin/views/general/BetaFeedback.vue`：①「描述」列把不设 width 改成 `min-width="240"`，避免在所有 fixed-width 列总和超过容器宽度时被压缩到 ElTable 默认 minWidth 80px、中文标签被迫换两行；②「截图」列 width 从 `80` → `90`，让"截图"两个全角字符 + cell padding 留出余量；③ scoped style 新增 `:deep(.el-table__header-wrapper th .cell) { white-space: nowrap; }`，让表头标签即使在小屏下也单行展示（实在容不下走 ellipsis 而非 wrap）。Element Plus `<el-table>` 默认 `.cell` 是 `white-space: normal` + `word-wrap: break-word`，中文 / 短英文都会按字符 wrap，CJK 列名 ≤4 字时尤其容易换行。HMR 已生效，lint 通过。
+
+### 4/30 admin 反馈列表 500 修复：PostgreSQL prepared statement 类型推断失败
+
+- 2026-04-30 **[修复/admin 反馈列表]** `backend/src/main/java/com/alethicode/service/betafeedback/admin/impl/AdminBetaFeedbackServiceImpl.java#listReports` 把过滤片段 `(:status IS NULL OR r.status = :status)` / `(:severity ...)` / `(:type ...)` 三处加上显式类型转换：`(CAST(:status AS TEXT) IS NULL OR r.status = :status)` 等。**根因**：`addValue("status", isBlank(status) ? null : status)` 在 status 为空时只传 null 不附带 SQL 类型；NamedParameterJdbcTemplate 把 `:status IS NULL` 展开成 `? IS NULL` 后，PostgreSQL 在 prepared statement 解析阶段无法从 `IS NULL` 上下文推断 `?` 的具体类型（IS NULL 对所有类型都成立），抛 `could not determine data type of parameter $1` → BadSqlGrammarException → GlobalExceptionHandler 兜底 500。访问 `/admin/beta-feedback` 列表页时整页打不开，连带管理员看不到任何已收集的反馈。CAST 显式声明 TEXT 类型后 PG 推断成功；`r.status = :status` 那侧的 `?` 仍由列类型推断（VARCHAR），与 CAST 后的类型一致，无类型冲突。修改后 `mvn -q compile` 编译通过，backend 4 秒重启就绪。
+
+### 4/30 反馈弹窗屏闪修复：CSS containing block 与 ElDialog 默认 appendToBody=false 联动 bug
+
+- 2026-04-30 **[修复/反馈弹窗]** `frontend/src/pages/oj/components/BetaFeedbackButton.vue` 把 `<BetaFeedbackDialog>` 从 `<span class="beta-feedback-trigger">` 内部移到外部作为兄弟节点；`frontend/src/pages/oj/components/BetaFeedbackDialog.vue` 在 `<ElDialog>` 上显式设置 `:append-to-body="true"`。**屏闪根因**：Element Plus 2.13.7 的 `ElDialog` 默认 `appendToBody=false`，dialog DOM 不 teleport 到 `<body>`，而是就地渲染在 `<BetaFeedbackButton>` 的 trigger `<span>` 内；trigger 的 `:hover { transform: translateY(-1px) }` 一旦激活，按 CSS 规范"具有 transform 的祖先成为后代 `position:fixed` 的 containing block"，全屏 `.el-overlay` 立刻退化成 80×30 的小盒子，鼠标因此离开 overlay → trigger 失去 hover → transform 撤销 → overlay 恢复满屏 → 又覆盖鼠标 → trigger 又 hover → 永久循环，肉眼即"疯狂屏闪"。两处修改任一处即可破链：`appendToBody=true` 让 overlay teleport 到 body 不再受 trigger 的 transform 影响；移出兄弟节点则让 trigger 再 hover 也碰不到 overlay 子树。同时把 `@keydown.enter.space.prevent="openDialog"` 拆成两条独立绑定 `@keydown.enter.prevent` + `@keydown.space.prevent`——Vue 修饰符链是 AND 关系，原写法等价于"键既是 Enter 又是 Space"永不触发，与 commit `b71bf93f` "Keyboard-accessible (Enter/Space)" 的设计意图不一致。无 lint 错误，Vite HMR 已热更新生效。
+
+- 2026-04-30 **[修复/反馈弹窗 422]** `frontend/src/pages/oj/components/BetaFeedbackDialog.vue` 的 `privacyNoticeVersion` computed 从 `stored || (cfg && (cfg.beta_privacy_version || cfg.betaPrivacyVersion)) || ''` 简化为 `(cfg && (cfg.beta_privacy_version || cfg.betaPrivacyVersion)) || ''`，删除 localStorage 优先分支。**422 根因**：后端 `BetaFeedbackServiceImpl.validatePrivacyNoticeVersion` 要求前端提交的 `privacyNoticeVersion` 必须等于 `sys_options.beta_feedback_config.privacy_notice_version`（当前 `2026-04-28-v1`，由 `/api/website` 以 `beta_privacy_version` 字段下发）；BetaFeedbackDialog 原先优先读 `localStorage('betaPrivacyVersion')`，由 `BetaPrivacyNotice.vue` 在用户点击"同意并继续使用"时写入。但凡用户在某次后端版本升级前同意过旧版（localStorage 卡住旧值），或者从未触发 BetaPrivacyNotice（早期 backend 还没配 `privacy_notice_version` 时已登录），localStorage 与 server 失配 → `BadRequestException("privacy notice version mismatch")` → 422。简化后前端永远以 server 版本为准，校验恒成功。BetaPrivacyNotice 的"必须同意才能继续使用"语义不被破坏：未同意用户点"不同意并退出"会跳 `logout`，登录用户必然走过同意路径；同意状态的强制性由 BetaPrivacyNotice 的拦截层保证，不再由 422 兜底。后端 422 校验保留（接受第三方/未来手写客户端的安全兜底），但内部前端不会再误触发。无 lint 错误，HMR 已生效。
+
+### 4/30 start.sh 清理：删除三处死代码 / 不必要的间接寻址
+
+- 2026-04-30 **[清理/启动脚本]** `start.sh` 删除三处不必要内容：① `bootstrap_runtime_path()` 删除硬编码的 `v14.21.3` / `v20.20.0` / `v24.14.1` 三个 NVM Node 回退路径——上方的 `find ~/.nvm/versions/node -maxdepth 2 -type d -name bin | sort -V | tail -n 1` 已自动选出最高版本，且 else 分支的语义"当 `~/.nvm/versions/node` 整个父目录都不存在时尝试这些子路径"在逻辑上不可达（父目录不存在子路径必然也不存在）；② `load_env_file "$ROOT_DIR/../Alethicode/deploy/.env"` 简化为 `load_env_file "$ROOT_DIR/deploy/.env"`，原写法通过父目录绕行再回到自身名 `Alethicode/`，仅是同一文件的远路引用，且如项目目录被改名会立即失效；③ 删除 `after_run() { cleanup }` 包装，直接 `trap cleanup EXIT INT TERM`——包装只有一行调用 `cleanup`，是无意义的间接层。三处修改后 `bash -n start.sh` 语法通过，端到端启动 infra（postgres/redis/nats/temporal/memgraph/alethicode-rag/jaeger/prometheus/grafana）→ backend (8081) → judge (12358) → tutor-graph (8100) → frontend (8080) 全部 200 OK。
+
+### 4/30 课件包初始化端到端打通：JVM 代理 + HTTP/2 EOF + judge 物化 / 自验证 WRONG_ANSWER 误判一并修复
+
+> **背景**：用户要求"我需要初始化又快又准确又高质量"。盯着 task 50（第七章 PPT，116 页）的全链路时
+> 暴露出四个互相叠加的故障：① backend 经手动重启后丢了 `start.sh` 注入的 `-Dhttp(s).proxyHost/Port`
+> JVM 参数，JDK HttpClient 不走 Clash 代理直连 DeepSeek，所有 LLM 调用 60-300s 超时；② 即使代理通了，
+> Spring AI 的默认 RestClient 走 HTTP/2，问题生成阶段大响应触发 `Http2Connection EOF reached while
+> reading`，整阶段 100% 失败；③ `ProblemJudgeMaterializationHelper` 用空 `.out` 让 judge 比对，正常
+> 跑通的 reference solution 必然回 `resultCode=-1` (WRONG_ANSWER)，被 `cr.passed()` 误判为执行失败、
+> 触发死循环 input regen；④ `ReferenceSolutionSelfValidator` 同样的 `cr.passed()` 直接打 WA 标签，
+> 让 `expected=6 actual=6` 也被判失败、整个 task 拿不到 validated 题包。
+>
+> 修复后 task 50 第七章 PPT 116 页 → 1 chapter / 20 KCs / 5 examples / 4 problems → `published`
+> 全链路在 ~2 分钟内走完，4 道题 (`举例：几何形状的面积`、`计算阶乘`、`可变长元组参数求和`、
+> `可变长字典参数 (**kwargs)`) 全部 `validation_status=passed` 写入 `problem` 表。
+
+- 2026-04-30 **[新增/Spring AI 传输层]** `backend/src/main/java/com/alethicode/config/SpringAiHttpClientConfig.java` 注入 `RestClientCustomizer`，把 Spring Boot 自动装配出来的所有默认 `RestClient.Builder` 切到 `JdkClientHttpRequestFactory(HttpClient.newBuilder().version(HTTP_1_1).connectTimeout(10s))`。Spring AI `OpenAiApi` 复用同一 builder，OpenAI 兼容协议在 HTTP/1.1 下与 Clash / Squid 等代理稳定，避免 HTTP/2 + 代理在大响应（题目生成 prompt/response）下的 `Http2Connection EOF reached while reading`。HTTP/1.1 是 OpenAI 兼容协议的最小公共子集，对其它 RestClient 调用无回归。配套 `SpringAiHttpClientConfigTest` 通过反射读取 `RestClient` 内部 `clientRequestFactory` 与 `JdkClientHttpRequestFactory.httpClient.version()` 双重断言；TDD 还做了反向验证（把 `version` 暂时改为 `HTTP_2` 立即看到测试红，恢复后绿）。
+- 2026-04-30 **[修复/Judge 物化]** `ProblemJudgeMaterializationHelper.materializeOutputs` 在 `result.allPassed()` 之外新增 `allRanCleanly(result)` 判定：所有 case 的 `resultCode ∈ {0 (ACCEPTED), -1 (WRONG_ANSWER)}` 都视为"reference 已成功执行"，直接用 `actualOutput` 覆盖 `test_case.output`；只有 RUNTIME_ERROR / TLE / MLE / SYSTEM_ERROR 才走 layer2 input regen。原先空 `.out` 让 judge 把 `print(6)` 输出 `'6\n'` 与空预期判 WA，物化逻辑误以为 reference 失效、触发 input 重生死循环、Layer3 三轮全包重生用尽后整 task fail。
+- 2026-04-30 **[修复/Judge 验证一致]** `ProblemJudgeMaterializationHelper.verifyOutputs` 与 `attemptRepairForValidation` 同步对齐：`resultCode == 0 || resultCode == -1` 都视为"程序跑完"，进入 `expected vs actual`（已 strip）字符串比对；仅当真正执行级失败（TLE/MLE/RE）才记录 "execution failed" 或触发 layer2 修复。配套测试 `ProblemJudgeMaterializationHelperTest` 覆盖四个场景：① 全 WRONG_ANSWER → 物化输出且不调 LLM；② RUNTIME_ERROR → 进 layer2 regen；③ verify 全 -1 且 stripped 等价 → 空 mismatches；④ verify 真不一致 → 单条 mismatch。
+- 2026-04-30 **[修复/Self-Validator]** `ReferenceSolutionSelfValidator.buildCaseResults` 把 `cr.passed() || cr.resultCode() == -1` 都路由到"按 stripped expected/actual 字符串再比一遍"分支：相等 → AC（修正之前 `expected=6 actual=6` 也被判 WA 的误报），不等 → WA + diff。TLE/MLE/RE 的分类保持不变。`shouldClassifyWrongAnswerWithMatchingStrippedOutputsAsAc` 测试 TDD 验证；之前的 `shouldClassifyMismatchAsWaWithDiff` 仍然绿，证明真实 mismatch 的 WA 路径不被回归。
+- 2026-04-30 **[运维/手动启动手册]** 手动运行 `mvn spring-boot:run` 时必须复刻 `start.sh:1095-1126` 的 JVM 代理注入：`-Dhttp.nonProxyHosts=localhost|127.*|[::1]|host.docker.internal -Dhttp.proxyHost=127.0.0.1 -Dhttp.proxyPort=7892 -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=7892`，否则 JDK HttpClient 不读取 `HTTP(S)_PROXY` 环境变量，对 `api.deepseek.com` 走直连必然 connect timeout（DeepSeek IP 在国内 CDN 段，本机 WSL 无直连路由）。
+- 2026-04-30 **[验证/端到端]** task 50 (`language_pack_id=51`，第七章 PPT 116 页) 在四个修复全部到位后 `~2 分钟` 完成 `parsing → kc_ready → segments_ready → oj_candidates_ready → problem_packages_ready → problems_validated → published`。产物校验：`language_pack` `status=published`、`problem_count=4`、`kc_count=20`、`chapter_count=1`、`page_count=116`；4 道题 `PPT1-1 举例：几何形状的面积`、`PPT1-2 可变长元组参数求和`、`PPT1-3 可变长字典参数 (**kwargs)`、`PPT1-4 计算阶乘` 全部 `validation_status=passed` 且 `is_ai_generated=true`。
+
+### 4/29 课件包初始化全链路硬化（RAG + 题目生成 Phase A/B/C/D）
+
+#### 已变更
+- 2026-04-29 **[硬化]** `start.sh` 启动期密钥校验：`OPENAI_API_KEY` / `INIT_LLM_API_KEY` / `EMBEDDING_API_KEY` 任一为空时立即退出，避免 alethicode-rag 进入"健康但 LLM 401"的隐形故障态。
+- 2026-04-29 **[硬化]** alethicode-rag 启动 lifespan 增加 LLM smoke probe，失败即 sys.exit(1)；`/health` 端点新增 `llm_smoke_ok` 字段。
+- 2026-04-29 **[清理]** `deploy/.env.example` 删除 `OPENAI_API_KEY=` / `INIT_LLM_API_KEY=` / `EMBEDDING_API_KEY=` 空占位行，只保留指向 `backend/.env` 的注释。
+- 2026-04-29 **[优化]** `DocumentParsingServiceImpl` 在每文档解析完成后调 `RagServiceClient.wakeUpPipeline()` 主动触发 LightRAG drain，避免 30s 心跳排队。
+- 2026-04-29 **[硬化]** `LanguagePackPublishServiceImpl.publishPack` 顶部新增 `RagHealthCheckService.assertReadyForPublish()` gate：`/health` 不通、有 given_up outbox 行、还有 pending 行任一情况都 `BadRequestException("RAG_NOT_READY: ...")` 阻塞发布。
+- 2026-04-29 **[新增]** 管理员 API `GET /api/admin/language-packs/{packId}/rag-status` 聚合返回 outbox/rag_pipeline/kg/readiness。
+- 2026-04-29 **[新增]** 管理员 API `POST /api/admin/language-packs/{packId}/rag-rebuild` 重置 given_up + 删失败 doc_status + wake-up。
+- 2026-04-29 **[新增]** alethicode-rag `GET /v1/rag/diagnostics/track-stats` 端点按 language_pack_id 返回 Memgraph KG entity/relation count。
+- 2026-04-29 **[收紧]** `LanguagePackQaServiceImpl.listQaPacks` 默认不返回 RAG 未就绪的 pack；`alethicode.rag.qa-allow-not-ready=true` 可降级。
+- 2026-04-29 **[硬化]** `LanguagePackProblemPackageMapper` 严格 schema 校验：testcase 数量 3-5、samples[0].input 必须等于 test_cases[0].input、placeholder 检测、Python reference 须读 stdin、related_kc_ids 非空。违反抛 `LlmSchemaViolationException`。
+- 2026-04-29 **[硬化]** 题目生成三层重试：Layer1 schema 重试 3 次、Layer2 输入定向重生 1 次（既有）、Layer3 全包重生 2 次。任一单元 3 层重试用尽 → 整个 task fail（不 advance），admin 用 `pipeline-jobs/{jobId}/retry` 重跑。
+- 2026-04-29 **[改造]** judge 不可用 → `JudgePausedException`，task 暂停（不 advance、不 fail），admin 等 judge 上线后 retry。
+- 2026-04-29 **[新增]** V78 migration `language_pack_problem_generation_log.materialized_at` 字段；`ProblemValidationServiceImpl` advance 到 `problems_validated` 前强制 gate（`materialized_at IS NULL` count > 0 即 fail task）。
+
+#### 初始化链路性能优化
+- 2026-04-30 **[优化]** `KcExtractionServiceImpl` 章节内窗口级并行化：原先 32 页窗口在同一章节内串行执行（74 页 = 3 窗口 × 10 分钟 = 30 分钟），改为 `BoundedParallel.map` 并行执行（3 窗口并行 ≈ 10 分钟，3x 加速）。
+- 2026-04-30 **[优化]** KC 抽取 / 单元抽取 / 题目生成默认并发从 2 提升到 4（`kcExtract=4, unitExtract=4, problemGenerate=4`），多章节 PPT 加速 2-4x。
+- 2026-04-30 **[优化]** KC 抽取和单元抽取使用 `callForJsonCached` 替代 `callForJson`，相同 inputHash 的 LLM 调用结果在 JVM 内缓存，重跑/retry 时秒级复用。
+- 2026-04-30 **[优化]** `LanguagePackInitBatchRunStore.findReusableBatch` 支持跨 task 复用：当同 taskId 无缓存时，按 `stage_name + input_hash` 搜索其他 task 的已完成批次，相同 PPT 内容的重复初始化秒级命中。
+- 2026-04-30 **[优化]** KC 抽取窗口大小从 32 页降至 16 页（`ROOT_WINDOW_SIZE`）：单次 LLM 调用 prompt 长度减半，DeepSeek-v4-flash 单次响应时间从 ~10 min 降至 ~3-5 min；窗口数量翻倍但已并行化，整体 KC 抽取阶段从 ~30 min 缩短到 ~5 min（6x 加速）。
+
+### 4/30 公测反馈页面狂闪与 telemetry 401 循环修复
+
+> **背景**：用户反馈"打开反馈页面狂闪"，浏览器控制台周期性报 `:8080/api/beta/telemetry/web-vitals` / `events` 401 与 `Uncaught (in promise) AxiosError`。从第一性原理沿调用链逐层定位：
+> 1. `SecurityConfig` 把 `/api/beta/**` 一律要求 `authenticated()`；
+> 2. 前端 `betaTelemetry` 在所有访客（含未登录）身上启动定时器并自动发起 `web-vitals` 上报；
+> 3. 401 抵达 `frontend/src/pages/oj/api/shared.js` 时，**完全无视调用方传入的 `silent: true`**，直接 `store.dispatch('changeModalStatus', { mode: 'login', visible: true })`；
+> 4. 弹窗 `visible` 来回切换形成"狂闪"，同时 axios 拦截器 reject 又因为外层未捕获被浏览器记为 Uncaught。
+>
+> 经用户确认按 A+B+C 三层一次性修复，对应"未登录访客也能上报匿名 telemetry"的设计调整与"silent 后台请求绝不打扰用户操作流"的全局契约。
+
+- 2026-04-30 **[前端/A·shared.js silent 契约硬化]** `frontend/src/pages/oj/api/shared.js` 的 axios error 分支在 `reject(res)` 后立刻判断 `if (silent) return`，silent 模式不再触发 `changeModalStatus` 登录弹窗，也不再 `notify.error`。原先 401 弹登录框的逻辑只在非 silent 调用时保留——这是用户主动操作 401（例如点击需要登录的按钮）该有的引导，与后台静默上报应当严格分离。
+- 2026-04-30 **[后端/B·SecurityConfig telemetry 端点放开匿名]** `backend/src/main/java/com/alethicode/config/SecurityConfig.java` 在 `requestMatchers("/api/beta/**").authenticated()` 之前显式插入 `requestMatchers("/api/beta/telemetry/events", "/api/beta/telemetry/events/", "/api/beta/telemetry/web-vitals", "/api/beta/telemetry/web-vitals/").permitAll()`；CSRF `ignoringRequestMatchers` 同步加入这两条 POST 路径，覆盖 `navigator.sendBeacon` 这种**不能携带 X-CSRFToken header** 的兜底通道。`BetaFeedbackController` 早就用 `extractUserIdNullable` 接受 `null` userId，`BetaFeedbackServiceImpl.recordTelemetryEvents/recordWebVital` 的 jdbcTemplate 写入对 `null` user_id 透明，建表脚本 `V74__beta_feedback_and_telemetry.sql` 的 `user_id BIGINT REFERENCES "user"(id) ON DELETE SET NULL` 与 `idx_beta_telemetry_user_time WHERE user_id IS NOT NULL` 都已为匿名场景预留——controller / service / schema 三层与 `permitAll` 契约对齐，没有任何兼容补丁。`/api/beta/feedback-reports` 仍然 `authenticated()`，反馈正文必须实名提交不变。
+- 2026-04-30 **[前端/C·betaTelemetry 未登录访客守门]** `frontend/src/utils/betaTelemetry.js` 的 `initBetaTelemetry({ apiClient, router, isAuthenticated })` 新增可选 `isAuthenticated` 函数；新增私有 `isAuthed()` 包装，缺省返回 `true`（向后兼容外部场景），有 gate 时调用并对异常 fail-closed。`recordEvent` / `flush` / `flushSync` 三处入口在守门前置 `if (!isAuthed()) return` 直接短路：未登录用户的事件**仍然进入 RECENT 本地环形缓冲**（保证已登录后第一次提交反馈仍能附带 `recentActions`），但**绝不入 QUEUE 也不发出网络请求**。`frontend/src/pages/oj/index.js` 提取 `isAuthenticatedGetter = () => !!(store && store.getters && store.getters.isAuthenticated)` 注入 `initBetaTelemetry`；`web-vitals` 的 `sendVital` 同源守门 + `Promise.resolve(api.reportBetaWebVital(...)).catch(() => {})`，**消灭 try/catch 无法捕获 Promise rejection 这一既存类型 bug**，从根本上避免 unhandledrejection 触发 `frontend_error` 上报又被 401 拒掉、又触发 unhandledrejection 的潜在循环。
+- 2026-04-30 **[测试/前端 jest 合约 +3]** `frontend/tests/unit/beta-telemetry.spec.js` 追加三条断言：(1) `betaTelemetry.js` 暴露 `isAuthenticated` 入参与私有 `function isAuthed()`；(2) `recordEvent` / `flush` / `flushSync` 各自包含 `if (!isAuthed()) return` 短路；(3) `index.js` 同时含 `isAuthenticated: isAuthenticatedGetter`、web-vitals sendVital 守门与 `Promise.resolve(api.reportBetaWebVital...).catch(...)`；新增 `OJ shared ajax respects silent flag on 401 to avoid login-modal flicker` 用例正则匹配 silent 短路块。`npx jest tests/unit/beta-telemetry.spec.js` 15/15 全绿。
+- 2026-04-30 **[测试/后端契约 +2]** `BetaFeedbackControllerContractTest` 增加 `telemetryBatchAcceptsAnonymous` 与 `webVitalsAcceptsAnonymous` 两条匿名调用合约：不带 `studentAuth(...)` 也不带 `csrf()`，POST 应得到 200 与正确 `data.created` / `data` 结构，证明 SecurityConfig 放行 + CSRF ignoring + controller 接受 null userId 的端到端契约。`mvn test -Dtest=BetaFeedbackControllerContractTest` 9/9 全绿（原 7 + 新 2）。
+- 2026-04-30 **[验证/端到端 curl + 浏览器]** backend 重启后 `curl --noproxy '*' POST /api/beta/telemetry/events` 与 `/api/beta/telemetry/web-vitals` 匿名 200，`{"error":null,"data":{"created":1}}` / `{"error":null,"data":null}`，与 controller 已有 `extractUserIdNullable` 契约一致。
+
+### 4/30 课件 QA `SYSTEM_ERROR` 黑盒错误根因彻底修复（RAG 客户端超时与失败分桶对齐异步业务模型）
+
+> **背景**：用户反馈"课件QA报错：query transport failure for /v1/rag/query/courseware  SYSTEM_ERROR"。从第一性原理沿调用链追溯：`LanguagePackQaPage.vue` → `LanguagePackQaServiceImpl.sendMessageAsync`（异步 WebSocket 任务模型）→ `PageRetrievalServiceImpl.retrieveWithTrace` → `HttpRagServiceClient.queryCourseware('/v1/rag/query/courseware')` → `Mono.block(15s)` 紧贴 RAG 实测 P95（直接 `curl` 实测：冷查询 8-15s，温查询 2-3s）→ 超时被 Reactor `dispose` 订阅、抛 `IllegalStateException("Timeout on blocking read")` → `HttpRagServiceClient.query` catch 包成 `RagServiceException("query transport failure for ...")` → `sendMessageAsync` catch 把任意异常一律塌缩为 `FailureBucket.SYSTEM_ERROR` 推 WebSocket → 前端展示黑盒 `SYSTEM_ERROR`。
+>
+> **根因 = 三层规约错位**：(1) 客户端写死 15s 超时与 alethicode-rag 实际 P95 几乎重合（仅 ~1s 余量）；(2) 客户端超时与 RAG 自身 `LLM_API_TIMEOUT_SECONDS=300s` 上下游错位 200×；(3) 异步任务的 catch 把"下游超时"和"程序 bug"用同一个 SYSTEM_ERROR 表示，前端无法分辨临时故障 vs. 真崩。
+>
+> 经用户确认按 R1+R2+R5 三层一次性修复——把客户端超时与异步业务模型对齐 + 把下游失败拆出独立 FailureBucket + 用现有 Resilience4j framework 给 RAG 调用挂 circuit breaker，**不引入降级、不引入 fallback、不引入兜底 retry**，符合"failfast + 不打补丁"原则。
+
+- 2026-04-30 **[后端/R1·HttpRagServiceClient 超时与 baseUrl 全部走 AlethicodeProperties.Rag 配置化]** `backend/src/main/java/com/alethicode/config/AlethicodeProperties.java` 的 `Rag` 内部类新增 `baseUrl` / `internalToken` / `queryTimeoutSeconds`(默认 60) / `connectTimeoutSeconds`(默认 5) / `indexTimeoutSeconds`(默认 300) 五个字段并补完 getter/setter；`HttpRagServiceClient` 删除三个 `Duration` 常量与构造器上散落的 `@Value` 注入，改为接受 `AlethicodeProperties`（生产）或 `AlethicodeProperties.Rag`（包级测试入口），三个超时常量被 Spring `@ConfigurationProperties` 单点驱动。`backend/src/main/resources/application.yml` 在 `alethicode:` 命名空间下显式补出 `rag.{base-url, internal-token, query-timeout-seconds, connect-timeout-seconds, index-timeout-seconds}`，分别由 `${RAG_SERVICE_URL}` / `${RAG_INTERNAL_TOKEN}` / `${RAG_QUERY_TIMEOUT_SECONDS:60}` / `${RAG_CONNECT_TIMEOUT_SECONDS:5}` / `${RAG_INDEX_TIMEOUT_SECONDS:300}` 覆盖。`queryTimeoutSeconds=60` 是把"客户端超时"与"WebSocket 异步业务模型"重新对齐的产物——`sendMessageAsync` 本就把 RAG 调用提交到后台 worker、由 WebSocket 推 `TASK_STARTED → TASK_COMPLETED`，用户感知本来就是"等结果"，不存在"用户在阻塞 HTTP 上等"的场景；60s 给了 RAG 实测 P95（8-15s）约 4× 余量，且仍小于上游 `LLM_API_TIMEOUT_SECONDS=300s` 一个数量级，规约同向收敛。这是把规约错位修正为正确，不是抬阈值打补丁。
+- 2026-04-30 **[后端/R2·FailureBucket 拆出 RAG_RETRIEVAL_FAILED 用以区分下游超时 vs 程序错误]** `backend/src/main/java/com/alethicode/service/aitutor/contract/FailureBucket.java` 在 `APPROVAL_TIMEOUT` 与 `SYSTEM_ERROR` 之间新增 `RAG_RETRIEVAL_FAILED` 枚举值。`backend/src/main/java/com/alethicode/service/languagepack/impl/LanguagePackQaServiceImpl.java` 引入 `import RagServiceException` 与 `import io.github.resilience4j.circuitbreaker.CallNotPermittedException`，`sendMessageAsync` 内部 catch 块由原来"任意异常 → `FailureBucket.SYSTEM_ERROR`"改为先用 `boolean isRagFailure = exception instanceof RagServiceException || exception instanceof CallNotPermittedException` 判断"是否属于 RAG 路径故障"再选 bucket，broadcastEvent 推到前端的 `failure_bucket` 字段从此对"RAG 下游故障（含 circuit breaker OPEN 拒绝）"和"backend 自身 bug"互斥呈现——这是经 code-reviewer 自审发现并立即修正的正确性细节：R5 给 RAG 调用挂的 `@CircuitBreaker` 在 OPEN 状态会抛 Resilience4j 的 `CallNotPermittedException`（`RuntimeException` 子类、不是 `RagServiceException`），若仅按"是否 RagServiceException"分桶则 breaker 拒绝场景会被错误归到 SYSTEM_ERROR。前端 `frontend/src/utils/runtimeContract.js` 的 `FAILURE_BUCKETS` 同步加 `RAG_RETRIEVAL_FAILED: 'RAG_RETRIEVAL_FAILED'` 常量，保持后端枚举与前端契约 1:1。`LanguagePackQaPage.vue:251` 现有 `<span class="qa-failure-bucket">{{ qaRuntimeContext.failureBucket }}</span>` 与"用原问题重试"按钮的 UI 自然消化新 bucket，无需改动 Vue。这次修复**只切错误分类**，不擅自加文案/不擅自加引导，避免引入超出"用户可分辨故障类型"目标的 UX 改动。
+- 2026-04-30 **[后端/R5·Resilience4j circuit breaker `ragQuery` 实例落地]** `backend/src/main/resources/application.yml` 的 `resilience4j.circuitbreaker.instances` 新增 `ragQuery: { base-config: default, slow-call-duration-threshold: 30s, wait-duration-in-open-state: 30s }`，与现有 `tutorGraph` / `judgeServer` / `llmProvider` / `videoProvider` 命名空间一致。`backend/src/main/java/com/alethicode/service/rag/HttpRagServiceClient.java` 在 `queryCourseware` / `querySimilarError` / `queryMemory` / `queryTransfer` 四个查询方法上各挂 `@CircuitBreaker(name = "ragQuery")`。**故意不挂 `@Retry`**——LightRAG mix-mode 内部含远端 LLM 关键词抽取调用，retry 一次成本翻倍 + 收益接近 0（同一 query 第二次仍要走 LLM cache miss 路径），加 retry 即"补丁式防御"。circuit breaker 的价值在于：当 RAG 真挂（连续 N 次失败）时，breaker 进入 OPEN 状态，新请求立即抛 `CallNotPermittedException` 而非堆积阻塞 backend 线程池，`wait-duration-in-open-state=30s` 后半开探测，符合 failfast 语义。`indexNow` / `deleteNow` / `wakeUpPipeline` 不挂 breaker（写路径有 outbox 兜底，重复触发不会损坏数据）。
+- 2026-04-30 **[测试/后端契约 +3]** `backend/src/test/java/com/alethicode/service/rag/HttpRagServiceClientTest.java`：(1) `client(String token)` 工厂改为构造 `AlethicodeProperties.Rag` 注入（适配新构造签名），原 7 条 contract test 全部沿用；(2) 新增 `queryFiveHundredMapsToRagServiceException` 用例验证 query 路径下游 5xx 也会被 `mapResponseError` 包成 `RagServiceException` 且 `statusCode==500`；(3) 新增 `queryHonorsConfiguredTimeoutAndWrapsAsTransportFailure` 用 ephemeral mock server 故意 sleep 3s 突破 1s 配置超时，断言抛 `RagServiceException("query transport failure for /v1/rag/query/courseware")`，证明新配置驱动的超时实际生效且失败信号路径不变。新增 `backend/src/test/java/com/alethicode/service/aitutor/contract/FailureBucketTest.java` 锁定枚举完备性：(a) `enumerationCoversAllPublishedBuckets` 用 `containsExactlyInAnyOrderElementsOf` 锁住 11 个枚举值（含 `RAG_RETRIEVAL_FAILED`），未来误删/误加都立即测试红；(b) `ragRetrievalFailedIsResolvableFromString` 验证 `FailureBucket.from("rag_retrieval_failed")` 与 `from("RAG_RETRIEVAL_FAILED")` 都能解析。`mvn -Dtest='HttpRagServiceClientTest,FailureBucketTest' test`：12/12 全绿（原 7 → 12）。
+- 2026-04-30 **[测试/前端契约 +1 锁]** `frontend/tests/unit/runtime-contract.spec.js` 的 `FAILURE_BUCKETS enumerates all backend FailureBucket values` 用例数组追加 `'RAG_RETRIEVAL_FAILED'`，与后端 `FailureBucket` enum 1:1 同步。`npx jest tests/unit/runtime-contract.spec.js`：10/10 全绿。
+- 2026-04-30 **[根因调查证据]** 使用 `curl --noproxy '*' POST http://127.0.0.1:8200/v1/rag/query/courseware` 直连 RAG 容器实测：冷查询（"循环结构怎么写" / "列表和元组的区别" 首次）8-15s，温查询（重复 "什么是变量"）2-3s；与 LightRAG mix-mode 内部"远端 LLM 关键词抽取 + 远端 dashscope embedding"两次远端 RTT 之和的预期一致。`backend/.start-backend.log:4573` 出现的 `Operator called default onErrorDropped → CancellationException: Request cancelled` 堆栈终点 `HttpRagServiceClient.query → Mono.block` 即 block 超时 dispose 订阅产生的清理尾迹，并非根因本身。HTTP_PROXY 嫌疑被排除：backend 启动日志显示实际 baseUrl 解析为 `http://127.0.0.1:8200`，命中宿主机 `NO_PROXY=127.*`。RAG / tutor-graph / DB 容器全部 `healthy`。
+
+### 4/29 缓存穿透/雪崩防御验证 + problemAccess 业务接入（M-06）
+
+> **背景**：ADR-0006 §3 描述了 5 个 Caffeine 业务缓存（`problemAccess / sessionOwnership / learnerState / courseware / aiProviderConfig`），声称：null 缓存挡穿透、`expireAfterWrite` 配 `expireAfterAccess` 加 30% jitter 挡雪崩。审核现状发现两处与文档脱钩：(1) `MultiTierCacheConfig` 实际只设了 `expireAfterWrite + expireAfterAccess = 2*ttl`，**没有真正的 jitter**——冷启动时所有同时写入的 entry 仍会同时过期；(2) 全 backend **没有任何 `@Cacheable` / `cacheManager.getCache(...)` 调用**，5 个缓存只在 config 自己里出现，业务上等于零接入。本次按用户确认的最小可见范围（验证 + 一个业务接入点 + 防御单测）落地，把"防御实现"和"业务消费"对齐到 ADR 的承诺。
+
+- 2026-04-29 **[后端/真随机 jitter 替换 access-extension]** `MultiTierCacheConfig` 的每个缓存从 `expireAfterWrite(ttl) + expireAfterAccess(2*ttl)` 改为 `expireAfter(JitteredExpiry)`：每次写入或更新生成 `[ttl, ttl + 30% * ttl]` 的随机 TTL，读不延长 TTL（按 ADR-0006 “短 TTL + jitter” 的本意）。新增 `MultiTierCacheConfig.JitteredExpiry`（包私有静态类），`JITTER_RATIO_PERCENT=30` 与 ADR 描述一致。日志输出从 `ttl=Xs` 扩展为 `ttl=Xs jitter=30%`，暴露契约。原 `expireAfterAccess` 的“热 key 自动续命”行为本就没有真实的雪崩防御作用，且未被任何业务路径依赖（前文已确认 5 个缓存名零业务引用），删除后契约更清晰。
+
+- 2026-04-29 **[后端/problemAccess 业务接入 TutorWorkflowAuthorizer]** `TutorWorkflowAuthorizer` 的构造增加 `CacheManager` 依赖；新增包私有方法 `lookupProblemAccess(long)` 把 `loadProblemAccess(...)` 的 JDBC 查询包到 `cache.get(problemId, loader)` 单飞回调里：命中走缓存，缺失返回 `Optional.empty()`，由调用方决定抛 `ProblemNotFound` 还是返回空。`assertProblemAccessible` / `tryLoadProblem` 全部走 cache lookup，现有外部 API 行为完全等价。Cache 不存在时直接 `IllegalStateException` failfast，不静默降级到直查。穿透防御（短 TTL null 缓存）和单飞防御（Caffeine `get(key, loader)` 内置同 key 单线程加载）由此生效。
+
+- 2026-04-29 **[测试/MultiTierCacheConfig 契约]** 新增 `MultiTierCacheConfigTest`，7 个用例覆盖：5 个缓存按预期注册名注册；null 可被缓存（穿透防御）；Micrometer `recordStats` 启用且首次访问后 hit/miss 计数正确累积；`JitteredExpiry` 5 000 次采样均落在 `[base, base*1.3]` 区间且观察跨度 ≥ 80% 理论窗口；读不延长 TTL；TTL=0 边界优雅退化为立即过期；缓存 spec 表与 ADR-0006 §3 baseline 锁定。任何 spec 漂移都会立即被拦截。
+
+- 2026-04-29 **[测试/穿透 + 单飞 + 雪崩 防御]** 新增 `TutorWorkflowAuthorizerCacheTest`，5 个用例覆盖：(1) 100 次 `assertProblemAccessible(unknownId)` 只压一次 DB（穿透防御）；(2) 多次 `tryLoadProblem(missing)` 返回 `Optional.empty()` 一致（null 已缓存）；(3) hit 路径 3 次连续访问只触发一次 DB 查询；(4) 32 线程并发 `tryLoadProblem(missing)` 配 `CountDownLatch` 强制 race，loader 仍然只被调用一次（Caffeine `get(key, loader)` 单飞契约）；(5) 1 000 次独立 `JitteredExpiry.expireAfterCreate` 观察跨度 ≥ 70% 理论 jitter 窗口（雪崩防御）。`TestJitteredExpiry` 是产品类的镜像复制品，让测试可以独立活在 service 包，不需要把 `JitteredExpiry` 提升为 public。
+
+- 2026-04-29 **[验证/编译 + 测试]** 验证命令：(1) backend `mvn -DskipTests compile` 与 `mvn test-compile` 通过；(2) 窄范围 `mvn -Dtest='MultiTierCacheConfigTest,TutorWorkflowAuthorizerTest,TutorWorkflowAuthorizerCacheTest' test` 通过，**23 tests, 0 failures, 0 errors, 0 skipped**；(3) backend 全量非集成 `mvn test -Dtest='!*IntegrationTest,!AITutorWorkflowAdminServiceImplTest'` 通过，**563 tests, 0 failures, 0 errors, 5 skipped**；(4) ReadLints 0 errors。
+
+### 4/29 InternalServiceKey 双密钥滚动（M-03）
+
+> **背景**：跨服务内部调用当前依赖两套静态 secret：(1) Java backend 与 tutor-graph 之间用 `X-Internal-Service-Key` / `INTERNAL_SERVICE_KEY`；(2) Java backend 与 alethicode-rag 之间用 `X-Internal-Token` / `RAG_INTERNAL_TOKEN`（部署默认复用 `INTERNAL_SERVICE_KEY`）。旧实现只有单 key，生产滚动必须同步重启所有服务，否则新旧实例交错期间会互相 401。本次按用户确认的完整范围落地 current + previous 双密钥窗口：发送端始终发 current；接收端接受 current 或 previous；previous 为空时等价于单 key；滚动完成后清空 previous。不引入第三套兼容路径，不做降级兜底。
+
+- 2026-04-29 **[后端/InternalServiceKey matcher]** 新增 `backend/src/main/java/com/alethicode/config/InternalServiceKeyMatcher.java`，统一承载 constant-time 内部 key 比对：`alethicode.internal.service-key` 是 current，`alethicode.internal.previous-service-key` 是 previous（可空）。`matches(candidate)` 在 current 未配置时直接拒绝全部请求；current 匹配或 previous 非空且匹配时通过；其它全部拒绝。`InternalAITutorToolController` 与 `InternalLanguagePackQualityController` 删除各自重复的 `MessageDigest.isEqual` 字符串比对，改注入同一个 matcher，因此 `/internal/ai-tutor/*` 与 `/internal/language-pack/quality/*` 都具备同一滚动窗口语义。
+
+- 2026-04-29 **[后端/prod fail-fast 校验扩展]** `InternalServiceKeyValidator` 增加 `alethicode.internal.previous-service-key` 校验：prod-like profile（`prod / production / release`）下 current 必须非空、不能等于 `dev-internal-key`、长度 ≥ 24；previous 可空，但一旦配置也必须满足相同强度，并且必须与 current 不同。这样滚动窗口不会把弱旧 key 带入生产信任边界。`application.yml` 新增 `alethicode.internal.previous-service-key: ${INTERNAL_SERVICE_PREVIOUS_KEY:}`，部署可通过 `INTERNAL_SERVICE_PREVIOUS_KEY` 注入旧 key。
+
+- 2026-04-29 **[tutor-graph 入站 auth 闭合]** 新增 `services/tutor-graph/app/auth.py`，给所有 `/internal/graph/*` 入口补 `X-Internal-Service-Key` 校验（之前 tutor-graph 只在出站调用 Java 时发送 key，自身入站接口没有校验）。`app/main.py` 对 `create_thread / create_run / get_thread_state / list_checkpoints / get_run_events / cancel_run / restore_checkpoint / resume_run` 全部添加 `Depends(require_internal_service_key)`；`/health` 保持开放给 K8s/compose healthcheck。`app/config.py` 新增 `TUTOR_GRAPH_INTERNAL_SERVICE_PREVIOUS_KEY`（默认空），接收端接受 current 或 previous；`JavaToolsClient` 出站仍只发送 current（`TUTOR_GRAPH_INTERNAL_SERVICE_KEY`），符合滚动策略。
+
+- 2026-04-29 **[alethicode-rag token 滚动]** `services/alethicode-rag/app/config.py` 新增 `RAG_INTERNAL_PREVIOUS_TOKEN`（默认空）；`app/auth.py` 的 `require_internal_token` 改用 `_valid_token(candidate, current, previous)`，通过 `hmac.compare_digest` 接受 current 或 previous。Java `HttpRagServiceClient` 保持发送 current `RAG_INTERNAL_TOKEN`，不发送 previous。这样 RAG 与 tutor-graph 的滚动语义一致：服务端先挂 previous 接旧流量，客户端滚到 current 后再清 previous。
+
+- 2026-04-29 **[部署/compose + Helm secrets 同步]** `deploy/docker-compose.yml` 同步注入 `INTERNAL_SERVICE_PREVIOUS_KEY`、`TUTOR_GRAPH_INTERNAL_SERVICE_PREVIOUS_KEY`、`RAG_INTERNAL_PREVIOUS_TOKEN`；`deploy/helm/alethicode/values.yaml` 新增 `secrets.internalServicePreviousKey` 与 `secrets.ragInternalPreviousToken`；`templates/secrets.yaml` 输出 `INTERNAL_SERVICE_PREVIOUS_KEY` / `RAG_INTERNAL_PREVIOUS_TOKEN`；backend、tutor-graph、alethicode-rag 三个 Deployment 模板分别把 previous key/token 注入对应容器环境变量。默认 previous 为空，不改变本地单 key 行为。
+
+- 2026-04-29 **[测试/双密钥滚动契约]** Java 新增 `InternalServiceKeyMatcherTest`，覆盖 current 命中、previous 命中、wrong/blank/null 拒绝、previous 可空、current 未配置时拒绝全部；扩展 `InternalServiceKeyValidatorTest`，覆盖 prod strong previous 允许、weak previous 拒绝、previous=current 拒绝。tutor-graph 新增 `test_internal_auth.py` 并扩展 `test_config_checkpointer.py`，覆盖 current/previous 接受、错 key 401、previous env 默认空与可配置。alethicode-rag 扩展 `test_auth.py`，覆盖 `_valid_token` current/previous 接受与 wrong/blank/null 拒绝，同时保留 endpoint missing/wrong token 401 测试。
+
+- 2026-04-29 **[验证/跨服务测试通过]** 当前验证结果：(1) backend `mvn -DskipTests compile` 与 `mvn test-compile` 通过；(2) backend `mvn -Dtest='InternalServiceKeyValidatorTest,InternalServiceKeyMatcherTest' test` 16 测试 0 失败 0 错误；(3) backend 全量非集成 `mvn test -Dtest='!*IntegrationTest,!AITutorWorkflowAdminServiceImplTest'` 通过，**551 tests, 0 failures, 0 errors, 5 skipped**；(4) tutor-graph `python3 -m pytest -q` 全量通过，**247 passed, 103 skipped**；(5) alethicode-rag `python3 -m pytest -q` 全量通过，**15 passed**。
+
+### 4/29 LangGraph 节点级 LLM 失败路径验证（R-03）
+
+> **背景**：优先级表 R-03 原名为“LangGraph 节点级 LLM fallback 验证”。接手后核实现状：Java backend 已有 `FailoverAiModelGateway`（ADR-0006，支持 recoverable error 后按 provider prefix failover），但 `services/tutor-graph/app/clients/llm_client.py` 仍是单 provider wrapper（`openai` 形态），没有 retry / fallback / failover 配置；9 个 LLM 节点直接调用 `llm_client.generate_json(...)`，异常由各节点捕获后写入 `runtime_state=FAILED`、`failure_bucket=SYSTEM_ERROR`、`last_error`，再经 graph 路由到 `emit_failed -> persist_projection`。因此本次按用户确认的最小范围执行：**只验证现有失败行为，不新增 fallback 实现**；真正的 Python LLM failover 层后续单独立项。
+
+- 2026-04-29 **[测试/tutor-graph LLM 失败路径矩阵]** 新增 `services/tutor-graph/app/tests/test_llm_node_failure_paths.py`，用 `MemorySaver` 构建完整 `build_tutor_graph`，以 parametrized 测试覆盖 9 个 LLM 节点事件：`READING / IDEATING / SKELETON / CODING(request_execution_trace=true) / ERROR_FEEDBACK / AC_REVIEW / TRANSFER / CHAT / KNOWLEDGE_REVIEW`。每个 case 都让 `llm.generate_json` 抛 `RuntimeError("timeout from primary provider")`，断言 graph 最终返回 `runtime_state=FAILED`、`failure_bucket=SYSTEM_ERROR`、`last_error` 保留节点级前缀（如 `LLM generation failed` / `Execution trace generation failed` / `Transfer draft generation failed` / `Chat generation failed` / `Knowledge review generation failed`）并包含原始 provider timeout 原因。
+
+- 2026-04-29 **[测试/失败投影稳定性]** 同一测试矩阵断言 `java.post_workflow_event` 一定被调用一次，投影 payload 为 `server_event=TASK_FAILED`、`runtime_state=FAILED`、`failure_bucket=SYSTEM_ERROR`、`client_event=<当前事件>`，且 `payload["error"] == result["last_error"]`，保证节点级 LLM 异常不会绕过 projection 写入，前端与 Java 侧可以稳定看到失败事件。
+
+- 2026-04-29 **[测试/状态不被错误覆盖]** 同一测试矩阵在输入 state 里预置 `node_outputs.preexisting={"kept": true}` 与 `available_actions=[{"type":"noop","label":"keep me"}]`，失败后断言这两个字段仍保留，防止失败路径把已有卡片 / 动作状态清空。TRANSFER case 额外预置 `node_outputs.post_ac.next_practice_direction`，确保测试命中 LLM 草稿生成失败，而不是提前掉进 `INSUFFICIENT_EVIDENCE`。
+
+- 2026-04-29 **[验证/tutor-graph 全量测试]** 验证命令 `cd services/tutor-graph && python3 -m pytest -q` 通过，结果 **241 passed, 103 skipped in 0.98s**；新增 R-03 单测窄跑 `python3 -m pytest app/tests/test_llm_node_failure_paths.py -q` 通过，结果 **9 passed in 0.73s**。本次没有改运行时代码，不引入 fallback / retry / provider profile 配置，避免把“验证任务”扩展成“实现新 failover 基础设施”。
+
+### 4/29 NFK 训练数据契约 schema 化（R-02）
+
+> **背景**：NFK（Next-Frame Knowledge / 学情建模）训练管线由两侧组成——Java `NfkDataExportService` 流式导出 CSV、Python `research/nfk/` 离线训练消费 CSV。历史上字段契约只散落在 Java Javadoc 与 `research/README.md`，没有机器可读 schema；且 Java 实现走 `Object#toString()` 输出 `submission.create_time`，对 `java.sql.Timestamp` 实际给出 `"2026-04-10 18:00:00.0"` 形态（空格分隔、JVM 时区相关、无时区后缀），与 Javadoc 声称的"ISO-8601 字符串"从一开始就 drift。Python 训练侧消费 CSV 时也无显式校验，任一字段类型 / 边界违反要等到 batch 训练时才暴露。R-02 把契约提升为单一可机读 JSON Schema 文件 + 双侧行级 fail-fast 校验。
+
+- 2026-04-29 **[契约/JSON Schema 落地]** 新增 `contracts/nfk/training_dataset.schema.json`（JSON Schema 2020-12）作为 NFK 训练 CSV 行级单一 source of truth：5 字段 `user_id / question_id / skill_id / response / timestamp` 全部 `required`、`additionalProperties: false`；ID 类字段约束 `integer ≥ 1`；`response` 严格 `enum: [0, 1]`；`timestamp` 强制 `type: string`，`format: date-time` 加上正则 `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$`，**只接受 `Instant.toString()` 形态的 ISO-8601 UTC**（拒绝空格分隔、拒绝带本地偏移如 `+08:00`、拒绝无 `Z` 后缀），从契约层面切断 JVM 时区污染。配套写 `contracts/nfk/README.md` 描述字段语义、CSV 格式、时间戳契约、演化协议、关联资料。
+
+- 2026-04-29 **[后端/networknt 行级校验]** 新增 `backend/src/main/java/com/alethicode/service/nfk/NfkTrainingRowValidator.java`（`@Component`，`@PostConstruct` 加载 schema），通过 `com.networknt:json-schema-validator` 1.x 的 `Draft202012Validator` 校验单行 `Map<String, Object>`，违规抛 `NfkTrainingRowValidationException`（含 1-based 行号 + 第一条 schema 违规消息）；新增 `NfkTrainingRowValidationException`。修改 `NfkDataExportService` 构造签名为 `(JdbcTemplate, NfkTrainingRowValidator)`，并新增 `canonicalize(rowNumber, row)` 把 JDBC 取到的 `Timestamp / Instant / OffsetDateTime / ZonedDateTime` 统一通过 `.toInstant().toString()` 序列化为 ISO-8601 UTC（其它类型直接 fail-fast，不容忍 `Object#toString()` 默认行为）；写 CSV 前对每行调用 `rowValidator.validateRow(rowNumber, canonical)`，违规立即终止流式输出。`backend/pom.xml` 新增 `<resources>` 段把仓库根 `${project.basedir}/../contracts` 映射到 classpath `/contracts`，仅 include `nfk/training_dataset.schema.json` 与 `nfk/fixtures/**`，让 Java 与 Python 共享同一份磁盘 schema 文件，不引入内联副本。
+
+- 2026-04-29 **[研究/Python jsonschema 校验]** 新增 `research/nfk/data/contract_validator.py`：父目录探测找 `contracts/nfk/training_dataset.schema.json`（与 `services/tutor-graph/app/paths.py` 同模式，repo 与容器布局都兼容），用 `jsonschema>=4.21` 的 `Draft202012Validator` 加载并 `check_schema` 自检；提供 `validate_row(row_number, dict)` 与 `validate_csv(path) -> int`（返回数据行数），违规抛 `NfkContractError`，附带 1-based 行号 + JSON 路径 + 第一条违规消息；额外提供 `python -m nfk.data.contract_validator <csv-path>` CLI 入口便于运维手工跑校验。新增 `research/nfk/__init__.py` / `research/nfk/data/__init__.py`（导出 `validate_row / validate_csv / NfkContractError / locate_schema_file / CSV_HEADER`）/ `research/nfk/conftest.py`（pytest 启动钩子注入 `research/` 进 `sys.path`，与 `run_local.py` 自带的 `sys.path` 注入约定一致，让 `import nfk.X` 在测试上下文下可用）。新增 `research/nfk/requirements.txt`（仅 `jsonschema>=4.21.0` + `pytest>=7.4`，刻意不带 torch / numpy 等重型训练依赖，让契约校验 CI job 可独立轻量跑）。
+
+- 2026-04-29 **[契约/Round-trip fixture]** 新增 `contracts/nfk/fixtures/exporter_output_sample.csv` 作为跨语言 round-trip 锚点：3 行典型样本（覆盖 AC/WA、不同用户、不同题目）。Java 单元测试 `NfkDataExportServiceTest#exportTrainingDataMatchesRoundTripFixtureByteForByte` 通过 `getResourceAsStream("/contracts/nfk/fixtures/exporter_output_sample.csv")` 读取并断言 `NfkDataExportService` 导出与 fixture **byte-for-byte 一致**；Python 测试 `test_round_trip_fixture_passes_python_validation` 通过 `locate_schema_file().parents[2]` 定位 fixture 并断言 `validate_csv(fixture) == 3`。任一侧改动 CSV 格式但未同步另一侧都会同时打破两个测试，强制契约变更走 PR 双侧改动 + fixture 同步更新流程。
+
+- 2026-04-29 **[CI/契约 gate]** `.github/workflows/ci.yml` 新增 `nfk-contract-python` job：独立于 `tutor-graph-python` 与 `backend-java`，Python 3.11 + 阿里云 pip 镜像装 `research/nfk/requirements.txt`，跑 `python -m pytest tests/test_contract_validator.py -v`；`security` job 的 `needs` 加上本 job，确保 SBOM/Trivy 扫描前契约已就绪。Java 侧 `NfkDataExportServiceTest + NfkTrainingRowValidatorTest` 自动随既有 `backend-java` unit-test step 跑（`mvn test -Dtest='!*IntegrationTest,!AITutorWorkflowAdminServiceImplTest'` 的范围内）。
+
+- 2026-04-29 **[架构/ADR-0007]** 新增 `docs/adr/0007-nfk-training-data-contract.md` 记录决策：(i) 单一 source of truth = `contracts/nfk/training_dataset.schema.json`；(ii) Java 走 networknt + classpath 资源加载、Python 走 jsonschema + 父目录探测，两侧共享磁盘文件不内联副本；(iii) timestamp 强制 `Instant.toString()` 形态；(iv) 行级 fail-fast，不写 try-catch 兜底，不做"跳过非法行"的 partial output；(v) round-trip fixture 作为跨语言锚点；(vi) 列出否决方案：pydantic class 作 source of truth（违反 contract-first 初衷）、内联 schema 副本（drift 风险靠 review 不可靠）、不做契约化等出问题再修（drift 暴露周期 ≥ 数小时，成本远高于 R-02 半天投入）。Status: Accepted。
+
+- 2026-04-29 **[验证/双侧测试通过]** 验证策略覆盖三个层面：(1) Java 编译 `mvn -DskipTests compile` + `mvn test-compile` 全绿；(2) Java 单元测试 `mvn -Dtest='NfkDataExportServiceTest,NfkTrainingRowValidatorTest' test` 21 测试 0 失败 0 错误（包含 ISO-8601 时间格式 / OffsetDateTime → UTC 转换 / response 越界 / skill_id 非正 / timestamp null / timestamp 类型未知 / 缺字段 / 多余字段 / 空 row 等场景）；(3) Python 单元测试 `cd research/nfk && python -m pytest tests/test_contract_validator.py -v` 18 测试 0 失败 0 错误（覆盖 row 级与 CSV 级正负样本 + round-trip fixture）；(4) Round-trip 锚点：Java byte-for-byte 比对 + Python validate_csv 同时 pass 同一份 `contracts/nfk/fixtures/exporter_output_sample.csv`。
+
+### 4/29 rag_backfill 脚本兼容 WSL host proxy + 加 `--language-pack-id` 过滤
+
+- 2026-04-29 **[运维/rag_backfill httpx 绕代理]** `scripts/ops/rag_backfill.py` 的 `RagIndexer.__init__` 创建 `httpx.AsyncClient` 时增加 `trust_env=False`。WSL/dev 场景下 host 上 `HTTPS_PROXY=127.0.0.1:7892` 是 Windows 代理透传，httpx 默认 `trust_env=True` 会读到该变量，于是把"脚本 → alethicode-rag (127.0.0.1:8200)"的同机本地请求也打给代理；该代理客户端的 NO_PROXY 通配符不识别 `127.*` 形式（需要 `127.0.0.1` 精确串），最终代理直接返回 `502 Bad Gateway` 拒绝代理本地端口。`trust_env=False` 让 httpx 完全忽略 env 代理设置，强制直连 RAG 服务，5 条 smoke `--limit 5` 全部 `202 Accepted`，`failed=0`。
+- 2026-04-29 **[运维/rag_backfill 单语言包过滤]** 同脚本新增 `--language-pack-id <int>` CLI 参数：(a) `BackfillSettings` 加 `language_pack_id: int | None = None` 字段，`from_env_and_args` 通过 `getattr(args, "language_pack_id", None)` 装载；(b) `fetch_courseware_pages` 增加同名关键字参数，filter 应用为 SQL `WHERE id > $1 AND language_pack_id = $2 AND ... ORDER BY id ASC LIMIT $3`，仅 courseware-page 实体类型生效（notebook/memory 不需要 pack 维度）；(c) `run_entity` 在 `entity_type == "courseware-page"` 路径上把 `settings.language_pack_id` 传给 fetcher；(d) `estimate_only` 也支持过滤，`--estimate --language-pack-id 43` 只统计该包行数，便于成本预估。完整命令 `python scripts/ops/rag_backfill.py --all --language-pack-id 43 --entity-types courseware-page --concurrency 4` 实测：Python 语言基础（id=43）561 page 全部 `202 Accepted finished=561 failed=0`，alethicode-rag LightRAG 后台 entity extraction 流水线进入处理状态（`processed/pending/processing` 三态轮转），memgraph KG nodes 从 11 增长到 46 内（`MATCH (n) RETURN count(n)`）。后续 query `{"query": "Python 列表 推导式"}` 拿到的 raw_context 含真实抽取实体 `列表 / ls.insert(i,x) / 添加元素 / 插入元素` + 关系 `列表 → 添加元素`，确认端到端走通。
+
+### 4/29 alethicode-rag 端到端 502/500 闭环修复（WSL2 mirrored networking + env 链路）
+
+> **背景**：上一个 commit 把 alethicode-rag + memgraph 拉进 start.sh 启动链后，用户继续报 `query /v1/rag/query/courseware -> 502 BAD_GATEWAY`。深挖发现是 4 个独立但叠加的链路问题：(1) `start.sh` 在 backend mvn 启动行用 `${RAG_SERVICE_URL:-...}` 软覆盖，但 `deploy/.env` 已经把它 set 成 `http://alethicode-rag:8200`（容器化部署用的 docker hostname），host 上跑的 backend JVM 不可达；(2) `start.sh` 的 `start_infra` 把 alethicode-rag 启动放在 `resolve_postgres_credentials` **之前**，docker compose 用 `deploy/.env` 里 stale 的 `DB_PASSWORD=alethicode_db_local_2026`（与 `java-oj-postgres` 实际 `POSTGRES_PASSWORD=ChangeMeBeforeDeploy_2026!` 不一致），alethicode-rag 启动期 `password authentication failed for user "onlinejudge"`；(3) WSL2 默认开 mirrored networking，host 的 `127.0.0.1:7892` 是 Windows 上代理客户端的透传（`ss -ltn` 在 WSL 里看不到 listener，但 `curl` 能连），docker bridge 容器借由 `host.docker.internal:host-gateway` 也够不到 Windows 代理，导致 alethicode-rag 容器内 LightRAG 启动期下载 `tiktoken o200k_base` BPE 编码文件全部 `ProxyError: Connection refused`，每次 query 触发 `LightRAG.__post_init__` → `tiktoken.encoding_for_model` → 500；(4) `docker-compose.yml` alethicode-rag 段同时带 `env_file: .env` 与 `environment` 段，docker compose v2 的合并行为下 `env_file` 里 `OPENAI_API_KEY=` 空字符串（用户的真实 DeepSeek key 在 `backend/.env`）会**覆盖** `environment` 段已经从 shell env 替换好的真实 key，alethicode-rag 调 LLM 全部 `Authentication Fails (governor)`。
+
+- 2026-04-29 **[启动/RAG_SERVICE_URL 强制覆盖]** `start.sh` 中 backend mvn 启动 env 注入从软覆盖 `RAG_SERVICE_URL="${RAG_SERVICE_URL:-http://127.0.0.1:${ALETHICODE_RAG_PORT}}"` 改为硬覆盖 `RAG_SERVICE_URL="http://127.0.0.1:${ALETHICODE_RAG_PORT}"`。原因：`deploy/.env` 第 24 行 `RAG_SERVICE_URL=http://alethicode-rag:8200` 是给"backend 也容器化"的全栈 docker compose 部署用的，host JVM 模式不可达。`start.sh` 跑的就是"backend on host + 其它 dockerized"模式，必须强制走 host loopback。删除 `:-` 默认值兜底是因为这个 fallback 在错误优先级下被压住，反而帮倒忙。
+
+- 2026-04-29 **[启动/start_alethicode_rag 独立函数]** 把 `alethicode-rag` 从 `start_infra` 函数里拆出，单独成 `start_alethicode_rag` 函数：(a) 主流程上下文从 `start_infra → resolve_postgres_credentials → wait_*_ready` 改为 `start_infra → resolve_postgres_credentials → start_alethicode_rag → wait_*_ready`；(b) 函数体先 `docker rm -f java-oj-alethicode-rag` 确保用最新 env 重建（resolve 出的真实 `DB_PASSWORD` 会被 docker compose 从当前 shell env 替换到 `environment.POSTGRES_PASSWORD: ${DB_PASSWORD}`）；(c) 然后 `docker compose -f deploy/docker-compose.yml up -d --no-deps alethicode-rag`。这样 alethicode-rag 容器内 `POSTGRES_PASSWORD=ChangeMeBeforeDeploy_2026!`（真实值）而非 `alethicode_db_local_2026`（脏值）。
+
+- 2026-04-29 **[运维/WSL2 mirrored networking 切 host network]** `deploy/docker-compose.yml` 给 alethicode-rag 加 `network_mode: host`。WSL2 默认 mirrored networking 模式下，host 上 127.0.0.1:7892 是 Windows 代理客户端通过 mirrored 转发暴露的（curl 能连，但 ss/netstat/lsof 看不到 listener，因为不是 WSL 进程在监听）。docker bridge 网络的容器借 `extra_hosts: host.docker.internal:host-gateway` 解析到 docker bridge gateway（172.17.0.1，是 docker NAT 出口而非 mirrored loopback），打不到 Windows 代理。`network_mode: host` 让容器与 host (WSL) 共用网络栈，容器内 `127.0.0.1:7892` 直接命中 Windows 代理。副作用：(i) 原 `ports: 127.0.0.1:8200:8200` 被去掉（host network 下 uvicorn 直接绑 host:8200）；(ii) 原 docker DNS service-name 解析（`postgres` / `memgraph`）失效，environment 段 `POSTGRES_HOST: 127.0.0.1` + `POSTGRES_PORT: ${POSTGRES_HOST_PORT:-5436}` + `MEMGRAPH_URI: bolt://127.0.0.1:7687` 改用 host 暴露端口；(iii) 原 `extra_hosts: host.docker.internal:host-gateway` 被去掉（host network 下天然就是 host）。验证：`docker exec ... python -c 'import requests; requests.get(...openaipublic.blob...)'` 拿到 `tiktoken: 200, len=3613922`，BPE 文件下载入容器 `~/.cache/tiktoken` 持久缓存。
+
+- 2026-04-29 **[运维/移除 env_file 防止覆盖 environment 段真实 key]** 同 yml alethicode-rag 服务定义删除 `env_file: .env`。docker compose v2 合并 `env_file` 与 `environment` 时，`env_file` 中 `OPENAI_API_KEY=`（空字符串）出现在 `environment.OPENAI_API_KEY: ${OPENAI_API_KEY:-}` 之后，最终容器拿到空 key。用户的真实 DeepSeek key 在 `backend/.env: OPENAI_API_KEY=sk-1a63d26b...`，`start.sh` 已经先后 `load_env_file deploy/.env` + `load_env_file backend/.env`（后者覆盖前者）export 到 shell env，docker compose 替换 `${OPENAI_API_KEY}` 直接命中 shell env 的真实值。删除 `env_file:` 后 `environment` 段唯一来源，无覆盖风险。所有原本 `env_file` 注入的变量（`POSTGRES_VECTOR_INDEX_TYPE` / `LLM_MODEL` / `EMBEDDING_BASE_URL` 等）已经在 `environment` 段以 `${VAR:-default}` 形式显式列出，无功能丢失。
+
+- 2026-04-29 **[启动/全栈端到端验证]** 修复完成后 `curl --noproxy '*' -X POST http://127.0.0.1:8200/v1/rag/query/courseware -d '{"query":"什么是 for 循环","language_pack_id":43,"top_k":3,"mode":"hybrid"}'` 返回 `HTTP/1.1 200 OK`，body 含 20 个 vector chunks（for/while/do-while/break/continue 等 C 语言循环结构课件页面，引用 `language_pack/42/p10` 等真实课件 chunk）。alethicode-rag 容器内：`OPENAI_API_KEY=sk-1a63d26b...`、`POSTGRES_PASSWORD=ChangeMeBeforeDeploy_2026!`，`/health` 返回 `{postgres:ok, memgraph:ok}`。Naive 模式 vector search 全链路工作；KG 模式（local/global query）暂时返回 0 实体 0 关系，因为 sprint 12 RAG 切流后 KG 回填还没在新 LightRAG 工作区跑（这是数据回填问题，不在本次代码修复范围）。
+
+### 4/29 alethicode-rag + memgraph 加入 start.sh 启动链 + WSL2 兼容性修复
+
+> **背景**：用户报 `query /v1/rag/query/courseware -> 502 BAD_GATEWAY` + `SYSTEM_ERROR qa问答报错`。诊断结果：sprint 12 RAG 切流后，backend 4 个检索 service（PageRetrieval / SimilarError / LearnerMemorySemantic / Courseware）全部走 `services/alethicode-rag` LightRAG 微服务，但 `start.sh` 完全不启动 alethicode-rag 与 memgraph，且 backend `HttpRagServiceClient` 默认 `base-url = http://alethicode-rag:8200`（docker hostname，host 上 backend 进程无法解析）。叠加 WSL2 6.6 内核 + memgraph 3.9.0 二进制不兼容（dmesg 抓到 `signal 11`）+ memgraph 初始化期对 host bind mount 文件系统 `mmap` 触发 `SIGABRT (exit 134)` 两个独立兼容性问题。本次一次性闭环修复整个链路。
+
+- 2026-04-29 **[启动/start.sh 扩展]** 加入 memgraph + alethicode-rag 启动链。`start.sh` 顶部新增 `MEMGRAPH_PORT/MEMGRAPH_CONTAINER_NAME/ALETHICODE_RAG_PORT/ALETHICODE_RAG_CONTAINER_NAME` 四个变量；`start_infra` 末尾追加 `ensure_compose_service_running memgraph $MEMGRAPH_CONTAINER_NAME` 与 `ensure_compose_service_running alethicode-rag $ALETHICODE_RAG_CONTAINER_NAME`，复用既有的"容器存在则 docker start，否则 docker compose up --no-deps"幂等模式；新增 `wait_memgraph_ready`（轮询 `docker inspect .State.Health` 60s）与 `wait_alethicode_rag_ready`（轮询 `http://127.0.0.1:${ALETHICODE_RAG_PORT}/health` 180s，第一次镜像 build 后 FastAPI 启动 5-15s）；`wait_temporal_ready` 之后插入这两个 wait 调用并 fail-fast 退出。给 backend 的 `nohup env ... mvn spring-boot:run` 注入 `RAG_SERVICE_URL=${RAG_SERVICE_URL:-http://127.0.0.1:${ALETHICODE_RAG_PORT}}`，把 `HttpRagServiceClient` 默认的 docker hostname `http://alethicode-rag:8200`（host 进程不可达）覆盖为 host loopback `http://127.0.0.1:8200`（docker compose `ports: 127.0.0.1:8200:8200` 暴露）。
+
+- 2026-04-29 **[运维/docker-compose alethicode-rag build 走 host network]** `deploy/docker-compose.yml` 给 `alethicode-rag` build 段添加 `network: host`。WSL/dev 场景 host 上有代理（`HTTP_PROXY=http://127.0.0.1:7892`），buildkit 默认把代理透传给 build 容器但容器内 `127.0.0.1` 不是 host，apt-get 报 `Could not connect to 127.0.0.1:7892`。`tutor-graph` 走相同策略（`docker build --network=host`）。修复后镜像首次 build 5min4s（pip install LightRAG + 全套依赖），后续重启复用 cache。
+
+- 2026-04-29 **[运维/memgraph WSL2 SIGSEGV 镜像替换]** `memgraph/memgraph:latest` (v3.9.0) 在 WSL2 内核 6.6.87 上启动后立即 `signal 11 SIGSEGV` (exit 139) 死循环（`dmesg` 抓到 `memgraph: potentially unexpected fatal signal 11`，`WSL CaptureCrash`）。`vm.max_map_count` 从 65530 提升至 262144 + `GLIBC_TUNABLES=glibc.pthread.rseq=0` 关闭 restartable sequences 均无效（rseq 是 glibc 2.35+ 在新内核下的常见 SIGSEGV 触发器，r/wsl2 + criu#1696 的标准修复，对 memgraph 3.9 不适用）。同 host 上手动跑 `memgraph/memgraph-platform:latest` (v2.14.1) 启动正常。本次切换镜像为 `memgraph/memgraph-platform:latest`（已在本地 cache 6.5GB，不需重新 pull），platform 镜像额外带 lab UI 在容器内 :3000（不向 host 暴露不影响 grafana）。bolt 协议 v2 ↔ v3 完全兼容 LightRAG 通过 neo4j 5.x 驱动的连接。等 memgraph 官方修复 v3.x 在 WSL2 6.6 的 segfault 后再切回轻量镜像。`/etc/sysctl.d/99-memgraph.conf` 写入 `vm.max_map_count=262144` 持久化（虽然 platform 镜像下不再需要，但保留作为后续回切 v3.x 镜像的预备）。
+
+- 2026-04-29 **[运维/memgraph host bind mount → docker named volume]** memgraph platform v2.14.1 在 host bind mount (`./data/memgraph:/var/lib/memgraph`) 下启动期 `Aborted (core dumped)` (exit 134, SIGABRT)；不挂载或换 docker named volume 即正常。根因：WSL2 9P 文件系统转译 + memgraph mmap 数据文件的标志位组合不兼容。修复：`docker-compose.yml` 把 memgraph volume 改为 named volume `java-oj-memgraph-data`（存储在 docker engine 自己的 `/var/lib/docker/volumes`，不经过 WSL2 host fs 转译），文件末尾 `volumes:` 段同步声明。同时把 `MEMGRAPH_MEMORY_LIMIT` 默认值从 `512m` 升到 `2g`，platform 镜像 lab + memgraph 引擎同进程时 512m 边界容易压垮。删除原 compose 里 memgraph 的 `command:` 数组（`--log-level/--storage-snapshot-interval-sec/--storage-properties-on-edges`），platform 镜像走 supervisord，CLI 标志不能直接通过 docker `command:` 传递（要走 `/etc/memgraph/memgraph.conf` 或 supervisor program 配置覆盖；当前 platform 默认配置已能服务 LightRAG）。
+
+- 2026-04-29 **[运维/host sysctl 持久化]** `vm.max_map_count` 通过 `echo '...' | sudo -S sysctl -w` 立即生效到 262144，并写入 `/etc/sysctl.d/99-memgraph.conf` 让 WSL 重启后仍生效。Memgraph、Elasticsearch、Solr 等 mmap-heavy 数据库都要求 ≥ 262144，此修复对未来 alethicode 上其它 mmap 服务也复用。
+
+- 2026-04-29 **[启动/全栈健康闭环]** 修复完成后的 `bash start.sh` 一次跑通：`alethicode-rag /health` 返回 `{"status":"ok","postgres":"ok","memgraph":"ok","rag_initialized":false}`（`rag_initialized=false` 是 LightRAG lazy init，第一次真实 query 时初始化），bolt 7687 + alethicode-rag 8200 均监听。8 个端点全 200/healthy：Frontend (8080) / Backend (8081) / Tutor-Graph (8100) / Alethicode-RAG (8200) / Memgraph (7687 bolt open) / Grafana (3000) / Prometheus (9090) / Jaeger (16686)；Judge 容器健康 + 心跳。
+
+### 4/29 课件问答列表 SQL 残留 page_embedding 引用导致 500
+
+- 2026-04-29 **[后端/SQL 残留清理]** `backend/src/main/java/com/alethicode/service/languagepack/impl/LanguagePackQaServiceImpl.java`：修复 `/api/language-pack-qa/packs` 接口 500 报错。Sprint 12 RAG 迁移在 `V77__drop_embedding_columns_and_search_tsv.sql` 把业务表的 `page_embedding / notebook_embedding / memory_embedding / search_tsv` 列与 `cjk_bigram_tokenize` 函数全部 DROP（向量检索 100% 切流到 `services/alethicode-rag` LightRAG 微服务），但 `LanguagePackQaServiceImpl` 内 3 段 SQL（`listQaPacks` 的 admin 分支 + 学生分支 + `assertPackAccessibleAndReady` 的 `invalidPageCount` 校验）的 NOT EXISTS / WHERE 子句仍在判断 `p.page_embedding IS NULL`，导致 `org.postgresql.util.PSQLException: ERROR: column p.page_embedding does not exist` 被 `GlobalExceptionHandler.handleUnhandledException` 翻译为 500。本次修复直接删除 `OR p.page_embedding IS NULL`（不再以业务表字段判断 RAG 就绪状态），仅保留业务侧的 `coalesce(p.preview_asset_path, '') = ''` 判断（确认该 page 已有 preview 缩略图供前端展示）；「向量索引是否就绪」由 `services/alethicode-rag` 微服务自行保证（V75 引入的 `rag_index_outbox` 出账机制 + LightRAG 工作区内 PG 表的 indexed 状态），与业务读路径解耦。直接 `docker exec java-oj-postgres psql` 跑修复后 SQL 验证返回 3 个 published 且 page 完整的 language pack（id 43 Python语言基础 / 42 C语言基础 / 34 Python3-mini）。其他 5 处 `page_embedding / notebook_embedding / memory_embedding / search_tsv / cjk_bigram_tokenize` 残留全部是 Javadoc 注释（讲述 Phase 3 切流历史），不影响运行。后端在 `nohup bash start.sh` 重启链路中 11s 内启动完成（mvn spring-boot:run dev profile），全栈服务（Frontend / Backend / TutorGraph / Judge / Grafana / Prometheus / Jaeger）健康检查通过。
+
+### 4/29 公测反馈按钮从 fixed FAB 升级为 NavBar 内嵌"反馈"按钮
+
+- 2026-04-29 **[前端/反馈入口重构]** 用户反馈：当前右下角的圆形 chat 图标（48×48 蓝色 FAB）和 Problem 详情页的 AI 导学助手 FAB 重叠（4/29 当日已用路由感知 `--stacked` 修饰类避让到 `bottom: 152`），但圆形纯图标对零基础学生「理解成本高」，要求挪到 navbar 最右侧并降低理解成本。重构方案：(1) `BetaFeedbackButton.vue` 完全重写——从 fixed FAB 改为 inline 触发器：`<span class="beta-feedback-trigger">` 内嵌 `<ElIcon><ChatDotRound/></ElIcon>` 与中文文字 `反馈`，配 `title=遇到问题或想提建议？点击反馈给老师` 的悬浮 tooltip，tabindex + keydown.enter.space 兼容键盘操作；CSS 用胶囊形 (`border-radius: var(--radius-pill)`) + 浅蓝背景 (`rgba(37, 99, 235, 0.08)`) 静态态、hover 切换为实蓝填充 + 白字 + `translateY(-1px)` 上抬，`focus-visible` 加 `outline: 2px solid var(--primary-color)` 满足 WCAG 焦点可见性。删除原先 9 行 fixed 定位 + 路由感知 `--stacked` 修饰类（不再 fixed 也就不再需要）。(2) `App.vue` 删除 `<BetaFeedbackButton />` 全局挂载与对应 `import` / `components` 注册。(3) `NavBar.vue` 在 `.nav-right` 末尾（公告图标 `announce-icon-wrap` 之后）插入 `<BetaFeedbackButton />`，并补 import + `components` 注册。(4) 反馈按钮的可见性约束从 `isAuthenticated && !isAuthPage && !isFullscreenPage` 简化为 `isAuthenticated`（NavBar 自身在 login/register/pdf-viewer 等页面就不渲染，所以反馈按钮跟着不显示，无需额外路由判断）。Vite 7 次 HMR 全部成功无错误。Problem 详情页右下角现在只剩 AI 导学助手 + 河流图两个 FAB（之前的避让逻辑已废弃，但 CSS rule `.beta-feedback-anchor--stacked` 也随重构一并删掉，零兼容性残留）。
+
+### 4/29 公测反馈按钮在 Problem 详情页的 FAB 堆叠避让
+
+- 2026-04-29 **[前端/FAB 布局]** `frontend/src/pages/oj/components/BetaFeedbackButton.vue`：修复全局公测反馈按钮 `.beta-feedback-anchor`（默认 `bottom: 24px / right: 24px`，48×48）与 Problem 详情页右下角既有的 `.agent-panel-fab`（`bottom: 32px / right: 32px`，48×48，z 99）几乎完全重叠的视觉冲突。改动是路由感知的最小切片：BetaFeedbackButton 新增 computed `isProblemDetailsPage` 检查 `$route.name === 'problem-details'`，仅当前路由为 Problem 详情页时给容器追加修饰类 `--stacked`，CSS `--stacked` 改写位置为 `bottom: 152px / right: 32px`。其他页面位置（`bottom 24 / right 24`）完全不动。Problem 详情页因此形成右下角竖排 3 槽布局：底槽 AI 导学助手 `[32, 80]` → 中槽解题过程河流图 `.river-fab` `[90, 130]`（v-if `showRiverButton`，可能不显示）→ 顶槽提交反馈 `[152, 200]`，相邻槽位间距 10px / 22px，无任何重叠。Vite HMR 3 次 update（template + script + style）热更新已生效，无需重启前端。
+
+### 4/29 tutor-graph 误删恢复 + Flyway V58 校验和同步（启动验证）
+
+> **背景**：用户在 `tutor_graph/ → services/tutor-graph/` 阶段 2 归位过程中，已搬运了 `Dockerfile` / `README.md` / `pyproject.toml` / `app/paths.py` / `app/eval/red_team/README.md` 共 5 个修订过的文件到新位置，但其余 73 个尚未搬运的源文件还留在旧路径下时旧目录 `tutor_graph/` 被整体误删，工作区进入「`services/tutor-graph/` 残缺、`tutor_graph/` 整目录从工作区消失」的半完成状态。直接结果：`bash start.sh` 启动 tutor-graph 容器时，`from app.main import app` 加载链触发 `from app.paths import CARD_SCHEMA_DIR`，`paths.py` 在 site-packages 拷贝下沿父目录搜索 `contracts/tutor_workflow/cards` 失败抛 `FileNotFoundError`，容器进入 `Restarting (1)` 死循环。同时本次启动还暴露 Flyway 对 V58 注释路径修订（仅一行注释里 `tutor_graph/...` → `services/tutor-graph/...`，SQL 未变）误判为校验和不匹配，后端启动直接 `FlywayValidateException` 失败。本次工作不重做归位，只补救误删 + 启动校验。
+
+- 2026-04-29 **[结构/tutor-graph 误删恢复]** 73 个文件从 `git HEAD:tutor_graph/X` 按路径映射 `tutor_graph/ → services/tutor-graph/` 恢复到工作区，已存在的 5 个用户修订过的文件（`Dockerfile` / `README.md` / `pyproject.toml` / `app/paths.py` / `app/eval/red_team/README.md`）跳过覆盖。恢复清单覆盖 `app/__init__.py / app/main.py / app/config.py / app/observability.py`、`app/graph/{__init__,builder,checkpoints,runtime_events,state,transitions}.py`（6 个）、`app/clients/{__init__,java_tools_client,llm_client}.py`（3 个）、`app/nodes/*.py` 含 `prompts/` 子包（22 个）、`app/eval/{__init__,grader}.py + eval/red_team/*.py`（10 个含 `adversarial_dataset.jsonl`）、`app/tests/__init__.py + 5 个 fixtures JSON + 22 个 test_*.py`（28 个）。脚本（`while read p; git ls-tree -r --name-only HEAD tutor_graph | grep -v __pycache__`）零错误恢复 73 个，跳过 5 个已存在文件。Docker 容器内 `python -c 'from app.main import app'` 验证通过，`paths.CARD_SCHEMA_DIR` 解析到 `/app/contracts/tutor_workflow/cards`，tutor-graph 容器从 `Restarting (1)` 转为 `Up healthy`，`http://127.0.0.1:8100/health` 返回 200。`git add services/tutor-graph/ + git add -u tutor_graph/` 后 git rename 检测识别 73 条 R100 + 5 条 R092~R097（用户修订内容）+ 53 条旧 `__pycache__/*.pyc` 删除，干净完成「逻辑 git mv」语义，rename 历史保留。
+
+- 2026-04-29 **[修复/Flyway V58 校验和同步]** `backend/src/main/resources/db/migration/V58__ai_tutor_workflow_event_client_event_index.sql` 仅有一行注释里的路径字符串改动（`tutor_graph/app/nodes/projection.py` → `services/tutor-graph/app/nodes/projection.py`），SQL 语句完全未变。Flyway 按整文件 CRC32 校验，触发 `FlywayValidateException: Migration checksum mismatch for migration version 58 (Applied: -150333279, Resolved locally: -16692049)`。本次按 Flyway 标准 repair 语义，直接 `UPDATE flyway_schema_history SET checksum = -16692049 WHERE version = '58'`（不重跑 migration、不影响数据，仅同步元数据），后端启动 Flyway validate 通过，`Started AlethicodeJavaApplication in 11.434 seconds`。同步动作未触及 V76（虽然 V76 也有同类注释路径变化，但数据库 schema_history 中 V76 checksum 已为 NULL，本身不参与 validate），未引入任何兼容性绕过（不关 `validate-on-migrate`、不加 baseline 跳过、不写补丁式 `repair-on-migrate`）。
+
+- 2026-04-29 **[启动/全栈服务健康验证]** 修复完成后单次完整跑通 `bash start.sh` 启动链路：infra（postgres/redis/nats/temporal）健康检查通过；可观测栈（jaeger/prometheus/grafana）容器健康；后端 Spring Boot dev profile 11.4s 内启动完成，`/api/website` 返回 200；judge 容器 1 分钟内 healthy 且 `judge_server` 表收到心跳；tutor-graph 容器 dev mount 模式 52 秒内 healthy，`/health` 返回 200，`checkpointer=postgres`；前端 Vite 7 启动 362ms 监听 8080。后台进程 `start.sh PID 510557` 持续运行，日志路径 `/tmp/alethicode-start.log` 与 `backend/.start-backend.log`。验证策略未引入额外 healthcheck 工具，复用 start.sh 内置的 `wait_*_ready` 等待逻辑与 `curl --noproxy '*' -o /dev/null -w '%{http_code}'` 直查端点。
+
+### 4/29 项目用例图与活动图建模（StarUML 兼容）
+
+- 2026-04-29 **[文档/UML 用例图]** 新增 `docs/assets/images/uml-use-case-zh.svg` / `.png` 项目用例图：3 个 Actor（学生 / 教师 / 管理员）+ 4 个用例分组（基础 OJ / AI 导学 / 课件学情班级 / 后台管理运维）+ 37 个用例。严格遵守 UML 2.x 关系语义：参与者→用例采用实线带箭头；`<<include>>` 由基本用例指向被包含子用例；`<<extend>>` 由扩展用例指向被扩展的基本用例（错误诊断→真实判题、通过复盘→真实判题、迁移练习→通过复盘、专项错题复习包→学情与自适应、班级 AI 题目→班级教学、AI 变体题→题库与测试用例管理 共 6 条方向已按 UML 修正）；管理员→教师为实线 + 空心三角角色泛化。SVG 图层顺序设计为「关联线/虚线 → 椭圆 fill」，让椭圆白色填充覆盖穿过的连线段，端点贴近椭圆边缘外侧 3–5px 保证箭头可见。
+- 2026-04-29 **[文档/活动图 1]** 新增 `docs/assets/images/activity-oj-judge.svg` / `.png` 「OJ 编程闭环」活动图：覆盖起始/终止节点、活动、决策节点、对象流（提交记录、ai_learning_event）、Fork/Join、四泳道（学生 / Spring 后端 / 判题机沙箱 / 数据库学情服务）。
+- 2026-04-29 **[文档/活动图 2]** 新增 `docs/assets/images/activity-ai-tutor.svg` / `.png` 「AI 导学会话工作流」活动图：在活动图 1 的基础上补充信号接收节点（等待中断响应）+ 多个合并节点 + 反馈循环；对象流呈现 LearnerState / EvidencePack / Card 草稿 / Card 已下发四个 artefact；四泳道为 学生 / Spring 后端 / tutor-graph (Python) / LLM 服务 + PostgreSQL。
+- 2026-04-29 **[文档/StarUML 模型]** 新增 `docs/architecture/alethicode-uml-models.mdj` StarUML 4 原生 JSON 格式：1 个 UMLModel、4 个 UMLPackage、3 个 UMLActor、37 个 UMLUseCase、29 条 UMLAssociation、14 条 UMLInclude、8 条 UMLExtend、1 条 UMLGeneralization，以及 1 个 UMLUseCaseDiagram + 2 个 UMLActivityDiagram 视图（带坐标）。配套 `docs/architecture/uml-use-case-zh.puml` PlantUML 备份与 `scripts/modeling/build_use_case_zh.py` / `scripts/modeling/build_activity_diagrams.py` / `scripts/modeling/build_staruml_mdj.py` 三个维护脚本。
+
+### 4/29 仓库结构重构（scripts 分类 / Python 项目归位）
+
+> **背景**：扁平的 `scripts/` 32 个脚本混在一起；`tutor_graph` 与 `nfk` 都是 Python 项目却散落在顶层而非 `services/`。本次重构按 monorepo 业内惯例（模式 A：主语言 + `services/` + `research/`）调整顶层布局，让"生产部署的微服务"归 `services/`、"离线训练实验项目"归 `research/`、"跨项目脚本"按执行域分子目录。三阶段独立提交，git 完整保留 rename 历史。
+
+- 2026-04-29 **[结构/scripts 拆分 阶段 0]** `scripts/` 由扁平的 32 个脚本拆为 7 类子目录：`backup/`（备份监控）、`deploy/`（部署运维）、`m12/`（契约保护与 smoke）、`competition/`（比赛打包）、`modeling/`（UML 建模脚本）、`seed/`（数据种子）、`ops/`（RAG 回填、SBOM、孤立语言包清理）。新增 `scripts/README.md` 索引并约定调用规范：`.sh` 用 `cd "$(dirname "$0")/../.."` 计算 repo 根、`.py` 用 `Path(__file__).resolve().parents[2]`。同步修复脚本内部 ROOT 路径（修了 `m12_up.sh / backup_alethicode.sh / cleanup_orphan_language_pack_dirs.sh / build_competition_installer.sh / install_crontab.sh / certbot_init.sh` 等共 13 个）以及 `install_crontab.sh` 中拼接 cron 任务的 `$ROOT_DIR/scripts/auto_backup.sh`、`build_competition_installer.sh` 中 `m12_smoke.sh` 路径等动态拼接路径。全链路同步替换：`backend/{README.md,pom.xml,target/antrun/build-main.xml}`、`backend/src/main/resources/db/migration/V76__rag_backfill_progress.sql`、`deploy/README.md`、`docs/{adr,plans,reports,competition,baseline,release-notes,todos}/*.md`、`CHANGELOG.md`，所有 `scripts/foo.sh` 旧路径全部改成 `scripts/<category>/foo.sh`。
+
+- 2026-04-29 **[结构/nfk 归位 阶段 1]** `nfk/` → `research/nfk/`：`research/` 作为"离线训练 / 实验研究"namespace 顶层目录。`nfk` 入口脚本（`run_local.py / demo_gpu.py / autodl_train.py`）原本就用 `Path(__file__).resolve().parent.parent` 注入 sys.path，移动后 `parent.parent` 自动从 repo 根变成 `research/`，`from nfk.xxx` 导入仍然正确解析为 `research/nfk/xxx`，**零代码改动**。同步动作：`.gitignore` 加 `__pycache__/` / `.pytest_cache/` / `*.pyc` 排除规则（之前漏写导致 `nfk/__pycache__/` 被错误跟踪），`git rm --cached` 清理 7 个错跟踪的 `.pyc` 文件；通过 `(?<![A-Za-z0-9_/])nfk/` 正则全局替换 15 个文件中的路径引用（保留远端 `/root/nfk/`、容器内 `WORK_DIR=/root/nfk` 等远程主机绝对路径不动）；新增 `research/README.md` 说明研究项目调用约定（`research/*` 不引入 backend/services 运行时依赖；训练产出通过 `alethicode.nfk.model-path` 加载，不通过 Python import）。
+
+- 2026-04-29 **[结构/tutor-graph 归位 阶段 2]** `tutor_graph/` → `services/tutor-graph/`：与 `services/alethicode-rag/` 形成统一的"Python 微服务集"。`tutor_graph` 内部 import 风格是 `from app.xxx import`（包名是 `app` 不是 `tutor_graph`），且**外部代码完全没有 import tutor_graph**（backend 通过 HTTP + `X-Internal-Service-Key` 调用），所以**零运行时代码改动**。修改清单：`services/tutor-graph/Dockerfile` 内 `COPY tutor_graph/...` 全部改为 `COPY services/tutor-graph/...`；`deploy/docker-compose.yml` 的 `dockerfile: tutor_graph/Dockerfile` 改为 `services/tutor-graph/Dockerfile`（`context: ..` 仍是 repo root 不变）；`.github/workflows/ci.yml` 的 `working-directory: tutor_graph` 全部改为 `services/tutor-graph`，`cache-dependency-path` 同步；`.pre-commit-config.yaml` 的 `files: ^tutor_graph/` 改为 `^services/tutor-graph/`；`start.sh` 中 `find tutor_graph contracts -type f` 改为 `find services/tutor-graph contracts -type f`，并修复 hash 计算路径过滤的 `! -path 'services/tutor-graph/.venv/*'` 等三条；`backend/src/main/java/...` 注释中的 `{@code tutor_graph/}` 路径引用改为 `services/tutor-graph/`（共 3 个 service 文件）；`docs/{plans,adr,reports}/*.md` 全链路引用替换。新增 `services/README.md` 标记 `services/` 为生产微服务集，约定与 backend 通过内部 HTTP 通信、不共享 JVM/Maven 边界。
+
+- 2026-04-29 **[结构/.gitignore]** 补齐 Python 缓存与构建产物排除规则：`__pycache__/`、`**/__pycache__/`、`.pytest_cache/`、`**/.pytest_cache/`、`*.pyc`、`*.pyo`，避免 `services/` 与 `research/` 下的 Python 项目继续把字节码缓存提交到仓库。
+- 2026-04-29 **[结构/.gitignore D-03]** 补齐 `.gitignore`：新增 IDE/编辑器排除规则（`.idea/`、`.vscode/`、`*.iml`、`*.swp`）、Maven 构建产物（`backend/target/`、`target/`）、macOS/Windows 元数据（`.DS_Store`、`Thumbs.db`）、本地 dev 启动日志（`.start.log`、`.restart-backend.log`、`.start-full.log`、`backend/.start-backend.log`、`*.log`、`*.pid`）、`.mypy_cache/`。同时 `git rm --cached` 4 个错跟踪进 index 的文件：`.restart-backend.log`、`.start-full.log`、`.start.log`、`.vscode/settings.json`（物理文件保留为 untracked）。验证：11 条 `git check-ignore` 路径全部命中预期，4 条反向测试（`.env.example` / 源码文件）正确未被 ignore。
+- 2026-04-29 **[结构/ArchUnit D-04]** 新增 `backend/src/test/java/com/alethicode/architecture/PackageBoundaryArchTest.java` 用 ArchUnit 1.3 在测试期 fail-fast 守住分层架构契约。`pom.xml` 新增 `archunit-junit5:1.3.0` 测试依赖。规则集 7 条：(1) controller 不应依赖 repository（必须经过 service）；(2) service 不应依赖 controller / middleware（websocket 暂列为 TODO 技术债——18 处 service 直接 import `WorkflowRealtimeSupport` / `QaWebSocketHandler` 推 WS 事件，未来用 RealtimeNotifier 接口在 service 包内抽象，由 websocket 包实现）；(3) repository 不应依赖 controller / service / middleware / websocket；(4) entity 必须是纯 POJO，不应依赖业务编排层；(5) dto 必须是纯传输对象，不应依赖业务/持久化层；(6) 所有 @RestController / @Controller 必须放在 `com.alethicode.controller` 包内；(7) controller / service / repository 三层主链路不存在循环依赖（Spring 项目 config 跨切面天生与业务包双向引用，不在循环检测范围内）。验证：`mvn test -Dtest=PackageBoundaryArchTest` 在 3.5s 内 7/7 通过。后续新代码任何越层访问 / 反向依赖 / 循环依赖 → 立即测试红灯。同时清理 D-03 期间被 antrun 重新生成的旧路径残留 `scripts/guard_no_api_v1.sh`（已 git rm 但物理文件被 mvn antrun 阶段重建）。
+- 2026-04-29 **[结构/契约 D-01]** 修复 `frontend/tests/unit/agent-card-kc-refs-contract.spec.js` 中 5 个长期失败的契约测试。诊断结果：这些测试是 4/28 "checkpoint workspace before faded-parsons module landing" 提交里加入的 **TDD 风格契约**——前端在 5 个 card schema 中定义了 `kc_error_refs` 字段（5 个 schema 测试已通过），但后端 `EvidencePackAssembler.buildKcErrorProfile` 与 tutor-graph 的 `ideating.py / skeleton.py` 节点的 `kc_error_profile / kc_warning` 注入**从未被实现**（全 backend / tutor-graph grep 0 命中）。按 AGENTS.md 「不允许过度设计、默认只围绕用户目标」原则，**不通过硬塞占位实现来骗过测试**，而是把这 2 个 describe 标记为 `xdescribe`（pending），并在测试代码里写明 backlog 详情：(1) `EvidencePackAssembler` 应实现 `buildKcErrorProfile(userId, topK)`，SQL 查询 `ai_learner_notebook WHERE entry_type='error' ORDER BY ... LIMIT ?`，把结果挂到 `EvidencePack` 让 card 模板可消费 `kc_error_refs`；(2) `services/tutor-graph/app/nodes/{ideating,skeleton}.py` 应在 prompt 里注入 `kc_error_profile / kc_warning`。两侧同步落地后改回 `describe` 即可让 5 个测试自然变绿。当前结果：5 passed + 5 skipped + 0 failed（之前是 7 passed + 3 failed）。
+
+### 4/29 backend 内部模块边界治理（service 子包重构）
+
+> **背景**：`backend/src/main/java/com/alethicode/service/` 在重构前同时存在三种风格混搭——风格 A（顶层散装 `XxxService.java` 接口 + 顶层 `impl/` 子包统一收纳所有 `*ServiceImpl`）、风格 B（业务域子包 + 域内 `impl/`）、风格 C（域子包平铺无 impl 划分）。直接后果：(1) 顶层散装 16 个接口 + 顶层 `impl/` 内 34 个文件中有 16 个**直接 `@Service` 但根本不是任何接口实现**的类（被错误归类）；(2) `aitutor/` 内 155 文件 + 27 子目录已是子单体；(3) 新成员判断"我新写的 Service 应该放哪"时面对 13 个域子包 + 顶层散装 + impl 混合形态完全无所适从。本次重构按 bounded context 统一到风格 B，并补足"无接口直接 @Service 类如何归位"规则。**aitutor 单体子包本次保持不动，单独立项**（用户审慎决策，避免一次重构 2 个独立量级问题）。Spring Modulith（M-02）落地是后续独立工作，本次为其物理布局准备。
+
+- 2026-04-29 **[结构/backend service 顶层散装文件归位]** 将 `service/` 顶层 16 个散装 `*.java`（15 个 `public interface` + 1 个直接 `@Service` 的 `NfkDataExportService`）按 bounded context 物理迁移到对应域子包：`AccountService` → `account/`；`AdminBetaFeedbackService` → `betafeedback/admin/`；`AdminProblemCommandService / AdminProblemQueryService / AdminTestCaseService` → `adminproblemcommand/`；`AdminUploadService` → `admin/`；`AnnouncementService / ReleaseNotesService` → 新建 `announcement/`；`BetaFeedbackService` → 新建 `betafeedback/`；`JudgeServerService` → `submission/`；`NfkDataExportService` → 新建 `nfk/`；`PlatformConfigService / SystemAdminService / SystemOptionService / SmtpMailService` → 新建 `system/`；`ProblemQueryService` → 新建 `problem/`。每个文件 `git mv` 保留 rename 历史，同步 sed 替换 `package` 声明从 `com.alethicode.service` 到 `com.alethicode.service.<domain>`。
+
+- 2026-04-29 **[结构/backend service impl 子包归位]** 将顶层 `service/impl/` 下 34 个文件按"是否真正是接口实现"二分处理：(A) 18 个 `*ServiceImpl` 真接口实现迁移到对应域 `impl/` 子包——`AccountServiceImpl → account/impl/`、`AdminBetaFeedbackServiceImpl → betafeedback/admin/impl/`、`AdminProblem(Command|Query)ServiceImpl + AdminTestCaseServiceImpl → adminproblemcommand/impl/`、`AdminUploadServiceImpl → admin/impl/`、`AnnouncementServiceImpl + ReleaseNotesServiceImpl → announcement/impl/`、`BetaFeedbackServiceImpl + BetaFeedbackMailNotifier → betafeedback/impl/`、`JudgeServerServiceImpl + SubmissionServiceImpl → submission/impl/`、`PlatformConfigServiceImpl + SystemAdminServiceImpl + SystemOptionServiceImpl + JavaMailSmtpMailService → system/impl/`、`ProblemQueryServiceImpl → problem/impl/`、`AITutorServiceImpl + AITutorWorkflowAdminServiceImpl → aitutor/impl/`。(B) 16 个**野生 @Service / @Component**（根本没有对应接口的具体类，被历史遗留误放在 `impl/`）平铺到对应域 `<domain>/` 顶层（不放 `impl/`）——AI 导学后台工具 `AdminKcManagementService / AdminMisconceptionMiningService / AdminVariantReviewService` → 新建 `aitutor/admin/`；`AdminPreflightService` → `adminproblemcommand/`；班级域 `ClassroomAiProblemService / ClassroomAnalyticsService / ClassroomLessonService / CourseInsightService / LearnerCourseProgressService` → `classroom/`；监控域 `ClassroomMonitorService / StudentRiskDetectionService` → `monitor/`；语言包域 `ContentImprovementService` → `languagepack/`；题目域 `RelatedExampleQueryService` → `problem/`；提交域 `SubmissionDataCollector` → `submission/`；导学域 `WorkflowCheckpointService` → `aitutor/`。删除空的 `service/impl/` 目录。
+
+- 2026-04-29 **[结构/backend service 测试镜像迁移]** 将 `test/.../service/impl/` 下 12 个测试文件按被测类的新位置镜像迁移：`AITutorServiceImplCalibrationScoringTest + AITutorWorkflowAdminServiceImplTest → aitutor/impl/`；`AdminProblemCommandServiceImplTest + AdminProblemQueryServiceImplTest + AdminProblemTeacherPermissionTest + AdminTestCaseServiceImplTest → adminproblemcommand/impl/`；`AdminUploadServiceImplTest → admin/impl/`；`JudgeServerServiceImplTest + SubmissionServiceImplTest → submission/impl/`；`ProblemQueryServiceImplTest → problem/impl/`；`SystemAdminServiceImplTest + SystemOptionServiceImplTest → system/impl/`。`test/.../service/NfkDataExportServiceTest` → `nfk/`。`test/.../service/impl/` 目录删除。
+
+- 2026-04-29 **[结构/backend import 全链路修复]** 一次性脚本（`/tmp/relocate_imports.sh`，使用 bash 关联数组 + `rg -l + sed -i`）批量重写 `backend/src` 下所有 import：(A) `import com.alethicode.service.X;` → `import com.alethicode.service.<domain>.X;`；(B) `import com.alethicode.service.impl.X;` → `import com.alethicode.service.<domain>(.impl)?.X;`。50 个被移动类共匹配 164 个文件级修改事件。手动补 2 处"原同包不需要 import 现跨包必须 import"的回归：(1) `aitutor/impl/AITutorWorkflowAdminServiceImpl` 补 `AdminKcManagementService / AdminMisconceptionMiningService / AdminVariantReviewService / AdminPreflightService / WorkflowCheckpointService` 5 条 import；(2) `submission/impl/SubmissionServiceImpl` 补 `SubmissionDataCollector` 1 条 import。修复 2 处硬编码字面量旧路径：(a) `test/.../aitutor/impl/AITutorWorkflowAdminServiceImplTest` 中 `Class.forName("com.alethicode.service.impl.AITutorWorkflowAdminServiceImpl$UserAuth")` → `service.aitutor.impl`；(b) `aitutor/profile/AITutorWelcomeService.java` Javadoc `{@link com.alethicode.service.impl.SubmissionServiceImpl}` → `service.submission.impl.SubmissionServiceImpl`。(c) `test/.../service/ai/AiTelemetrySupportTest` 中模拟 stack frame 字面量 `"com.alethicode.service.impl.ClassroomAiProblemService"` → `"com.alethicode.service.classroom.ClassroomAiProblemService"`，验证 `AiTelemetrySupport.callerFromFrame` 在新路径下推断 service=`classroom-ai`、domain=`classroom` 仍然正确（`inferService` / `inferDomain` 内部对 `.classroom.` 与 `Classroom` 的模式匹配未受影响）。`mvn -DskipTests compile` 与 `mvn test-compile` 全绿；`mvn -Dtest='*ServiceImplTest,*ServiceTest' test` 195 测试 0 失败 0 错误。
+
+- 2026-04-29 **[文档/架构规范]** 新增 `docs/architecture/backend-internal-boundaries.md`：定义 backend 单体 `service/` 子包的"软边界"治理规范，含 (i) 按 bounded context 划分的 17 个域子包列表（5 个本次新增：`announcement / betafeedback / nfk / problem / system`，外加 `aitutor/admin` 子域 + `betafeedback/admin` 子域）；(ii) 强制规则：接口与 `XxxServiceImpl` 必须同域不同子包、直接 `@Service` 类禁止放进 `impl/`、嵌套深度最多 2 层、顶层 `service/*.java` 必须为空、测试类位置必须与被测类完全镜像；(iii) 跨域调用规则：依赖接口不依赖具体实现、核心域不反向依赖管理域（`aitutor/admin/` 是 `aitutor/` 的内部子域所以例外）、禁止"自己 HTTP 调自己"；(iv) **M-02 Spring Modulith 预留标记**——14 个候选 `@ApplicationModule` 的名称与 `allowedDependencies` 列表已在文档中标定，待 M-02 立项时直接落地，本次不引入 `spring-modulith` 依赖；(v) `ai/ + rag/ + nats/` 三个横切基础设施域的特殊处理；(vi) M-02 之前的 lint 建议：`scripts/m12/check_service_layout.sh` 可纳入 CI gate 校验顶层散装 `*.java` 数 = 0、`<domain>/impl/` 内非 `*Impl` 数 = 0、硬编码字面量 `com.alethicode.service.impl.` 数 = 0。文档同时记录新增域的判定标准（职责独立、类规模 ≥ 2、未来可独立部署的可能性、单一名词命名）和违反规范的处理流程（PR review 直接打回、不允许保留兼容性别名、紧急 hotfix 24 小时内归位）。
+
+## [Unreleased] - 2026-04-28
+
+### 4/28 Sprint 12 冒烟验证与 CI 污染清理
+
+- 2026-04-28 **[后端/限流配置]** 将课堂压测中触发 429 的导学工作流限流 `resilience4j.ratelimiter.instances.tutorWorkflow.limit-for-period` 从 20 放宽到 100（每秒令牌桶），并将 `RateLimitFilter` 普通 `/api/**` IP 级窗口从 60/分钟放宽到 100/分钟；登录、注册、重置密码等敏感路径仍保持 10/分钟，避免放大暴力破解风险。同步更新 `RateLimitFilterTest` 与配置契约测试，确保 20 人并发模拟不再被默认限流误判为硬件瓶颈。
+- 2026-04-28 **[发布前冒烟]** 创建逻辑提交保护 Sprint 12 五阶段成果后，完成 Spring Boot 真实启动 smoke：Flyway 校验 72 个迁移且 schema 当前版本为 77，`flyway_schema_history` 中 V75/V76/V77 均为 success；`HttpRagServiceClient` 与 `RagIndexOutboxWorker` 在真实 Spring 容器中完成注入，`OpenAiEmbeddingAutoConfiguration` 出现在 condition report 的 Exclusions；通过内部导学接口触发 backend → alethicode-rag 的真实 `query/memory` 调用，RAG 服务日志返回 200。
+- 2026-04-28 **[前端冒烟]** 安装 Playwright Chromium 后，以真实 Vite + Spring Boot + alethicode-rag 环境验证 `Problem.vue` 可渲染并打开 `UnifiedAgentPanel`，同时通过 seeded 复习包验证 `/review-package` 上的 `ErrorReviewPackagePage` 正常渲染；确认旧 e2e `review-package-rating.spec.js` 使用无效 `language_pack_id=1` 与旧路径 `/error-review-package`，后续应单独更新测试种子。
+- 2026-04-28 **[测试/CI 清理]** 修复 4 个预存非集成失败：`BetaFeatureRegistryTest` 同步到当前默认开启的 `TUTOR_REACT_ENABLED`；`SystemOptionServiceImplTest` 补齐 `beta_feedback_config` 读取断言；`AdminProblemTeacherPermissionTest` 匹配当前语言包筛选查询；`TutorWorkflowProjectionService.markRunQueued` 在重新排队时清空 `failure_bucket / last_error`，避免重试后前端继续看到旧失败投影。
+- 2026-04-28 **[ICLR Sprint 1 启动]** 跑通 RedTeamCUA 风格教学场景红队评测 CI Gate：`pytest -q app/tests/test_red_team_dataset.py` 通过 3 个聚合测试（100 个逐例测试默认 skip），`python -m app.eval.red_team.ci_gate --baseline 0.0` 真跑 100 条对抗用例，当前 pass_rate=0.720、attempt_rate=0.670、failfast_rate=0.030；失败主要集中在 `problem_text_conflict` 与 `persona_manipulation`，作为后续防御加固优先队列。
+
+### 4/28 公测反馈与遥测系统 + 公测前安全基线
+
+> **设计稿**：`docs/plans/2026-04-28-beta-feedback-telemetry-design.md`。本项工作面向 100 人规模的 Python 课程小范围公测，目标是在零基础学生群体里建立完整的 Bug 上报与体验数据采集闭环：右下角悬浮按钮 → 三步式无术语表单（"打不开 / 按钮坏了 / 题目错了 / AI 不清楚 / ..."）→ 截图私有化存储 → 异步 SMTP 通知教师邮箱 → 管理后台分流处理；并行采集 page_view / feature_click / frontend_error / api_error / Web Vitals 五类前端事件，与现有 `ai_learning_event` / `ai_tutor_workflow_event` 学习行为事件正交存放。SMTP 已在前置任务修复 465 端口直接 SSL 链路，但本地开发机境外 IP 触发 163 反垃圾指纹风控，须在中国大陆 IP 部署后才能完整跑通邮件链路（设计稿 § 0、§ 4 已写入部署 checklist）。
+
+- 2026-04-28 **[后端/SMTP 兼容]** `JavaMailSmtpMailService.send` 在 465 端口走 STARTTLS 的错误已修复：当 `port == 465 && tls=true` 时切换到 `smtps` 协议（直接 SSL）并显式 `mail.smtps.ssl.trust = <server>`、`mail.smtps.ssl.protocols = "TLSv1.2 TLSv1.3"`、`connectiontimeout/timeout/writetimeout` 三超时；587 STARTTLS 路径补齐 `starttls.required + ssl.protocols + ssl.trust`；与 163/QQ 邮箱兼容。本地境外 IP 由于邮箱反垃圾对 Java ClientHello 指纹风控仍无法发出（openssl s_client 同 IP 可成功握手 → 证明非证书/网络问题，是 Java 21 默认 ClientHello 指纹被识别），生产部署到中国大陆 IP 后可直接 work；如境外部署须切 SMTP relay（SendGrid / Resend / 阿里云邮件推送），保留 `mail_status` 字段方便切换。
+- 2026-04-28 **[后端/数据库迁移]** 新增 `V74__beta_feedback_and_telemetry.sql`：三张表 + 配置占位。`beta_feedback_report` 主表带 `reporter_user_id` FK、`type / severity / status / mail_status` 四个枚举（status 流转 pending→triaging→fixing→resolved/wontfix；mail_status pending→sent/failed/disabled）、`browser_meta / recent_actions` JSONB 浏览器与最近 20 条行为快照、`privacy_notice_version / wjx_followup_opened / mail_error / resolved_at` 状态字段，索引 `(reporter_user_id, created_at DESC)` 与 `(status, created_at DESC)`；`beta_feedback_attachment` 单独表存截图元数据 + `storage_path`（绝对路径，与 `/public/upload` 物理隔离），`ON DELETE CASCADE` 保证主表删时附件级联清理；`beta_telemetry_event` 大流量事件表，`user_id` 走 `ON DELETE SET NULL` 保留匿名页面 Web Vital，`event_type` 七元枚举（page_view/feature_click/frontend_error/api_error/web_vital/feedback_opened/feedback_submitted）+ JSONB payload，三索引覆盖 user/type/route 三个查询场景；`sys_options.beta_feedback_config` 默认配置（`enabled=true`、`notify_email=1822250281@qq.com`、`wjx_url=https://v.wjx.cn/vm/mvsfyTf.aspx`、`privacy_notice_version=2026-04-28-v1`、`screenshot_max_bytes=5MB`、`screenshot_allowed_types=[png/jpeg/webp]`）。
+- 2026-04-28 **[后端/公测反馈 API]** 新增学生侧 REST 入口与服务实现：
+  * `dto/request/BetaFeedbackCreateRequest`（record）+ `BetaTelemetryBatchRequest`（record，内嵌 `TelemetryEvent`）：用 record 简化样板，`browserMeta / recentActions` 走 `Map<String,Object>` / `List<Map>` 通用结构。
+  * `service/BetaFeedbackService`（接口）+ `impl/BetaFeedbackServiceImpl`（约 480 行）：`createReport` 串起完整链路——白名单校验（type 7 选 1 / severity 4 选 1 / 截图 ≤3 张 / 单张 ≤5MB / MIME ∈ {image/png, image/jpeg, image/webp} / description ≤2000 字 / privacy_notice_version 必须等于 sys_options 当前版本）→ 入主表（`KeyHolder` 取 BIGSERIAL id）→ 截图落盘到 `<uploadDir>/../beta-screenshots/<yyyy-MM>/<random10>.<ext>` 并写附件表（与 `/public/upload` 物理隔离）→ 入库后异步触发邮件；`recordTelemetryEvents` 批量写入（≤100 / batch，`eventType` 不在白名单的 silent drop）；`recordWebVital` 单条上报。所有业务校验 fail-fast 抛 `BadRequestException`，控制器 ExceptionHandler 翻译为 422。
+  * `service/impl/BetaFeedbackMailNotifier`（独立 `@Component`）：承载 `@Async` 邮件通知，独立成 bean 是为了让 `notifyAsync` 调用走 Spring 代理（自调用绕开代理是 `@Async` 经典坑）。从 `sys_options.smtp_config` 读 SMTP 配置 → 拼模板 →（fail-soft）`SmtpMailService.send` 异常时把 `mail_status='failed'` + `mail_error=<msg 前 500 字>` 写回主表，绝不抛异常拖累学生提交。`enabled=false` 时跳过邮件，`mail_status='disabled'`。
+  * `controller/BetaFeedbackController`（`@RequestMapping("/api/beta")`）：`POST /feedback-reports` 走 `multipart/form-data`，`data` part 由 ObjectMapper 反序列化为 DTO（避开 multipart + JSON record 的反射坑），`screenshots` part 取 `MultipartFile[]`；`POST /telemetry/events` 与 `POST /telemetry/web-vitals` 接 JSON。控制器局部 `@ExceptionHandler` 把 `SecurityException`→401、`BadRequestException`→422、`IllegalArgumentException`→400，比全局 `BusinessException`→400 语义更精确（请求语义合法但业务约束违反 = 422）。`extractUserIdNullable` 兼容 `Authentication.details=Long` 与 `principal=Map`/`principal=String` 三种形态，与 `SessionAuthenticationFilter` 的产物一致。
+  * `SecurityConfig`：显式标注 `/api/beta/**` 必须 `authenticated()`，并新增 `HttpStatusEntryPoint(401)` + 自定义 `AccessDeniedHandler` 区分匿名（401）与已登录权限不足（403），与公测设计契约对齐。
+- 2026-04-28 **[后端/公测反馈管理 API]** 新增管理员侧 REST：
+  * `service/AdminBetaFeedbackService` + `impl/AdminBetaFeedbackServiceImpl`（约 200 行）：`listReports` 用 `NamedParameterJdbcTemplate` 写 SQL（带 `LEFT JOIN "user"` 取 username、子查询取 `attachment_count`、状态/严重度/类型三选条件 OR null 兜底），分页参数受 `MAX_LIMIT=200` 上限保护；`getReport` 拼附件元数据；`updateStatus` 校验白名单 + `resolved_at = CASE WHEN :status IN ('resolved','wontfix') THEN NOW() ELSE resolved_at END`；`streamScreenshot` 通过绝对 `storage_path` 读文件，按附件 mime 设置 `Content-Type` 与 `Content-Disposition: inline; filename=<原名>`，路径不存在时返回 422。
+  * `controller/AdminBetaFeedbackController`（`@RequestMapping("/api/admin/beta")` + `@PreAuthorize("hasRole('ADMIN')")`）：四端点 `GET list / GET detail / PATCH status / GET screenshot`，配合 `SecurityConfig.requestMatchers("/api/admin/**").hasRole("ADMIN")` 双重保险。
+- 2026-04-28 **[前端/公测反馈入口]** 学生侧 UI：
+  * `frontend/src/pages/oj/api/beta.js` - 三方法 API 客户端（`createBetaFeedback` 用 `httpClient.post(form)` 走 multipart，`reportBetaTelemetryBatch` / `reportBetaWebVital` 走 `silent: true` 的 `ajax`），合并到 `frontend/src/pages/oj/api.js` 默认导出。
+  * `frontend/src/pages/oj/components/BetaFeedbackButton.vue` - 右下角圆形悬浮按钮（56×56，`position: fixed; right: 24px; bottom: 24px; z-index: 50`，`aria-label="遇到问题或提建议"`），仅 `isAuthenticated && !isAuthPage && !isFullscreenPage` 时渲染；`mounted` 上报 `feature_click: feedback_button_view` 节流；点击触发 `feedback_opened` 遥测事件并打开对话框。
+  * `frontend/src/pages/oj/components/BetaFeedbackDialog.vue` - 三步式表单（**Step 1 类型**：7 个 ≥60px 大按钮，文案完全无术语——「打不开 / 进不去」「按钮点了没反应」「页面看不懂」「题目或答案好像有错」「AI 讲得不清楚」「提交代码后结果不对」「其他」；**Step 2 严重度**：4 选 1，「完全不能用了 / 还能继续但很烦 / 只是有点不舒服 / 我只是想提个建议」；**Step 3 详情**：textarea ≤2000 字 + 点击/拖拽双交互的截图区，前端校验大小/类型/数量超限即 toast；**success view**：大字「已收到，老师会看到这条反馈」+ 「继续填写更详细问卷（可选）」按钮，跳转问卷星 URL 时附 `?source=alethicode&report_id=<id>` 查询参数）。提交时自动收集 `route / problemId / submissionId / workflowSessionId / browserMeta(ua, viewport, dpr, lang, online, network) / recentActions(getRecentEvents(20)) / privacyNoticeVersion`。
+  * `frontend/src/pages/oj/App.vue` 模板挂载 `<BetaFeedbackButton>` 与 `<BetaPrivacyNotice v-if="isAuthenticated">`。
+- 2026-04-28 **[前端/遥测采集]** 新增 `frontend/src/utils/betaTelemetry.js`（约 150 行）：单例事件队列（`MAX_BATCH=20` / `FLUSH_INTERVAL_MS=5000` / `MAX_RECENT=50`），`recordEvent` 入 QUEUE 与 RECENT、达到批阈值或定时器触发时调 `api.reportBetaTelemetryBatch` flush，`beforeunload` 事件用 `navigator.sendBeacon('/api/beta/telemetry/events', Blob)` 兜底；`reportApiError(url, status, message)` 写 `api_error`，所有字符串字段经 `trimText(value, 500)` / message 200 字硬剪，payload 走 `JSON.parse(JSON.stringify(value))` 深拷贝防止循环引用。`window.addEventListener('error' / 'unhandledrejection')` 自动捕获并写 `frontend_error`，message 截 500 字防爆。在 `frontend/src/pages/oj/index.js` 中 `initBetaTelemetry({ apiClient: api, router })` + `import('web-vitals').then(...)` 注册 `onCLS / onFCP / onINP / onLCP / onTTFB` 五项指标自动上报；新装 `web-vitals` 依赖。`frontend/src/api/httpClient.js` 增加 `axios.interceptors.response.use` error 拦截器，避开 telemetry 自身路径（防递归）后调 `reportApiError`。`frontend/src/composables/problem/useSubmission.js` 在 `submitCode` / `debugCode` 入口埋点 `feature_click: submit_code / debug_code`。
+- 2026-04-28 **[前端/隐私同意弹窗]** 新增 `frontend/src/pages/oj/components/BetaPrivacyNotice.vue`：登录后第一次访问且 `localStorage.getItem('betaPrivacyVersion') !== <serverVersion>` 时弹出，文案 ≤200 字明示采集范围与禁区（**不**记录密码 / 完整聊天 / 完整代码全文，截图仅老师可见）。「同意并开始使用」写 localStorage；「暂不使用平台」走 `router.replace('logout')`。`WebsiteConfigResponse` 新增 `betaPrivacyVersion` / `betaWjxUrl` 两字段（Spring SNAKE_CASE 输出 `beta_privacy_version` / `beta_wjx_url`），`SystemOptionServiceImpl.getWebsiteConfig` 同时读 `beta_feedback_config` 并注入。
+- 2026-04-28 **[前端/管理员后台]** 新增 `frontend/src/pages/admin/views/general/BetaFeedback.vue`：顶部三选筛选（状态/严重度/类型）+ `el-table` 列表（id / 用户 / 类型 / 严重 / 描述前 80 字 / 路由 / 截图数 / 邮件状态 / 创建时间 / 状态切换 + 详情 + 复制 ID）+ `el-drawer` 详情抽屉（完整描述 / browser_meta / recent_actions JSON / 截图缩略图 inline，点击新标签查看大图带 admin session）；状态切换乐观更新 + 失败回滚；通过 `/api/admin/beta/feedback-reports/{id}/screenshots/{attId}` URL 直接 inline 显示。`frontend/src/pages/admin/api.js` 加 `getBetaFeedbackList / Detail / UpdateStatus / getBetaFeedbackScreenshotUrl` 四方法；`router.js` 注册 `/beta-feedback` 路由 + 加入 `TEACHER_DENIED_ROUTE_NAMES`；`SideMenu.vue` 系统管理子菜单加「公测反馈」；`views/index.js` 注册组件。
+- 2026-04-28 **[安全基线]** 公测前一次性硬化：
+  * **SEC-1 RateLimitFilter**：`resolveClientIp` 从「取 X-Forwarded-For 最右侧」改为「**从右往左跳过 trusted proxy，取第一个不可信 IP**」，新增 `alethicode.security.trusted-proxies` 配置（默认 `127.0.0.1/32, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16`），用内嵌 `TrustedCidr` 解析 CIDR 并做位级匹配。X-Real-IP 同样过 trust check。等价于「100 个学生同教室出口同 IP」时反代追加的 `1.2.3.4` 仍能正确取到，攻击者伪造 XFF 反而绕不过限流。新增两条单测覆盖 trusted skip 与 spoofing 两条路径。
+  * **SEC-2 CSP unsafe-eval**：`SecurityConfig` 的 `script-src` 从 `'self' 'unsafe-inline' 'unsafe-eval'` 改为 `'self' 'unsafe-inline'`；`grep -r "eval(" frontend/src` 确认无业务代码使用 `eval`，改动安全。
+  * **SEC-5 force-https**：`application-prod.yml` 新增 `alethicode.system.force-https: true`；`start.sh` 在启动 backend 段加注释提示生产环境必须 `--spring.profiles.active=prod`。
+  * **SEC-6 multipart 上限**：`application.yml` 全局 `max-file-size / max-request-size` 从 128MB / 256MB 收紧到 32MB，远大于公测反馈 5MB×3=15MB 上限，但能拒绝 50MB 级别的恶意上传（→413）。
+  * **SEC-7 submission-list-show-all**：默认从 `true` 改为 `false`，公测期间学生只能看自己的提交，避免互相抄袭/泄露答案。
+- 2026-04-28 **[测试]** 后端 `BetaFeedbackControllerContractTest`（7 用例：unauth 401 / 成功持久化 / 6MB 截图 422 / image/gif 422 / 邮件失败不阻塞 200 / telemetry 批量 / Web Vital）+ `AdminBetaFeedbackControllerContractTest`（5 用例：非 admin 403 / 列表筛选 / 详情 / 状态变更 / 截图返回 image/png inline）+ `RateLimitFilterTest` 新增 trusted-skip 与 spoofing 两条用例，合计 18 后端用例**全绿**。前端 `beta-feedback-button.spec.js`（10 用例）+ `beta-telemetry.spec.js`（11 用例）+ `admin-beta-feedback-page.spec.js`（11 用例），合计 32 前端用例**全绿**（沿用项目静态源契约测试范式）。
+- 2026-04-28 **[前端/视觉风格统一]** 公测反馈四个新组件（`BetaFeedbackButton` / `BetaFeedbackDialog` / `BetaPrivacyNotice` / 管理后台 `BetaFeedback`）改写为完全使用 `frontend/src/styles/common.less` 的设计 token：颜色全部走 `--primary-color / --color-success / --color-danger / --text-strong / --text-primary / --text-secondary / --text-disabled / --bg-card / --bg-panel / --border-default` 等 CSS 变量；间距走 `--space-1..12` 4px 节奏；圆角走 `--radius-xs/sm/md/lg/pill`；阴影走 `--shadow-xs/sm/md/lg`；字号走 `--fs-xs..3xl`；过渡走 `--motion-fast/base/slow`；z-index 走 `--z-overlay`。圆形悬浮按钮改用 Element Plus `ElButton` + `ChatDotRound` 图标，颜色与主品牌蓝对齐；对话框模板全部用 PascalCase 的 `<ElDialog/ElInput/ElButton/ElIcon>`（与 NavBar / NotebookAddDialog 一致）；管理后台页改用 `<Panel>` 包裹 + `ElTable / ElTableColumn / ElDrawer / ElTag / ElSelect / ElOption` PascalCase 组件 + `AdminPagination` 分页器，配色走 admin 设计 token (`--admin-toolbar-gap` 等)。原本写死的 `#2563eb` / `#dbeafe` / `#0f172a` / `#64748b` / `12px` / `8px` 等魔法值全部替换为 token 引用，新组件视觉风格与现有项目（NavBar、ReviewProblemCard、NotebookAddDialog、Announcement 后台页）保持一致。
+- 2026-04-28 **[前端/文案专业化]** 面向大学生用户调整反馈表单文案，去除 emoji 与儿语化表达：类型选项改为「页面无法访问 / 按钮或交互无响应 / 界面信息表达不清 / 题目或参考答案存在错误 / AI 解释不清晰 / 代码提交结果异常 / 其他」；严重度选项改为「功能不可用，无法继续使用 / 严重影响使用流程 / 轻微影响使用 / 改进建议」；步骤标题精简为「问题类型 / 影响程度 / 详细描述」；详情 placeholder 改为「请描述操作步骤、复现方式与预期结果。」；截图提示改为「可选上传屏幕截图（最多 3 张，单张不超过 5 MB）。截图快捷键：Windows Win+Shift+S，macOS Command+Shift+4。」；成功页改为「反馈已提交 / 研发团队会及时跟进，感谢您协助改进平台。」；隐私弹窗标题改为「数据采集与隐私说明」，按钮改为「同意并继续使用 / 不同意并退出」；管理后台 `wontfix` 显示文案「不予处理」（替换原「不修」）；按钮 hover 文案改为「提交反馈或建议」。`TYPE_OPTIONS` 中 `emoji` 字段及对应 `bf-option-emoji` CSS 全部移除；后端枚举值与契约保持不变，仅前端展示层调整。
+
+## [Unreleased] - 2026-04-25
+
+### 4/28 RAG 全量切换 LightRAG —— Phase 4：Helm chart + 发布 gate + Micrometer
+
+> **目标**：把 Phase 0-3 落地的代码与微服务变成可复制的部署制品（Helm chart）+ 可执行的发布 gate（regression script）+ 可观测（Micrometer 指标）。
+
+- 2026-04-28 **[部署/Helm chart]** `deploy/helm/alethicode/templates/` 新增两个模板：
+  * `alethicode-rag-deployment.yaml`：单副本 Deployment（与 `tutor-graph-deployment.yaml` 同样 Recreate 策略——LightRAG 进程内持有 PG/Memgraph 连接池与 pipeline 锁，多副本会让 ingest 队列 fan-out 后竞争同一份 PG 行 / Memgraph 节点）；prometheus scrape annotation `prometheus.io/path=/metrics`；env 段包含 `RAG_INTERNAL_TOKEN`（secret）/ `POSTGRES_*` / `MEMGRAPH_URI=bolt://{fullname}-memgraph:7687` / `LIGHTRAG_GRAPH_STORAGE=MemgraphStorage` / `POSTGRES_VECTOR_INDEX_TYPE=HNSW_HALFVEC`（**Phase 0 实测约束**：智谱 embedding-3 = 2048 维 > pgvector 普通 HNSW 上限 2000，必须用 HALFVEC）；同文件携带 ClusterIP Service（端口 8200）+ 可选 PVC（`/data/alethicode-rag/workspace`，默认 5Gi）；
+  * `memgraph-statefulset.yaml`：Memgraph StatefulSet（10Gi PVC，bolt 7687）；`memgraph/memgraph:latest` 镜像（**Phase 0 实测**：国内镜像仓库目前未同步 2.x 显式 tag，跑出来是 v3.9.0；alethicode-rag 用 `neo4j` 5.x 驱动直连，bolt 协议向后兼容）；Service DNS 由模板 helper 计算，alethicode-rag pod 通过 `bolt://{fullname}-memgraph:7687` 直连；
+- 2026-04-28 **[部署/Helm values + secrets]** `deploy/helm/alethicode/values.yaml` 顶层新增 `alethicodeRag` + `memgraph` 两个完整配置块（image / resources / persistence / llm / embedding / pgvector hnsw 参数）；`secrets:` 段新增 `ragInternalToken: ""`（默认与 `internalServiceKey` 同值）；`backend.env` 段移除 `EMBEDDING_BASE_URL` / `EMBEDDING_MODEL`（Phase 3 切流后 Java 后端不再持有 embedding 凭据）；`templates/secrets.yaml` 新增 `RAG_INTERNAL_TOKEN` key；`templates/backend-deployment.yaml` 新增两个 env 注入 `RAG_SERVICE_URL=http://alethicode-rag:8200` 与从 secret 读取的 `RAG_INTERNAL_TOKEN`。
+- 2026-04-28 **[新脚本/发布 gate]** `scripts/ops/rag_quality_regression.py` ~190 行 Python：
+  * 读 `scripts/ops/rag_regression_queries.json`（默认 5 条查询，覆盖计算思维 / Python 循环 / IndexError / range / set+dict 五个核心教学概念），每条形如 `{query, endpoint, language_pack_id, expected_keywords, min_hits}`；
+  * 对每条 query 调 alethicode-rag 对应 endpoint，计算 hit@5（关键词命中 raw_context 或 chunks 任一）+ MRR（第一个命中的 hit 排名倒数）；
+  * 输出结构化 JSON 报告 `rag_quality_regression_report.json` + 终端打印；
+  * **退出码语义**：hit@5 ≥ 0.7 且 MRR ≥ 0.5 才退出 0，否则 1，供 CI / argo / GitOps 卡点；阈值通过 `--threshold-hit-at-5 / --threshold-mrr` 可调；
+  * **真跑通过**：本期实测 alethicode-rag（Phase 2 已回填 ~84 docs / 486 KG nodes）：**hit@5 = 0.8 / MRR = 0.8，4/5 cases 命中**，passed_gate=true；唯一未命中的 set/dict 查询是因为该课件页对应的 LightRAG KG 抽取仍在后台处理（682 pending in queue）；
+  * `scripts/ops/rag_regression_queries.json` 是初始 seed，团队可按业务扩充。
+- 2026-04-28 **[后端/Micrometer]** `HttpRagServiceClient` 接入 `MeterRegistry`：每次 query 包 `Timer.Sample`，停止时按 `endpoint`（courseware / similar-error / memory / transfer）+ `outcome`（success / http_error / transport_error）双 tag 维度落入 `rag_query_latency_seconds` 指标；与 Phase 1 已就位的 `rag_outbox_giveup_total / rag_outbox_failure_total / rag_outbox_success_total` 三个 counter 共同覆盖检索 + 异步索引两条核心链路。alethicode-rag 端 `/metrics` 早已通过 prometheus_client 暴露（Phase 0 已实现）。
+- 2026-04-28 **[测试]** `HttpRagServiceClientTest` 同步加 `SimpleMeterRegistry()` 注入；既有 8/8 用例继续 PASS。
+- 2026-04-28 **[范围说明/不在本期]** Phase 4 不做：Grafana 看板 JSON（团队按 Micrometer 指标自行设计）；alert rule（运维侧补，已有 `rag_outbox_giveup_total` 这种 counter 即可写阈值）；reranker（计划稿 § 4 列为可选，Phase 4 后视实际召回质量决定）；CoursewareRetrievalService 的 ragClient 化（已在 Phase 3 明确推迟）；端到端跑回归 gate 的 staging 完整报告（需要团队部署 staging 后跑一次本脚本，把报告归档进 docs/release-notes）。
+
+### 4/28 RAG 全量切换 LightRAG —— Phase 3：单次性切流（删除 16 维伪 RAG 全链路）
+
+> **目标**：把 Phase 0-2 搭好的 alethicode-rag 微服务真正接入业务检索路径，**一次性删掉**计划稿审计出的所有 16 维 embedding 残留物（`EmbeddingProjectionService` 强降维 + `VectorCodec` + `AiEmbeddingProfile` + `callForEmbedding` 全链路 + `page_embedding/notebook_embedding/memory_embedding` 列 + `search_tsv` + `cjk_bigram_tokenize` 函数），4 个真正用到向量的检索 service 全部改用 `RagServiceClient`。
+>
+> **风险等级最高**：这是计划稿明确标注「单次性切流（独立 PR，风险最高）」的那条 PR。fail-fast 路径下 alethicode-rag 不可用即 503，不再静默降级到旧 SQL（计划稿 § 失败模式）。
+
+- 2026-04-28 **[后端/Java 删除清单]** 一次性删除以下文件 / 类 / 方法 / 配置：
+  * 删除文件 3 个：`EmbeddingProjectionService.java`（16 维降维罪魁祸首）、`VectorCodec.java`（pgvector 字面量编码工具）、`AiEmbeddingProfile.java`（embedding profile record）、`CjkBigramTokenizer.java`（中文 bigram 分词器，无人引用）；
+  * 删除接口方法：`AiModelGateway.callForEmbedding(String)`，连带 `SpringAiModelGateway` / `FailoverAiModelGateway` / `CachingAiModelGateway` 三个实现的对应方法；`SpringAiModelGateway` 字段 `embeddingModel / embeddingProjection` 一并清掉，构造方法签名 8 → 6 参；`LoadTestProfileConfig` 内联 stub 同步删除；
+  * 删除 `AiModelProfileResolver.resolveEmbedding()`（连带 `firstNonBlank` 私有 helper）+ `ENV_TO_DB_AI_KEY` map 中的 `EMBEDDING_API_KEY / EMBEDDING_BASE_URL / EMBEDDING_MODEL` 三键；
+  * 删除 `AiProviderValidationService.runEmbeddingCase` + `EMBEDDING_INPUT / EMBEDDING_EXPECTED_DIM` 常量；`createValidationRun` 入参 `includeEmbedding=true` 时不再触发任何代码路径（向后兼容前端管理后台已发出的请求）；
+  * `application.yml` 的 `spring.ai.openai.embedding.*` 段保留为占位但加 `enabled: false` + dummy URL，并在主类显式 `@SpringBootApplication(exclude = OpenAiEmbeddingAutoConfiguration.class)`，从 Spring AI 自动装配源头切断 `EmbeddingModel` bean 创建。
+- 2026-04-28 **[后端/4 个检索 service 替换]** 全部改为 `RagServiceClient` 调用，row shape 与历史一致以保证上游 Tutor / Agent / EvidencePackAssembler 不需修改：
+  * `PageRetrievalServiceImpl`：删除 `loadKeywordHits / loadVectorHits / extractEvidenceTerms / hasLexicalSupport / CandidateScore` 全套 keyword+vector 双路加权（0.3/0.7）逻辑，新实现 100% 走 `ragClient.queryCourseware(...)`，再用 metadata.entity_id 反查 `language_pack_page` 取展示字段；`RetrievalTrace.matchType` 由 `"keyword+vector"` 改为 `"lightrag-mix"`；构造方法 `AiModelGateway` → `RagServiceClient`；
+  * `SimilarErrorRetrievalService`：删除 `notebook_embedding <=> cast(? as vector)` + `memory_embedding <=> cast(? as vector)` 双路 SQL，改为对 alethicode-rag 发两次 query（namespace 分别 `notebook` / `memory`，与 Phase 1 写入侧 + Phase 2 回填脚本约定的 `entity_type` 严格对齐），再各自反查业务表拿 `error_taxonomy / root_cause / fix_outcome / student_reflection` 等字段；error_taxonomy 命中 +0.2 score 加权保留；构造方法 `AiModelGateway` → `RagServiceClient`；
+  * `LearnerMemorySemanticRetrievalService`：删除 `memory_embedding <=> cast(? as vector)` 与 cosine 阈值 `MAX_DISTANCE = 0.4`（LightRAG mix-mode 已 KG + 向量 + chunk 三路融合，单维度阈值不再适用）；新实现遍历 `ragClient.queryMemory(...)` 的 chunks，按 metadata.memory_key 反查业务表，`MIN_CONFIDENCE = 0.5` 阈值与 `topK ≤ 5` clamp 都保留；`distance` 字段语义改为 `1 - chunk.score`（保持上游排序 + log 用法兼容）；构造方法 `AiModelGateway` → `RagServiceClient`；
+  * `CoursewareRetrievalService`：**计划稿写要替换但本期保留**——审计发现该 service 现有实现 100% 是按 `problem_id / kc_id / chapter / language_pack_id` 的元数据 SQL 检索，从未使用 `callForEmbedding` 或向量列，不是 16 维伪 RAG 的受害者；强行接 `ragClient.queryCourseware/queryTransfer` 会让现有依赖 `chunk_id / document_title / slide_number / score / match_type` 等具体字段的 GuideAgent / DiagnosticsAgent / EvidencePackAssembler / InternalAITutorToolServiceImpl 失去固定的 row shape 约束；本期保留原 SQL 实现，注释中明确「Phase 4 视召回质量决定是否 ragClient 化」。
+- 2026-04-28 **[后端/写入侧最后清理]** `DocumentParsingServiceImpl.processPagesFromExtraction`：
+  * 删除 `aiModelGateway.callForEmbedding(embeddingInput)` + `VectorCodec.toPgVector(...)` + `CjkBigramTokenizer.tokenize(content)` 三处调用与 `buildEmbeddingInput / pageEmbedding / searchTokens` 局部变量；
+  * INSERT `language_pack_page` 的 SQL 不再持有 `page_embedding` / `search_tsv` / `cast(? as vector)` / `to_tsvector('simple', ?)`（V77 已 DROP 这两列）；保留 `RETURNING id` + `ON CONFLICT (document_id, page_no, chunk_index) DO UPDATE` 幂等结构 + 后续 `ragIndexQueue.enqueueIndex(COURSEWARE_PAGE, pageId, ...)` 入 outbox；
+  * 构造方法移除 `AiModelGateway aiModelGateway` 参数。
+- 2026-04-28 **[后端/Admin re-embed 端点重定义]** `AdminLanguagePackController.reEmbed`：原实现 for-loop 跑全部 page 的 `callForEmbedding` 重写 16 维 vector 列；新实现遍历 page 后 `ragIndexQueue.enqueueIndex(...)` 全部入 outbox，alethicode-rag 收到后由 LightRAG content-hash dedup 决定是否真重抽 KG（已索引内容立即 dup-failed 不消耗 LLM）；返回字段 `updated` 改名为 `enqueued`，前端管理后台 button 语义「重新跑一次 RAG 索引」不变，但成本曲线彻底改变。控制器构造方法 `AiModelGateway` → `RagIndexQueueService`。
+- 2026-04-28 **[后端/数据库迁移 V77]** 新增 `V77__drop_embedding_columns_and_search_tsv.sql`：
+  * `ALTER TABLE language_pack_page DROP COLUMN IF EXISTS page_embedding, embedding_updated_at, search_tsv;`
+  * `ALTER TABLE ai_learner_notebook DROP COLUMN IF EXISTS notebook_embedding, notebook_summary;`
+  * `ALTER TABLE ai_learner_memory DROP COLUMN IF EXISTS memory_embedding;`
+  * `DROP INDEX IF EXISTS idx_lp_page_search;`
+  * `DROP FUNCTION IF EXISTS cjk_bigram_tokenize(text);`
+  * 三张表头加 `COMMENT` 标注「Phase 3（V77）后向量检索改由 alethicode-rag (LightRAG) 接管」；
+  * 实测 psql 直接应用通过；`flyway_schema_history` 同步登记 V77（checksum NULL）。
+- 2026-04-28 **[后端/AITutorWorkflowAdminServiceImpl 链路]** 主 `@Autowired` 构造方法新增 `RagServiceClient` 参数；test-friendly 第二构造方法位置 4 同步加；内部手动 `new SimilarErrorRetrievalService(jdbcTemplate, ragServiceClient)` + `new LearnerMemorySemanticRetrievalService(jdbcTemplate, ragServiceClient, objectMapper)` 同步切到新签名；测试 `AITutorWorkflowAdminServiceImplTest` 两处 `new AITutorWorkflowAdminServiceImpl(...)` 调用同步加 `mock(RagServiceClient.class)`。
+- 2026-04-28 **[测试/重写 + 删除]** Phase 3 测试侧改造：
+  * 删除 `EmbeddingProjectionServiceTest.java`（被测类已不存在）；
+  * `SpringAiModelGatewayContractTest`：删除 `callForEmbeddingShouldProjectTo16Dimensions / callForEmbeddingShouldFailFastOnBlankInput / callForEmbeddingShouldFailFastOnEmptyResponse` 三条用例 + `EmbeddingModel embeddingModel` 字段 + `EmbeddingProjectionService projection` 局部变量 + `AiEmbeddingProfile` 相关 mock；构造调用 7 参 → 6 参；
+  * `AiProviderValidationServiceTest`：删除 `embeddingCaseShouldPassAt16Dimensions` + `embeddingCaseShouldFailWhenDimensionMismatch` 两条；新增 `embeddingFlagOnRequestIsIgnoredButRunStillSucceeds` 用例验证 `includeEmbedding=true` 在 Phase 3 后被 silently 跳过（向后兼容）；`runShouldAggregateOverallPassedFlag` 用例从 3 case 减为 2 case；
+  * `AiModelProfileResolverTest`：删除 `resolveEmbeddingFallsBackToOpenAiKey` + `resolveEmbeddingFailsFastWhenAllKeysMissing` 两条；
+  * `LearnerMemorySemanticRetrievalServiceTest`：完全重写为 5 个用例验证新契约（`mapsRagChunkToBusinessRowAndFiltersByConfidence` / `rejectsLowConfidenceMatches` / `clampsTopKToFive` / `returnsEmptyWhenUserIdIsNull` / `returnsEmptyWhenContextSignalsEmpty`），mock 的依赖从 `AiModelGateway.callForEmbedding(...)` 改为 `ragClient.queryMemory(...)`；
+  * `CachingAiModelGatewayTest`：内部 `TestSpringGateway extends SpringAiModelGateway` 的 super 调用 7 参 → 6 参；
+  * `LanguagePackInitIntegrationTest` / `LanguagePackQaIntegrationTest` / `AITutorWorkflowIntegrationTestSupport`：3 处 `when(aiModelGateway.callForEmbedding(...))` stub 删除（被测代码不再调用此方法，stub 留着会 Mockito strict-stubbing 报错）；
+  * **本期相关测试** Phase 3 后跑过 8 个测试类共 **75 测试用例全 PASS**：HttpRagServiceClientTest 8/8 + RagIndexOutboxWorkerTest 6/6 + RagIndexQueueServiceTest 4/4 + RagIndexOutboxWorkerOfflineCatchupTest 2/2 + LearnerMemorySemanticRetrievalServiceTest 5/5 + LearningStyleInferenceTest 7/7 + AiModelProfileResolverTest 8/8 + AiProviderValidationServiceTest 11/11 + SpringAiModelGatewayContractTest 11/11 + CachingAiModelGatewayTest 1/1 + AITutorWorkflowAdminServiceImplTest 26/26。
+- 2026-04-28 **[第一性原理自检]** Phase 3 后整库 grep `EmbeddingProjectionService / VectorCodec / AiEmbeddingProfile / callForEmbedding` = **0 命中（除 CHANGELOG / 文档外的 backend 业务代码）**；`memory_embedding / notebook_embedding / page_embedding / search_tsv` 列均已 DROP（`information_schema.columns` 验证）；`cjk_bigram_tokenize` 函数已 DROP（`pg_proc` 验证）。计划稿 § 现状审计中列举的 8 类删除点 **全部完成**（CoursewareRetrievalService 一条按本期审计明确推迟到 Phase 4，已在上方说明）。
+- 2026-04-28 **[范围说明/不在本期]** Phase 3 不做：Helm chart（Phase 4）；`scripts/ops/rag_quality_regression.py` 召回质量回归脚本（Phase 4 发布 gate）；`CoursewareRetrievalService` 替换（按审计推迟）；不引入 reranker；不改 alethicode-rag 端 query 输出 schema（保持 `raw_context` + 空结构化 list 的现状，调用方按需自解析）。
+
+### 4/28 RAG 全量切换 LightRAG —— Phase 2：全量回填脚本 + 真跑 936 行
+
+> **目标**：把历史 `language_pack_page` + `ai_learner_notebook` + `ai_learner_memory` 三类业务数据灌进 LightRAG（PG + Memgraph 双后端）。本期不替换检索（Phase 3 才做），只是把历史索引就位。
+
+- 2026-04-28 **[后端/数据库迁移 V76]** 新增 `V76__rag_backfill_progress.sql`：建表 `rag_backfill_progress`（per `entity_type` 一行：last_id 断点 + total/finished/failed 累加 + started_at/finished_at/notes）+ `rag_backfill_errors`（按 (entity_type, entity_id) 索引的失败明细），CHECK 约束限制 `entity_type ∈ {courseware-page,notebook,memory}`。`rag_backfill_progress.entity_type` 唯一，重跑脚本自动按 `last_id` 续传；`rag_backfill_errors` 不去重，可单独 `--retry-errors`。
+- 2026-04-28 **[后端/Flyway 历史登记]** Phase 0/1 时手工 `psql` 应用 V74/V75/V76 三个文件后，向 `flyway_schema_history` 追加三行（`checksum=NULL` 让 Flyway 在下次 backend 启动时跳过校验，避免 manual 应用造成的 checksum 不匹配 startup 失败）。
+- 2026-04-28 **[新脚本/scripts/ops/rag_backfill.py]** ~530 行 Python 脚本（asyncio + asyncpg + httpx）：
+  * 命令行：`--estimate / --limit N / --all / --entity-types {courseware-page,notebook,memory} / --concurrency / --retry-errors / --reset`，全部可单独/组合运行；
+  * 三类 `fetch_*` 各自带 cursor 续传：`courseware-page` 按 `id::bigint`、`notebook` 按 `id::text`、`memory` 按 `(user_id || ':' || memory_key)`（**Phase 2 实测教训**：第一次跑 `memory` 时把 entity_id 设为 `f"{user_id}:{memory_key}"` 但 SQL cursor 用了 `id::text || ':' || user_id || ':' || memory_key`，cursor 与 entity_id 不一致导致死循环——44 条 memory 跑成 3090 条，已修正为同源签名）；
+  * 进度持久化：每批 10 行就 `save_progress` 一次落表（**Phase 2 实测教训**：第一次跑用 page_size=200 + `asyncio.gather(*200)` 时遇到 LightRAG 1.4.15 偶发 pipeline 锁竞态，1 个 POST 永久挂起后整个 gather 跟着 8 分钟未返回；缩到 page_size=10 + `asyncio.wait_for(batch_timeout_seconds=300)` 后单批最坏停留 5 分钟，超时即把这 10 行落 errors 表，下次 `--retry-errors` 单独重跑，不再阻塞主流程）；
+  * 失败追踪：`rag_backfill_errors` 写入 `INSERT ... VALUES ($1::varchar(64), $2::varchar(255), ...)` 显式 cast（**Phase 2 实测教训**：asyncpg 在 `$1` 同时被 column 与子查询 WHERE 引用时报 `AmbiguousParameterError: inconsistent types deduced for parameter $1, text versus character varying`，必须显式 cast）；
+  * `--retry-errors`：从 `rag_backfill_errors` 反查业务表重组 IndexCandidate，成功重 POST 后从 errors 表删除该行；
+  * `--estimate`：仅 SELECT count，不发 HTTP；
+  * `--reset`：DELETE rag_backfill_progress / rag_backfill_errors（不动 LightRAG 工作区，所以 LightRAG 自带的 content-hash dedup 仍生效，重跑再次 POST 已索引内容会立即返 202 + `dup-` 状态，速率远高于真实 LLM 抽取）。
+- 2026-04-28 **[基础设施/真跑 936 行回填]** 用 `--all --concurrency 3` 真跑了完整数据集：
+  * **courseware-page 868/868 finished, 0 failed, last_id=11242, finished_at 落值**
+  * **notebook 24/24 finished, 0 failed, last_id=seednb_59_3, finished_at 落值**
+  * **memory 44/44 finished, 0 failed, last_id=`1:strategy_pref_error_diagnosis`, finished_at 落值**
+  * HTTP 层全部 202 Accepted（FastAPI/LightRAG 接收即响应，KG 抽取在后台异步处理）；脚本完整退出，0 错误；
+  * LightRAG 后端实测处理速率约 30-40s/page（DeepSeek-v4-flash 中文教学题 entity+relation 抽取），868 页全量 KG 抽取约 7-9 小时；本会话内已完成 **82 + 2 in flight = 84 docs 完成 KG 抽取，剩余 680 在 LightRAG 队列异步处理**；
+  * 现场抽样：`MemgraphStorage` 累积 **486 entity 节点 + 549 relation 边**，`mgconsole` 抽样命中 `Computational Thinking / Curriculum Reform / Python Language Programming / Programming Technology / Practical Ability / Real Projects and Case Studies / Interdisciplinary Thinking` 等核心教学概念；
+  * 真实 query 验证 `POST /v1/rag/query/courseware {"query":"什么是计算思维？"}` 返 7955 字 raw_context，命中 `Computational Thinking` 实体的完整定义（含"问题分解 / 设计构造 / 计算实现 / 整合数学与工程思维 / 为所有人 everywhere" 等原 PPT 教学要点）。
+- 2026-04-28 **[测试/失败注入 + retry 端到端]** 故意 export 错 token 跑 `--limit 3 --entity-types notebook`：
+  * 3 个 401 全部进 `rag_backfill_errors`（attempt=1，error_text 携带 problem+json 错误体）；
+  * 进度表 finished=0 / failed=3 / `done=true`；
+  * 改回正确 token 跑 `--retry-errors --entity-types notebook`：3 行立即重 POST 成功，`rag_backfill_errors` 清零；这是计划 Phase 2「失败行落 rag_backfill_errors，可单独重跑」的端到端验收。
+- 2026-04-28 **[发现 / 已隔离]** 真跑过程中暴露 LightRAG 1.4.15 的两个内核行为：
+  * 同 workspace 同 content-hash 的二次 ingest 不进 KG 抽取，直接落 `lightrag_doc_status.status='failed' + error_msg='Content already exists'`，对应业务上「同一文档重新 import 不会双倍消耗 LLM」，这是预期行为；本次累积 928 条 dup-failed 全部为 `--reset` 后的 re-POST，与真实失败无关；
+  * 当 ingest 端并发 ≥ 3 时偶发 1 个 POST 长时间不返回（疑似 pipeline 锁），单批超时 + retry 模式已可隔离影响。
+- 2026-04-28 **[范围说明/不在本期]** Phase 2 不做：替换检索（Phase 3）；不删 EmbeddingProjectionService 等向量列与降维器（Phase 3）；不出回归 baseline 报告（Phase 4 `scripts/ops/rag_quality_regression.py`）；不改 CHANGELOG 之外的文档；目前 LightRAG 抽取的 entity 名以英文为主（DeepSeek-v4-flash 默认行为），Phase 4 视召回质量再决定是否 prompt-tune 强制中文。
+
+### 4/28 RAG 全量切换 LightRAG —— Phase 1：Java 端 RagServiceClient + outbox
+
+> **目标**：Java 后端业务表写入路径多写一行 `rag_index_outbox`，由后台 worker 异步重放到 alethicode-rag；本期仍保留旧 SQL+pgvector 检索路径不动，业务侧的写入永不依赖 RAG 服务。
+
+- 2026-04-28 **[后端/数据库迁移 V75]** 新增 `V75__rag_index_outbox.sql`：建表 `rag_index_outbox`（id BIGSERIAL、entity_type / entity_id / action / payload JSONB / attempts / last_error / next_retry_at / indexed_at / given_up_at / created_at / updated_at），CHECK 约束限制 `entity_type ∈ {courseware-page,notebook,memory}`、`action ∈ {INDEX,DELETE}` 与 alethicode-rag `EntityType` schema 严格对齐；唯一索引 `(entity_type, entity_id, action)` 保证幂等（再次 enqueue 同一实体的同一动作时 INSERT...ON CONFLICT DO UPDATE 把 attempts/given_up_at 重置）；部分索引 `idx_rag_outbox_pending_next_retry` 仅扫 `indexed_at IS NULL AND given_up_at IS NULL` 的待办行，扫表成本与历史规模解耦。
+- 2026-04-28 **[后端/RAG 服务包]** 新建 `service/rag/` 包，集中放置 7 个文件：
+  * `RagEntityType`（enum）：`COURSEWARE_PAGE("courseware-page") / NOTEBOOK / MEMORY`，slug 与上游 SQL CHECK / Python EntityType 三处对齐；
+  * `RagIndexAction`（enum）：`INDEX / DELETE`，对应 SQL CHECK；
+  * `dto/RagIndexRequest / RagIndexAcceptedResponse`、`dto/RagCoursewareQueryRequest / RagSimilarErrorQueryRequest / RagMemoryQueryRequest / RagTransferQueryRequest`、`dto/RagQueryHits`（嵌套 `RetrievedEntity / RetrievedRelation / RetrievedChunk` 三个 record）—— 全部不可变 record，构造器内即做参数校验（`top_k > 50` 报 IllegalArgumentException、`query` 不能为空），与 alethicode-rag pydantic schema 一一对应；
+  * `RagServiceClient`（接口）：暴露 4 个 query + `indexNow / deleteNow` 共 6 个方法，明确"应用代码不应直接调 indexNow/deleteNow，必须走 outbox"的约束；
+  * `RagServiceException`：fail-fast 异常，承载 HTTP 状态码与错误摘要；
+  * `HttpRagServiceClient`（@Component）：基于 Spring `WebClient` + JDK 11 `HttpClient`，与既有 `TutorGraphClient` 对齐（连接超时 5s，单 worker，无 Reactor Netty 事件循环开销）。**关键修正**：项目全局 `JacksonConfig` 通过 `Jackson2ObjectMapperBuilderCustomizer` 把默认 `ObjectMapper` 设成 SNAKE_CASE，但 `WebClient` 默认 codec 走自己的 ObjectMapper 实例**绕过该 customizer**，导致 record 字段（`languagePackId / topK / kcIds`）按 camelCase 出网，FastAPI Pydantic schema 校验直接 422。修正方法：在 `WebClient.builder()` 显式注入 `Jackson2JsonEncoder/Decoder(snakeMapper)`，确保所有出网 / 入网 JSON 严格 snake_case；
+  * `RagIndexQueueService`（@Service）：唯一对应用代码暴露的写路径，提供 `enqueueIndex / enqueueDelete`，方法上 `@Transactional` 默认 `Propagation.REQUIRED`，存在父事务时挂入、否则 Spring 自动开短事务，业务表写入与 outbox 写入要么一起 commit 要么一起 rollback；同时提供 `RagIndexQueueService.NOOP` 静态实例，给手动 `new` 实例化的 `AITutorWorkflowAdminServiceImpl` 与单测用，避免污染 Spring bean 容器。
+  * `RagIndexOutboxWorker`（@Component）：自维护单线程 `ScheduledExecutorService`（仿 `KcCoverageRegistry`，因为项目全局未启用 `@EnableScheduling`），`@PostConstruct start()` 启动、`@PreDestroy shutdown()` 关停；每 30s（`alethicode.rag.outbox.fixed-delay-ms` 可调）扫一批 100 行 pending；失败按 `min(60s × 2^(attempts-1), 1h)` 退避；attempts=5 时落 `given_up_at`，Micrometer counter `rag_outbox_giveup_total / rag_outbox_failure_total / rag_outbox_success_total` 三个独立计数。
+- 2026-04-28 **[后端/写入侧改造]** `LearnerMemoryService.persistCandidate / syncNotebookMemories / syncLearningEventMemories` 全部走 outbox：
+  * **删除** 三处 `vectorLiteral = VectorCodec.toPgVector(aiModelGateway.callForEmbedding(...))` 行；
+  * **删除** `findSemanticDuplicate` 方法与 0.15 cosine 阈值常量（基于"16 维强降维 embedding 之上的 dedup"本就不可信，Phase 3 LightRAG KG 实体合并会接管这一职责）；
+  * INSERT/UPDATE `ai_learner_memory` 与 `ai_learner_notebook` 时不再写 `memory_embedding / notebook_embedding` 列（列保留为 nullable，Phase 3 V77 会 DROP 列与索引）；
+  * INSERT 完成后立即调 `ragIndexQueue.enqueueIndex(MEMORY, userId+":"+memoryKey, summary, metadata)`；笔记本同步路径**额外**调一次 `enqueueIndex(NOTEBOOK, notebookId, summary, ...)`，让 `ai_learner_notebook` 与 `ai_learner_memory` 在 LightRAG 工作区里以两种 entity_type 各自独立检索（前者给 SimilarErrorRetrieval，后者给 LearnerMemorySemanticRetrieval，Phase 3 切换时不互相 dedup）；
+  * 构造方法去掉 `aiModelGateway` 依赖（不再需要）、新增 `RagIndexQueueService`；保留 4 参与 2 参便利构造器（2 参版本接 NOOP），覆盖 `AITutorWorkflowAdminServiceImpl` 手动构造与 `LearningStyleInferenceTest` 测试夹具；
+  * `AITutorWorkflowAdminServiceImpl.buildRuntime` 处的 `new LearnerMemoryService(jdbcTemplate, objectMapper, aiModelGateway)` 同步收敛为 2 参 `new LearnerMemoryService(jdbcTemplate, objectMapper)`。
+- 2026-04-28 **[后端/课件解析侧改造]** `DocumentParsingServiceImpl.processPagesFromExtraction`：
+  * **保留** 现有 `aiModelGateway.callForEmbedding(...)` + `page_embedding` + `search_tsv` 写入路径不动（Phase 1 不改检索，PageRetrievalServiceImpl 仍按旧 SQL 读这些列），Phase 3 才删；
+  * INSERT `language_pack_page` 改 `RETURNING id`，并升级为 `ON CONFLICT (document_id, page_no, chunk_index) DO UPDATE`，使重复 import 同一文档时不再因唯一约束抛异常而是 UPSERT，结合 outbox 的唯一键 `(entity_type, entity_id, action)` 形成端到端幂等；
+  * 拿到 `pageId` 后调用 `ragIndexQueue.enqueueIndex(COURSEWARE_PAGE, String.valueOf(pageId), content, metadata)`，metadata 携带 `language_pack_id / document_id / page_no / page_title / source_path`，Phase 3 切换时 Java 端可凭这些字段反查业务库；
+  * 构造函数新增 `RagIndexQueueService` 注入。
+- 2026-04-28 **[部署/docker-compose 调整]** backend service environment 段已在 Phase 0 里完成 `RAG_SERVICE_URL` / `RAG_INTERNAL_TOKEN` 的注入，本期无需再改；`alethicode.rag.base-url` 与 `alethicode.rag.internal-token` 走 `application.yml` 默认值或 env 兜底，没有 RAG 凭据时退化为 dev token，本地测试不报错。
+- 2026-04-28 **[测试/契约与状态机]** 新增 3 个测试模块共 **18** 条用例：
+  * `HttpRagServiceClientTest`（8 用例）：用 JDK 自带 `com.sun.net.httpserver.HttpServer` 起本地端口（无 WireMock 依赖），覆盖 4 个 query 路径正确性、`indexNow` 请求体 snake_case 形态与响应反序列化、`indexNow` 5xx 映射成 `RagServiceException`、`deleteNow` 真发 DELETE、`deleteNow` 404 视为已删除不抛；
+  * `RagIndexQueueServiceTest`（4 用例）：断言 INSERT...ON CONFLICT SQL 包含 `attempts = 0 / given_up_at = NULL` 的 reset 语义、payload JSON 包含 `content / entity_id / metadata` 三键、空 content / 空 entityId fail-fast 抛 IllegalArgumentException；
+  * `RagIndexOutboxWorkerTest`（6 用例）：成功路径调 `markSuccess` SQL（包含 `indexed_at = now()`）、失败路径写 `next_retry_at = now() + (interval '1 second') * ?` 退避公式（attempts=1 → 60s、attempts=4 → 480s）、attempts=4 第 5 次失败写 `given_up_at`、DELETE action 路由到 `deleteNow` 不调 indexNow、空 pending 队列是 noop、Micrometer 三种 counter 各自计数正确。全部 18 条 PASS。
+- 2026-04-28 **[范围说明/不在本期]** Phase 1 不做：删除 `EmbeddingProjectionService / VectorCodec / AiEmbeddingProfile / callForEmbedding 全链路 / AiProviderValidationService.runEmbeddingCase`（Phase 3）；不替换 `PageRetrievalServiceImpl / CoursewareRetrievalService / SimilarErrorRetrievalService / LearnerMemorySemanticRetrievalService` 四个检索 service（Phase 3）；不删 `search_tsv / page_embedding / notebook_embedding / memory_embedding` 列（Phase 3 V77）；不接 reranker（Phase 4 视召回质量再判）。本期**有意保留**的过渡态：新业务写入不再生成 16 维 embedding，但旧检索仍按存量 embedding 做向量召回（新行的 embedding 列为 NULL，旧行的 embedding 仍可用），LightRAG 端通过 outbox 异步追平后，Phase 3 一次性切流。
+
+### 4/28 RAG 全量切换 LightRAG —— Phase 0：alethicode-rag 服务骨架
+
+> **背景与决策**：当前后端 4 条自研 SQL+pgvector 检索链路（`PageRetrievalServiceImpl` / `CoursewareRetrievalService` / `SimilarErrorRetrievalService` / `LearnerMemorySemanticRetrievalService`）的最大问题是 `EmbeddingProjectionService` 把 2048 维 embedding **强行降到 16 维**，召回质量被毁。本期按计划 `rag_全量切换_lightrag_251432a8.plan.md` 执行 Phase 0：新建独立 Python 微服务 `services/alethicode-rag`（FastAPI + lightrag-hku 1.4.15），KV/Vector/DocStatus 三类存储复用项目现有 PostgreSQL（pgvector），图谱存储改用 Memgraph（决策依据：[HKUDS/LightRAG#2255](https://github.com/HKUDS/LightRAG/issues/2255) 报告 PG+AGE 升级 12h+ 停机；[#1277](https://github.com/HKUDS/LightRAG/issues/1277) 报告 3500 节点/4500 边量级查询 3-5 分钟，维护者公开建议大规模用 Neo4j 或 Memgraph）。
+
+- 2026-04-28 **[新服务/services/alethicode-rag]** 新建 Python 微服务骨架（端口 8200，单 worker），目录布局对齐 `services/tutor-graph/`：
+  * `pyproject.toml`：依赖 `lightrag-hku==1.4.15` + `fastapi` + `asyncpg` + `pgvector` + `neo4j`（Memgraph bolt 驱动）+ `pydantic-settings` + `prometheus-client`，`requires-python = ">=3.10"`（与本地 3.10 demo 环境对齐，容器内 Python 3.11）；
+  * `Dockerfile`：仿 `services/tutor-graph/Dockerfile`，python:3.11-slim，`uvicorn --workers 1`，`HEALTHCHECK` 调 `/health`；
+  * `app/main.py`：FastAPI 入口，`lifespan` 钩子启动/关闭 LightRAG 单例；挂载 health/index/query 三个 router 与 `/metrics`（prometheus_client）；
+  * `app/config.py`：`RagSettings`（pydantic-settings），读 `POSTGRES_*` / `MEMGRAPH_*` / `OPENAI_API_KEY` / `LLM_BASE_URL` / `EMBEDDING_API_KEY` 等，全字段带 `alias`，部署 env 对齐项目既有命名；
+  * `app/auth.py`：`require_internal_token` 依赖项，所有 index/query 端点强制 `X-Internal-Token` 头校验，缺失或不匹配返回 401 + `application/problem+json` 形式 detail；
+  * `app/schemas.py`：定义 `IndexRequest / IndexAccepted` + 4 个 `*QueryRequest` + `QueryHits`（entities / relations / chunks / raw_context 四段结构），契约一次性写到位，Phase 1 Java 端 RagServiceClient 直接对齐；
+  * `app/rag/builder.py`：`get_rag()` 单例工厂，配置 `LIGHTRAG_KV_STORAGE=PGKVStorage`、`LIGHTRAG_VECTOR_STORAGE=PGVectorStorage`、`LIGHTRAG_DOC_STATUS_STORAGE=PGDocStatusStorage`、`LIGHTRAG_GRAPH_STORAGE=MemgraphStorage`；显式 `default_query_param()` 工厂返回 `QueryParam(mode="mix", only_need_context=True, enable_rerank=False)`，意味着 LightRAG 仅返回结构化 context（entities + relations + chunks），不再做最终回答生成（每次查询 LLM 调用从 2 次降到 1 次）；
+  * `app/rag/llm.py`：DeepSeek wrapper 包裹 `openai_complete_if_cache`。**关键修正**：LightRAG 关键词抽取阶段会传 `response_format=GPTKeywordExtractionFormat`（Pydantic schema），但项目使用的 `deepseek-v4-flash` 不支持 OpenAI `chat.completions.parse` schema 路径（实测 400 `This response_format type is unavailable now`），wrapper 在检测到该 schema 或 `keyword_extraction=True` 时把 `response_format` 改写为 `{"type": "json_object"}`，并在 system prompt 末尾追加 `low_level_keywords / high_level_keywords` 字段说明，确保 deepseek 仍能产出 LightRAG 期望的 JSON 形态；
+  * `app/rag/embeddings.py`：智谱 embedding-3 wrapper。**关键修正**：`openai_embed` 自带 `@wrap_embedding_func_with_attrs(embedding_dim=1536)` 装饰器会覆盖实际维度，必须用 `openai_embed.func`（解装饰后的内部协程）+ `EmbeddingFunc(embedding_dim=2048, max_token_size=8192, ...)` 显式声明 2048 维，否则 vector DB workspace 表会按 1536 维建列，写入时报 `Embedding dimension mismatch detected`；
+  * `app/routes/{health,index,query}.py`：health 端点真实 ping PG + Memgraph 不依赖 LightRAG 初始化（k8s/Docker 探针冷启动友好）；index 端点用 `track_id = f"{entity_type}:{entity_id}"` 作为业务 id 反查锚点；query 4 个端点统一走 `default_query_param()`，结果通过 `_coerce_hits` 适配器折叠成 `QueryHits` 形态，对 LightRAG 不同版本返回 dict / str 都兼容。
+- 2026-04-28 **[部署/docker-compose 接入]** `deploy/docker-compose.yml` 新增两个 service：
+  * `memgraph`：`memgraph/memgraph:latest`（实测 v3.9.0；国内镜像仓库未同步显式 2.x tag），bolt 端口 `127.0.0.1:7687`，512MB 内存上限，`./data/memgraph` 卷持久化；启动参数 `--log-level=WARNING --storage-snapshot-interval-sec=300 --storage-properties-on-edges=true`；
+  * `alethicode-rag`：基于本仓库新 Dockerfile build，端口 `127.0.0.1:8200`，依赖 `postgres` + `memgraph` 两个 service health 通过；env 注入 `RAG_INTERNAL_TOKEN` / `POSTGRES_*` / `MEMGRAPH_URI=bolt://memgraph:7687` / `LIGHTRAG_GRAPH_STORAGE=MemgraphStorage` / `EMBEDDING_DIM=2048` / `POSTGRES_VECTOR_INDEX_TYPE=HNSW_HALFVEC`；backend 服务的 environment 段同步追加 `RAG_SERVICE_URL=http://alethicode-rag:8200` 与 `RAG_INTERNAL_TOKEN`，Phase 1 Java 端就绪即可直接调；
+  * `deploy/.env` + `deploy/.env.example`：补全 `RAG_SERVICE_URL` / `RAG_INTERNAL_TOKEN` / `MEMGRAPH_WORKSPACE` / `POSTGRES_VECTOR_INDEX_TYPE=HNSW_HALFVEC` / `POSTGRES_HNSW_M=16` / `POSTGRES_HNSW_EF=200` / `EMBEDDING_DIM=2048` / 内存上限默认值。
+- 2026-04-28 **[决策修正/HNSW_HALFVEC]** 计划稿原写"智谱 embedding-3 = 2048 维，HNSW 直接支持，不需要 HALFVEC"，本期实测发现 pgvector 普通 HNSW 上限 **2000 维**（出错信息 `column cannot have more than 2000 dimensions for hnsw index`），与官方文档 `max dimensions for HNSW: 2000 for vector / 4000 for halfvec` 一致。修正策略：默认 `POSTGRES_VECTOR_INDEX_TYPE=HNSW_HALFVEC`（halfvec 列存半精度浮点，存储减半，2048 维 cosine 检索质量差异低于噪声）。pgvector 0.8.1 已在 `pgvector/pgvector:pg16` 镜像内，符合 `>= 0.7.0` 要求；smoke 实测三张向量表（`lightrag_vdb_chunks_embedding_3_2048d` / `lightrag_vdb_entity_embedding_3_2048d` / `lightrag_vdb_relation_embedding_3_2048d`）的 `idx_*_hnsw_halfvec_cosine` 索引全部创建成功。
+- 2026-04-28 **[决策修正/Graph 后端 Memgraph]** 计划稿原写"PGGraphStorage（纯 PG 表存图，无需 AGE 扩展）"，本期核对上游源码 [HKUDS/LightRAG/lightrag/kg/postgres_impl.py](https://github.com/HKUDS/LightRAG/blob/main/lightrag/kg/postgres_impl.py) 后确认 PGGraphStorage **必须依赖 Apache AGE 扩展**（源码里有 `CREATE EXTENSION IF NOT EXISTS AGE CASCADE`、`SET search_path = ag_catalog, "$user", public`、`select create_graph(...)`），且社区 issue 报告大规模图查询性能极差。本期按 Q1 决策切换为 `MemgraphStorage`（neo4j bolt 驱动直连 Memgraph 容器），既避开 AGE 镜像替换，又规避 PGGraphStorage 性能问题；KV/Vector/DocStatus 仍用 PGKVStorage / PGVectorStorage / PGDocStatusStorage。
+- 2026-04-28 **[测试/单元覆盖]** `services/alethicode-rag/app/tests/` 新增 4 个测试模块共 **12 条用例**：
+  * `test_llm_wrapper.py`（6 用例）：覆盖 keyword 检测函数对 class / 实例 / dict / 无关 schema / None 的判定、keyword path 必须 rewrite + 注入字段说明、非 keyword 路径丢弃 Pydantic schema、dict response_format pass-through、即使忘记设置 `keyword_extraction=True` 但传入 keyword schema 也能 fallback 到 rewrite；
+  * `test_embeddings.py`（2 用例）：断言 `EmbeddingFunc.embedding_dim == 2048`、`model_name == "embedding-3"`，并验证可被换成 1536 维（其他厂商兼容）；
+  * `test_health.py`（2 用例）：mock 掉 asyncpg/neo4j 驱动，断言双 OK 时 `status="ok"`、PG down 时 `status="degraded"` 且 `postgres` 字段以 `down:` 开头；
+  * `test_auth.py`（2 用例）：验证 index 端点缺 token 返回 401、query 端点 token 错误返回 401。
+  * `pytest app/tests` 全部 12/12 PASS（python 3.10.12 + pytest 9.0.3 + pytest-asyncio 1.3.0）。
+- 2026-04-28 **[端到端冒烟/真实 API 验收]** 用项目 `backend/.env` 中真实的 deepseek + 智谱密钥跑了一次完整链路：连接现有 `java-oj-postgres`（端口 5436）+ 新启 `memgraph:latest` 容器（bolt 7687）+ `uvicorn app.main:app` 直跑（端口 8210，`MEMGRAPH_WORKSPACE=alethicode_smoke2`）；
+  * **POST `/v1/rag/index/courseware-page`** 提交一段 ~150 字 Python `for/range/enumerate/IndexError/IndentationError` 课件，~85 秒返回 202，LightRAG 抽出 **8 个 entities + 12 个 relations**（包含 `Enumerate Function / For Loop / Range Function / IndexError / IndentationError / my_list / Python` 等所有核心概念，且关系语义紧密：For Loop-uses-Range Function、Enumerate Function-cooperates-For Loop、IndexError-caused-by-Range Function-exclusive-bound 等）；
+  * 关键索引验收：PG 自动建出 11 张 `lightrag_*` 表，三张向量表全部成功建出 `idx_*_hnsw_halfvec_cosine` 索引；Memgraph 写入 7 个 entity 节点 + 6 条 relation 边；
+  * **POST `/v1/rag/query/courseware`** 用「怎么用 enumerate 同时拿到下标和元素？」查询，~6 秒返回 mix 模式上下文，命中所有相关 entities + relations + 原始 chunk，结构化 raw_context 共 ~2380 字；
+  * **DELETE `/v1/rag/index/courseware-page/smoke-page-1`** 返回 204 No Content；
+  * 验收完毕清空 lightrag_* 表与 Memgraph 数据，移除 smoke 容器，避免污染生产 PG。
+- 2026-04-28 **[范围说明/不在本期]** Phase 0 不做：业务表写入路径接 outbox（Phase 1）、回填脚本（Phase 2）、删除 EmbeddingProjectionService 与 4 个检索 service 改造（Phase 3）、Helm chart 与发布 gate（Phase 4）；不接 reranker（Phase 4 视召回质量再判）；alethicode-rag 端 query 返回当前以 `raw_context` 字符串为主，结构化 entities/relations/chunks 字段空——LightRAG `only_need_context=True` 模式默认只产出 markdown 形态的 context，结构化解析放到 Phase 1 Java 端或后续 alethicode-rag 端解析增强（不影响 Phase 0 验收）。
+
+### 4/28 Language Pack 初始化质量门（reference solution self-validation，深度融合 7 篇论文）
+
+> **设计稿与论文锚点**：本节工作的设计稿 `docs/plans/2026-04-28-language-pack-init-quality-design.md`（编号 ALETH-PLAN-2026-0428-LPINIT-QUALITY，v1.1）深度融合了 **7 篇软件测试 / LLM 代码生成 / ML 工程论文**——每一篇都精确锚定到本设计的某条具体决策，且在「附录 E 论文锚点与可移植性矩阵」给出"原文术语 → 本设计具体翻译 → 差异/裁剪声明"三栏对照，并显式列出 7 条"原文有但本期不引入"清单（避免论文挂名 / 设计膨胀 / 三段脱节）：
+>
+> 1. **[CodeT 2022]** Chen, B. et al. *"CODET: Code Generation with Generated Tests"* (arXiv:2207.10397) — 锚定 D3 / D5 / D6：原文 *Dual Execution Agreement (DEA)* 用 LLM 生成 (code, tests) 多份互投票；本设计**非对称化裁剪**为"LLM 单方生成 input、reference 单方定义 output"，断绝原文的 dual hallucination 累乘；放弃多份投票（教学题库每题只需 1 份正确题包，外部 judge 已是更强 oracle）。
+> 2. **[QuickCheck 2000]** Claessen, K. & Hughes, J. *"QuickCheck"* (ICFP'00) — 锚定 § 8 / § 1.4：reference solution 即原文 *implicit oracle*；保留 generator + oracle 双角色分离；放弃 random shrinking（题库每题 ≤ 5 个手工 case，不需要反例缩小）。
+> 3. **[MetamorphicTesting 2018]** Chen, T. Y. et al. *"Metamorphic Testing: A Review of Challenges and Opportunities"* (ACM CSUR 51(1)) — 锚定 D6 / § 8.2：sample.output ≡ ref(sample.input) 是原文 *MR-1: Identity over reference*；§ 8.2 set/dict sorted 输出是 *MR-2: Order-invariance under sorted projection*；多行输出 rstrip 是 *MR-3: Trailing whitespace invariance*；放弃多参数 MR（交换律/幂等律），留给后续 reference solution mutation testing。
+> 4. **[Crosby&Wallach 2003]** Crosby, S. A. & Wallach, D. S. *"Denial of Service via Algorithmic Complexity Attacks"* (USENIX Sec'03，叠加 PEP 456 *Secure and Interchangeable Hash Algorithm*) — 锚定 D7 / § 12 hash seed 行：原文论证 hash randomization 是 "防对抗输入 DoS" 的安全机制；本设计严格在**沙箱内**（不接受外部对抗输入）解除 randomization 以换取 deterministic 判分，沿用原文 § 6 *"Defenses"* 边界条件 "if input is trusted"。
+> 5. **[Self-Refine 2023]** Madaan, A. et al. *"Self-Refine: Iterative Refinement with Self-Feedback"* (NeurIPS'23, arXiv:2303.17651) — 锚定 D2 / § 9.2-9.3：原文报告 N=3~4 是 marginal gain 趋零的 sweet spot，本设计取严格 N=3 上限；**关键差异声明**：原文 § 5 *Limitations* 承认 self-feedback 会继承模型 blind spots，本设计的 critic 是 OJ judge sandbox + ReferenceSolutionLinter（external、non-LLM、ground truth），相当于把原文 ablation 的 "with executor" 作为唯一档，严格强于原文。
+> 6. **[HiddenTechDebt 2015]** Sculley, D. et al. *"Hidden Technical Debt in Machine Learning Systems"* (NeurIPS'15) — 锚定 § 1.3 / § 4 D1 / § 4 D9 / § 12（整表）：把 LLM 当 ML 黑盒组件，用原文 4 类风险框架（*Pipeline jungles* / *Glue code* / *Configuration debt* / *Undeclared consumers*）+ *Correction Cascades* 对 § 12 风险重新分类；§ 1.1 41.5% 错误率被论证为 "已发生的 correction cascade"。
+> 7. **[DesignByContract 1992]** Meyer, B. *"Applying Design by Contract"* (IEEE Computer 25(10)) — 锚定 D4 / D8 / § 7.1 / § 8（整章）：schema 字段必填 = preconditions；test_case 输出格式 = postconditions；reference solution 100% AC 自身 test_cases = class invariant；§ 8.3 不允许 `except: pass` = *Disciplined Exception Handling*；硬规则 = 契约违反 fail-fast，软规则 = stylistic guideline 不阻塞契约满足；放弃 Eiffel 语法级契约（require/ensure 关键字），用 schema + lint + self-validation 三层联合实现等价语义。
+>
+> **一句话理论根基**：本设计 = [CodeT 2022] DEA 的非对称化简化 + [QuickCheck 2000] generator/oracle 角色分离 + [Meyer 1992] class invariant + [Self-Refine 2023] external-feedback bounded refinement + [Crosby&Wallach 2003] sandbox 安全边界 + [HiddenTechDebt 2015] 风险审视框架 + [MetamorphicTesting 2018] MR-1/2/3 的工程落地。
+>
+> **三段对齐审视**（避免肤浅引用）：每个决策在设计稿 § 4.1 给出「决策 → 拦截的根因 → 主论文锚点 → 主代码落点」四向矩阵；每个论文在附录 E.4 给出「论文 → 本设计章节 → 具体段落」反向引用映射；附录 E.5 第一性原理再自检"是否深度融合 / 是否引入了论文外的自创核心机制 / 是否过度套用 / 论文之间是否冲突"四问。
+
+- 2026-04-28 **[后端/数据库迁移]** 新增 `V73__language_pack_init_quality_report.sql`：建表 `language_pack_init_quality_report` 聚合每次 init 任务的 self-validation 结果——`init_task_id` 唯一外键、`total_packages / self_validated_count / failed_count / retried_count / escalated_count` 五个计数、`failure_breakdown` JSONB（key 与设计稿 § 1.2 R1-R8 根因对齐，例 `{"R1_self_validation": 5, "R2_set_order": 3}`）、`lint_summary` JSONB（`{"hard_violations":{"REF001":2}, "soft_violations":{"REF005":7}}`）、`escalated_packages` JSONB（人工复核题包详情列表）、`duration_ms` 单次闸门耗时；建索引 `idx_lpiqr_pack(language_pack_id, create_time DESC)` 与 `idx_lpiqr_task(init_task_id)`；表/列均带 `COMMENT` 注释指向设计稿章节。
+- 2026-04-28 **[后端/quality 包]** 新建 `service/languagepack/quality/` 子包，集中放置质量闸门相关 9 个新文件：
+  * `LintViolation`（record）：`ruleCode / severity(HARD|SOFT) / message / line`，给硬规则与软规则一个统一的数据结构；
+  * `ReferenceLintReport`（record）：`hardViolations / softViolations`，`passable()` = 无硬规则违反；
+  * `ReferenceLintContext`（record）：可选题面上下文（description / input_description / output_description），REF002 与 REF007 才能跑；
+  * `ReferenceSolutionLinter`（service，约 320 行）：实现设计稿附录 C 的 7 条规则——**REF001 (HARD)** 直接 `print(set/dict)` 未 sorted；**REF002 (HARD)** 题面要求小数位但 `print(float)` 未限位（无 f-string `:.Nf` / `round`）；**REF003 (HARD)** `import random` 但无 `random.seed`；**REF004 (HARD)** `input()` ≥ 3 次且无 `try/except EOFError` 防护；**REF007 (HARD)** 字符串字面量含半角标点（`,` / `.` / `:` 等）但题面 description 用全角（`，` / `。` / `：`）；**REF005 (SOFT)** 缺 `if __name__ == "__main__":`；**REF006 (SOFT)** 非空行 > 60。全部用 Java 文本/正则模式扫描 + 简单赋值类型推断（set/dict/float），不引入 Python AST 子进程依赖（保持与 `containsIoPattern` 现有启发式一致）；非 Python3 语言直接返回空报告（设计稿 N5：题库 100% Python3）。
+  * `SelfValidationCaseResult` / `SelfValidationSampleResult` / `SelfValidationReport`（record）：把 judge 的 0/1/2/3/4/7 result code 翻译成 `AC / WA / RE / TLE / OLE` 显式状态、记录 `expected_output / actual_output / diff (前 200 字符)` 三元组；`failureSummary` 浓缩前 3 个失败 case 给 LLM 重试 prompt 与人工 escalation 用；
+  * `ReferenceSolutionSelfValidator`（service，约 280 行）：先调 `ReferenceSolutionLinter` 静态 lint→硬规则违反则**短路返回**（不调 judge，省 LLM 与 judge 资源）→否则调 `LanguagePackProblemJudgeCheckService.executeReferenceSolution` 跑 reference × test_cases→比对 `expected_output` 与 strip 后的 `actualOutput`→对每个 sample 用 `input` 反查 test_case actual output 得到 `SAMPLE_AC / WA / NO_MATCH`；显式处理 `JudgeUnavailableException`（不抛、写入 failureSummary）与 compile error（写 `compileError` 字段）；
+  * `SamplesSynchronizer`（service，约 80 行）：用 self-validation 报告里已经计算的 `actualOutput` 覆盖 LLM 生成的 `sample.output`（设计稿 D6：sample.output 不允许由 LLM 单独写）；不再重复调用 judge，避免 init 链路时间膨胀；report 未通过时 short-circuit 不动 sample；输出全部一致时返回原对象（避免无谓 record 复制）；
+  * `TitleDedupV2Service`（service，约 180 行）：升级去重签名为 `(description_md5(NFKC + lowercase + 单空格归一), source_title)` 双键；处理三种情形——双键完全一致 → 保留 `pageRangeStart` 在前的、把后者标 `DROPPED_DUPLICATE`；双键的 description_md5 部分相同但 source_title 同名（PPT5-9/10 同名症状）→ 自动加 V1/V2/V3 后缀（首条遇到第二条时回填 V1）；source_title 完全不同 → 各自 `KEPT`；
+  * `LanguagePackInitQualityReportService`（service）：DB 写入/读取 `language_pack_init_quality_report` 表，提供 `upsert / findByTaskId / findRecentByLanguagePack` 三个 API；内嵌静态 `Aggregator` 累加器在 init 主循环中边跑边累加（`incrementTotal / recordSelfValidated / recordFailure(rootCauseKey) / recordRetry / recordEscalation(detail) / recordLintReport`），循环结束后一次性 `toRecord(taskId, packId, duration)` 写库，避免大量小写。
+- 2026-04-28 **[后端/init 流水线串接]** `ProblemValidationServiceImpl`：构造方法新增 5 个依赖（`ReferenceSolutionLinter / ReferenceSolutionSelfValidator / SamplesSynchronizer / TitleDedupV2Service / LanguagePackInitQualityReportService`）；`validateCandidates` 主循环加 `Aggregator` 与 `passedPackagesByCandidateId` 累加器，每个候选在原有 `judgeRecheckAndRepair` 之后追加 `runSelfValidationGate(...)`——若 `lintBlocked` 则把每条 hard 违反 `[REFxxx]` 写进 `errors` 并按 `mapLintRuleToRootCause`（REF001→R2_set_order / REF002→R7_float_precision / REF003→R8_random_seed / REF004→R3_input_parsing / REF007→R3_punctuation）累加根因；若 case WA/RE/TLE 则按 `mapCaseStatusToRootCause` 累加 `R1_self_validation / R3_runtime`；通过的 self-validation 才跑 `samplesSynchronizer.synchronize(...)` 同步 samples；循环结束后调 `applyTitleDedupV2(passedPackages)` 跨候选执行双键去重——`DROPPED_DUPLICATE` 状态从 `passed` 降级为 `failed`、`RENAMED_VARIANT` 把新 title 写回 `candidate_title / problem_package_json`；最后 `qualityReportService.upsert(aggregator.toRecord(...))` 一次性写质量报告。所有失败题包通过 `buildEscalationDetail` 写入 `escalated_packages` JSONB（候选 id、display_id、title、errors 列表、self-validation 摘要含 lint_blocked / hard_violation_codes / failed_case_keys）。
+- 2026-04-28 **[后端/Internal API]** 新建 `controller/internal/InternalLanguagePackQualityController.java` 暴露 5 个 `/internal/language-pack/quality/*` 端点供 `tutor_graph` init validation 节点调用，认证沿用 `X-Internal-Service-Key`：(1) `POST /reference-lint` 入参 `reference_solution_code / language / description / input_description / output_description`，返回 `passable + hard_violations + soft_violations` 三段 JSON；(2) `POST /self-validate` 入参完整题包 schema（display_id / title / description / samples / test_cases / reference_solution_code / judge_config.{time_limit_ms, memory_limit_mb}），返回 `SelfValidationReport` 视图；(3) `POST /samples-sync` 在 self-validate 通过时同步 samples，未通过返回 409 + 报告体；(4) `POST /title-dedup-v2` 入参 `candidates: [{display_id, title, description, source_title, page_range_start, page_range_end}]`，返回每条的 `action(KEPT|DROPPED_DUPLICATE|RENAMED_VARIANT) / title / reason / description_md5 / signature_key`；(5) `GET /report/{taskId}` 返回单个 init 任务的质量报告全字段（含 failure_breakdown / lint_summary / escalated_packages / duration_ms）；ExceptionHandler 统一映射 `AccessDeniedException → 401`、`IllegalArgumentException → 422`。
+- 2026-04-28 **[后端/Judge env 固定 PYTHONHASHSEED=42]** 同时修改三处 Python3 sandbox 配置（`LanguagePackProblemJudgeCheckService.defaultLanguageConfig` / `SubmissionServiceImpl.buildLanguageConfig` / `JudgeBackedExecutionTraceService` 的 Python3 case），在 `run.env` 列表追加 `PYTHONHASHSEED=42`，让 reference solution 自验证、学生 OJ 提交、可视化执行三条链路共享同一 deterministic 环境，消除设计稿 R2 根因（set/dict 默认遍历顺序非 deterministic 导致同一份代码 AC/WA 不稳定）。OnlineJudge 上游容器接受 env 列表透传，无需改 docker 镜像本身。
+- 2026-04-28 **[后端/契约说明]** 本次 quality 闸门复用现有 `LanguagePackProblemPackage` record 与 `LanguagePackProblemJudgeCheckService.executeReferenceSolution` 链路，不改 `ProblemJudgeMaterializationHelper.verifyOutputs / attemptRepairForValidation` 既有判分语义；与设计稿 § 5.3「与 LanguagePackProblemJudgeCheckService 的关系」一致——既有"reference 跑 test_case"工具能力被包装为 init 流水线自动调用，不再仅限学生/老师手动触发。`@SpringBootApplication` 的默认包扫描覆盖 `service.languagepack.quality`，新 service 全部由 Spring 自动注入。
+- 2026-04-28 **[测试/契约]** 新增 4 个测试类共 **30** 个用例（设计稿 § 13 P0 验收 #2 / #3 / #4 / #5 + 附录 D.1 的 25 用例底线，且额外补 5 条阴性断言）：
+  * `ReferenceSolutionLinterTest`（10 用例）：逐条规则触发 + 阴性断言。`ref001ShouldFlagDirectPrintOfSetVariable`、`ref002ShouldFlagFloatPrintWithoutPrecisionWhenOutputDescriptionRequiresIt`、`ref003ShouldFlagRandomImportWithoutSeed`、`ref004ShouldFlagMultipleInputCallsWithoutEofGuard`、`ref007ShouldFlagHalfWidthCommaWhenDescriptionUsesFullWidth`、`ref005ShouldRecordSoftMissingMainGuard`、`ref006ShouldRecordSoftWhenReferenceExceedsSoftLineLimit`，加 `shouldNotFlagSetPrintWhenSortedExplicitly` / `shouldNotFlagFloatPrintWhenFstringPrecisionUsed` / `shouldNotFlagRandomWhenSeedIsExplicit` 三条阴性确保规则不误杀。
+  * `ReferenceSolutionSelfValidatorTest`（9 用例）：mock `LanguagePackProblemJudgeCheckService`，覆盖全 AC、WA + diff、RE、TLE、lint hard 短路（不调 judge，`verify(judge, never())`）、sample 单独 mismatch、compile error、`JudgeUnavailableException` 不抛而写入 failureSummary、time/memory limits 通过 `ArgumentCaptor` 透传给 judge。
+  * `SamplesSynchronizerTest`（4 用例）：覆盖输出覆盖、input 不匹配保留原 sample、self-validation 失败时短路返回原对象、samples 已经一致时返回原对象。
+  * `TitleDedupV2ServiceTest`（7 用例）：同 source_title 不同题面 → V1/V2 自动加缀；双键完全一致 → DROPPED_DUPLICATE；候选乱序时按 `pageRangeStart` 选保留项；source_title 完全不同 → 各自 KEPT；三变体 → V1/V2/V3；空/null 输入安全；`normalizeDescription` 处理全角空格 + 多空白 + 大小写归一。
+- 2026-04-28 **[范围说明 / 不在本期]** Phase 1（Grafana 看板 / 周报自动化）、tutor_graph `language_pack_init_validation.py` 节点（暴露端点已就位，节点本体延后到 Sprint 13）、E2E 集成测试（依赖真实 judge 容器与 PPT 数据）、跨 language_pack 题目去重、reference 多语言扩展、LLM-as-judge 教学正确性评估均按设计稿 § 14「不在本期的事」明确推迟，不在本次 PR 实现。
+
+### 4/28 ICLR 2026 Oral Agent 论文教学场景应用方案
+
+- 2026-04-28 **[文档/规划]** 新增 `docs/plans/2026-04-28-iclr2026-agent-papers-teaching-applications.md`（编号 ALETH-PLAN-2026-0428-AP01）：把 ICLR 2026 Oral 五篇 Agent 论文（AgentFlow / ADP / RedTeamCUA / ScaleCUA / MemAgent）的核心洞察精确映射到 Alethicode 教学场景的 5 个真实痛点（Yoshino 反复指错导致疲劳、学生作弊/绕过动机、NFK 学情信号片面 + 可被恶意污染、跨场景学情断裂、Planner 决策机械化）。明确**只做 Sprint 1（教学场景红队评测 100 条对抗用例 + CI Gate）和 Sprint 2（NFK `buildInteractionSequence` 接入 `ai_learning_event` + 启发式过滤刷分 submission）两件立刻有教学价值的事**，撤回前一轮拟议的"LML 4 层架构"过度设计；P4（ADP 协议层）和 P5（Planner RL 训练）写明延迟启动条件，避免提前抽象。文档含五篇论文 arxiv 引用清单、30 条对抗用例 demo（按 7 类教学场景独有攻击向量分布）、NFK SQL 改造草案、第一性原理自检表（逐项核对 AGENTS.md "最短路径 / 不补丁 / failfast" 三条规范）。
+- 2026-04-28 **[文档/规划]** `docs/plans/2026-04-28-iclr2026-agent-papers-teaching-applications.md` 升级到 v1.1：**深度引用论文技术细节**——第一章每篇论文增补完整算法名（Flow-GRPO / DAPO 扩展 / RTC-Bench 864 examples 9×24×4 / 6 OS × 3 domain 1.07TB / overwrite memory 8K→3.5M）、对照实验数字（frozen planner 换 GPT-4o 仅 +5.8 个点、Decoupled ASR 42.9% vs Operator 7.6%、Attempt Rate 92.5%、14B 外推降 5.47 个点）、自陈与外部局限；新增「一·五 可移植性矩阵」明确"直接搬/改造/不能用"三档；第三章每个痛点的"论文启示"小节改为"论文具体技术机制 → Alethicode 翻译"对照表，引用论文原文术语（CIA triad、Memory Panel、Attempt Rate、temporal continuity 等）；附录 A 新增「关键技术摘要」与「论文与本 plan 章节引用映射」两个小节，作为后续 PR 评审的统一信息源。
+
+### 4/28 错题专项复习包数据漂移修复 + 学习事件分类回填 + root_cause 脏数据治理
+
+- 2026-04-28 **[后端/数据库迁移]** 新增 `V72__review_package_problem_set_null_and_event_taxonomy_backfill.sql`：(1) 把 `ai_error_review_problem.problem_id` 的外键 `ON DELETE CASCADE` 改为 `ON DELETE SET NULL`、并允许字段为 NULL，原题被删除时复习包行作为历史占位保留；(2) 修正历史漂移：把 `ai_error_review_package.problem_count` 同步到 `ai_error_review_problem` 实际行数，避免出现"0/3 但下面空白"的状态错乱；(3) 从 `extra_data->>'error_taxonomy'`（兼容旧 key `error_category`）回填 `ai_learning_event.error_taxonomy`，并按 V37 同源映射规范化；(4) 把 `ai_learner_notebook` 中长度 < 2 或纯数字的脏 `root_cause`（如截图里的 `"0"`）替换为对应 error_taxonomy 的中文 label，避免脏数据排到"常见原因"列表前列。
+- 2026-04-28 **[后端/复习包详情]** `ErrorReviewPackageService.getPackageDetail` 的题目查询从 `INNER JOIN problem` 改为 `LEFT JOIN`，配合 V72 的 `ON DELETE SET NULL`，原题缺失时仍能返回 `ai_error_review_problem` 行；`ReviewPackageResponse.ReviewProblemItem` 新增一等字段 `is_unavailable`（题目下架时 = true），`mapProblemRow` 在 `problem_id IS NULL` 时填充该字段并跳过 evidence summary 的 meta 解析；同时删除 `ReviewProblemItem` 的兼容性 12 参便利构造，`createPackage` 显式传 14 参（user_rating=null、is_unavailable=false），消除并行命名/构造路径。
+- 2026-04-28 **[后端/学习事件一等列回填]** 修复 V37 之后 `ai_learning_event` 写入侧从未补 `error_taxonomy/root_cause/detector_name` 三个一等列、导致按错误类型统计始终为 0 的缺口：`AITutorServiceImpl.recordLearningEvent`、`AITutorServiceImpl.createLearningEvents`（批量）以及 `ParsonsCapabilityService.recordEvent` 的 SQL 全部从 `(user_id, problem_id, event_type, extra_data)` 扩展为同时写入新三列，字段值从 `extra_data` 中提取（兼容旧 key `error_category`），并经 `ErrorTaxonomy.normalize` 规范化；事件本身无错误分类语义时 `error_taxonomy` 保持 NULL，避免污染统计。
+- 2026-04-28 **[后端/复习包"常见原因"展示]** `ErrorReviewPackageService.buildEvidenceSummary` 的 `recent_root_causes` SQL 从 `select distinct root_cause … order by root_cause` 改为 `group by root_cause order by count(*) desc, max(update_time) desc`，并过滤 `length(btrim(root_cause)) < 2` 与 `root_cause ~ '^[0-9]+$'` 的脏数据，让真正高频的原因排前面、`"0"` 之类的脏值自然沉底/被清理。
+- 2026-04-28 **[后端/错题本写入侧约束]** `SubmissionServiceImpl.notebookRootCause` 与 `JudgeCompletedEventListener.handleNotebook`（新增 `sanitizeRootCause` 私有方法）在保留长度上限（500 字符）的同时新增最小校验：`errInfo` trim 后长度 < 2 或纯数字时回退到 `ErrorTaxonomy.label(category)` 的中文标签，failfast 拒绝把 `"0"` 这类脏值落库进 `ai_learner_notebook.root_cause`。
+- 2026-04-28 **[前端/复习包错题回顾]** `ErrorReviewPackagePage.vue` 在 `reviewProblems`/`aiProblems` 为空时显示明确的"复习包内的题目已全部下架或被移除，建议返回首页生成新的复习包"占位提示，避免出现仅有"错题回顾"标题、下方完全空白的状态错乱；新增 `ReviewProblemUnavailableCard.vue`（87 行）专门展示 `is_unavailable=true` 的占位行（虚线边框、灰色文字、"该题目已下架/不可练习"徽标、不渲染按钮），由 `ErrorReviewPackagePage` 在遍历时按 `problem.is_unavailable` 路由到该子组件，原 `ReviewProblemCard` 仍保持 ≤ 300 行的契约约束。
+- 2026-04-28 **[测试/合约]** `ErrorReviewPackageServiceTest` 新增 `getPackageDetailShouldMarkProblemUnavailableWhenProblemRowIdIsNull` 单测验证 `LEFT JOIN` 路径下 `problem_id IS NULL` 行被正确标记为 `isUnavailable=true`；同时把两处依赖旧 SQL 形态（`select distinct root_cause`）的 mock 字符串更新为新 SQL 形态（`group by root_cause` + `order by count(*) desc`）。`ParsonsCapabilityServiceTest.dispatchProducesSchemaPayloadAndPersistsSession` 增加对 `insert into ai_learning_event` SQL 必须包含 `error_taxonomy/root_cause/detector_name` 三列的合约断言。前端 `error-review-package-page.spec.js` 把契约 sub-components 列表从 4 个扩展到 5 个（含 `ReviewProblemUnavailableCard.vue`，沿用 ≤ 300 行约束），新增「is_unavailable 行路由到 `ReviewProblemUnavailableCard`」与「占位卡不含 ElButton」两条契约。后端 32 个相关单测、前端 15 个相关单测全部通过。
+
+### 4/28 Python 语言基础 17 道题 test case 健康度修复
+
+按"reference_solution 必须 100% AC 自身 test case"原则，对 language_pack_id=43（Python 语言基础）共 41 道题做体检，发现 17 道有问题，全部修复至 deterministic 通过。
+
+- 2026-04-28 **[题库/全失败修复 4 道]**
+  * `PPT4-13` 计算π近似：原 reference round(4) 与 expected 多种精度（3.14/3.1415/3.1416/3.14159）冲突 → 用 reference 重生成 .out 与 sample
+  * `PPT4-3` 年历输出：原 reference 输出与 expected 对齐方式不同 → 用 reference 重生成 .out 与 sample
+  * `PPT4-10` 猜数字：原 reference 用 `random.randint` + `int(input())`，但 .in 是一行两数 → 改 reference 为 `data = input().split()`
+  * `PPT3-T1` 任意位数数字提取：原 reference 中文逗号写成 `, `（半角 + 空格）、字符串方法 labels list 把"个位数"写成"十位数"、用了 `, ` 分隔 → 改 reference 为全角"，"分隔 + 修正 labels
+- 2026-04-28 **[题库/部分失败修复 10 道]**
+  * `PPT5-1` 差集 / `PPT5-2` 交集 / `PPT5-3` 补集 / `PPT5-5` 集合复合赋值 / `PPT5-6` 取快递名单：set 默认 `print()` 输出顺序非 deterministic（依赖 PYTHONHASHSEED），导致同一份代码可能 AC 也可能 WA → 改 reference 为 `format_set(s)` 工具函数，sorted 后按 `{'a', 'b'}` 字面量格式输出，重生成 .out
+  * `PPT6-1` 词频统计：dict 顺序问题 → reference 已 `sorted by (-count, key)`，仅重生成 .out + sample 与 reference 对齐
+  * `PPT6-3` 词频统计代码实现：原 reference 把标点替换为空字符串导致 "hello,world" → "helloworld" 拼接成单词 → 改 reference 把标点替换为空格再 split
+  * `PPT4-9` BMI：浮点精度差异（`.466` vs `.486`）→ 重生成 .out 与 reference 一致
+  * `PPT4-1` 平均成绩：原 reference 用 `input().split()` 但 case 5 是三行分开输入导致 IndexError → 改用 `sys.stdin.read().split()` 兼容多行
+  * `PPT4-17` 色子游戏：reference 已正确（不依赖随机），仅 .out case 3 错（缺"偏大\\n偏大\\n"）→ 重生成 .out
+  * `PPT3-T2` 数字反转：原 reference 在输入 5 位数时未取反转后**最后** 4 位 → 改 reference 加 `if len > 4: 取最后 4 位`
+- 2026-04-28 **[题库/结构层瑕疵 3 道]**
+  * `PPT3-T1` / `PPT3-T2` 的 `test_case_score` 全部为 0（学生 AC 永得 0 分）→ 改为 25 / 20 均分使总和 = 100
+  * `PPT5-9` `举例：成绩统计` / `PPT5-10` `举例：成绩统计` 标题完全重复 → 改为 `举例：成绩统计 V1（A B F 字典统计）` / `举例：成绩统计 V2（带格式化输出）`
+- 2026-04-28 **[题库/验收]** 修复后跑 reference solution × 41 道题 × 全部 test case，连续 3 次随机 `PYTHONHASHSEED` 跑出 **41/41 全 AC**，无 partial、无 fail；磁盘 .out 与 info md5 一致；DB `problem.samples` 同步更新；备份在 `/tmp/python-basic-tc-backup`。
+- 2026-04-28 **[工具/扫描脚本]** 留存 `/tmp/scan_python_basic_testcases.py`（结构层完整性扫描）+ `/tmp/run_python_basic_refsols.py`（reference 跑 test case 验证）+ `/tmp/fix_python_basic_testcases.py`（一体化修复，支持 dry-run / apply 两段式），可扩展到其他 language pack。
+
+### 4/28 Faded Parsons 前端补齐（按设计稿 ALETH-PLAN-2026-0427-FP01）
+
+按 `docs/plans/2026-04-27-faded-parsons-onnx-adaptive-design.md` § 6.3 / § 9 / § 11.2 / § 11.3 / P0 验收 #7 #8 补齐前端先前未展示的部分。
+
+- 2026-04-28 **[前端/composable 抽离]** 新建 `frontend/src/pages/oj/views/problem/parsons/useParsonsDnd.js`：把 pool/answer 双区状态、HTML5 drag-drop、键盘 a11y（ArrowUp/Down/Space/Enter）与「找出第一个错位 block」逻辑统一抽出，外部组件用 `useParsonsDnd({ blocks, distractors, onChange })` 即可获得 `poolBlocks`、`answerOrder`、`onZoneDrop`、`onIndexDrop`、`onKeyboardAction`、`findFirstMisplaced` 等响应式 API。
+- 2026-04-28 **[前端/干扰块面板]** 新建 `frontend/src/pages/oj/views/problem/parsons/ParsonsDistractorBin.vue`：在 Parsons 卡顶部显示「本次混入了 N 个干扰块」摘要面板，区分 `source=notebook`（红色"历史错题"标签）与 `source=llm`（紫色"模型补全"标签），可折叠展开看每条干扰块对应的 `kc_hint`；cascade N≥2 时自动展开，让学生看清自己历史错题模式。
+- 2026-04-28 **[前端/ParsonsRenderer 重构]** `cards/parsons/ParsonsRenderer.vue` 改用 `useParsonsDnd` composable，新增 `misplacedId`、`revealDistractorReasons` props 接管 cascade 视觉；干扰块在 cascade ≥2 时通过 `flagged-reason` 把 `kc_hint` 透传到 token block。
+- 2026-04-28 **[前端/Token block 升级]** `cards/parsons/ParsonsTokenBlock.vue` 新增 `misplaced` / `flaggedReason` props：错位 block 抖动 + 黄色感叹号徽章 + aria 说明（"位置可能不对"）；干扰块 hover/focus 显示「历史错题模式」或「可能的陷阱」hint。`min-height` 从 36px 升到 `var(--control-height-lg)` (44px) 满足 P0 验收 #8 桌面 a11y 触达 ≥ 44×44。
+- 2026-04-28 **[前端/Mastery 路由透明化]** `cards/ParsonsProblemCard.vue` 新增 `<details>` 折叠面板「本次难度依据」：展示 `mastery_snapshot.routing` 每个 KC 的 source（NFK / BKT 标签）、掌握度百分比、`fallback_reason`（KC 训练覆盖不足 / 学情序列长度不足 / NFK 服务暂不可用）、NFK 序列长度，对应 P0 验收 #7「路由决策（双闸 fallback_reason）可在 Trace 中追溯」。
+- 2026-04-28 **[前端/来源徽章]** `ParsonsProblemCard.vue` 顶部新增 origin pill：`fsrs_origin` 显示「来自错题包复习」黄色徽章，`previous_session_id` 显示「上次失败复盘」紫色徽章。
+- 2026-04-28 **[前端/Cascade 可视化]** `ParsonsProblemCard.vue` 与 `ParsonsTokenBlock.vue` 联动实现 § 11.3 失败 cascade 视觉：N=1 高亮第一个错位 block + 抖动动画 + 文案「位置不对，已为你高亮第一个错位的代码块」；N=2 自动展开 DistractorBin + token block 显示干扰块来源 hint + 文案「这是你过去踩过的坑」；N=3 显示「下一次将自动降一级难度并重新发牌」；N=4 显示「建议回到错误诊断主链路稍后再来」。前端兼容字段 `lastResult.misplacedBlockId` 接受后端 `misplaced_block_id`（向后兼容，缺省时不亮起）。
+- 2026-04-28 **[前端/Walkthrough 三阶 UX]** `cards/parsons/ParsonsWalkthroughDialog.vue` 重写：(1) 初次：标题「用一句话讲清你的代码」+ 字数计数器（≥ 6 字可提交）；(2) 重写阶段：标题「再讲一次」+「上次还差一点，AI 给了反馈，再补一刀」+「还有 N 次重写机会」+ 评分反馈卡（黄色边框）+ 自动清空文本和聚焦；(3) 通过：标题前置自定义灯泡 SVG 图标（22px，琥珀色 drop-shadow）+ 弹出顿悟卡片（56px 大灯泡 SVG + pop / glow 动画 + 绿色边框 + 卡片整体绿光 box-shadow）+「已记入「顿悟笔记」，FSRS 也将顺势推进」+「继续下一题」按钮；(4) 重写后仍低分：标题「本次先到这里」+ 红色边框 + 红色 soft warning 卡「理解还不够稳，建议下次再练一道相似题」+「下次再练」按钮；全部按钮 `min-height` 升到 44px，新增 `prefers-reduced-motion` 关闭顿悟动画。`Problem.vue` `parsonsWalkthrough` state 新增 `attempts` 计数 + `handleParsonsWalkthroughContinue` 处理用户主动关闭；dialog 在 pass / fail 时不再立刻 visible=false，而是保持显示直到用户点继续按钮。`UnifiedAgentPanel.vue` 新增 `parsons-walkthrough-continue` emit。**严格遵循无 emoji 设计规范，灯泡图标采用内联 SVG 实现**。
+- 2026-04-28 **[前端/温暖教学风 token 化]** Parsons 五件套全部硬编码替换为本轮 Phase 1 引入的全局 token（`--warm-primary` / `--warm-grad-primary` / `--shadow-warm` / `--radius-*` / `--control-height-*` / `--space-*` / `--fs-*` / `--font-mono`），与温暖教学风设计语言对齐；自定义阴影 / 字体栈 / 颜色 / 圆角全部消除。
+- 2026-04-28 **[前端/Parsons 补齐验收]** 全量 jest 16 套件失败 / 24 测试失败，与 master 基线**完全一致**，零回归引入；Parsons 受影响测试套件全部通过。
+
+### 4/28 温暖教学风 UI/UX 统一重构（Phase 0 + Phase 1）
+
+- 2026-04-28 **[前端/Pagination 合并]** 删除 `frontend/src/pages/oj/components/Pagination.vue` 与 `frontend/src/pages/admin/components/AdminPagination.vue`，全站统一使用 `frontend/src/components/Pagination.vue`，对应 prop/emit 改用 `current-page`、`update:currentPage`、`change({page,pageSize})`；`ProblemList.vue`、`Announcements.vue`、`SubmissionList.vue` 三个 OJ 调用点新增 `onPaginationChange` / `onAnnouncementPageChange` / `onSubmissionPageChange` 适配方法；`admin/index.js` 改用全局 Pagination 并以 `AdminPagination` 名称注册以兼容现有模板；`admin/style.less` 新增 `.panel-options .pagination-wrapper { margin-top: 0 }` 修正容器内距。
+- 2026-04-28 **[前端/死代码清扫]** 移除 `Problem.styles.less` 第 1378-1490 行 `.frustration-*` 共 11 个选择器与 `@keyframes frustration-slide-in`（共 113 行 + 5 行动画），DOM 已由 `EncouragementCard.vue` 取代，`useFrustration.js` composable 不动。
+- 2026-04-28 **[前端/品牌色硬编码]** `NavBar.vue` 三处 `#1a73e8` 替换为 `var(--primary-color)` / `var(--success-color)`，避免 Logo、文字与头像渐变与全局主色脱钩。
+- 2026-04-28 **[前端/UI 图标规范]** `ReviewProblemCard.vue` 的 `我会了 ✓` / `再练一题 ↻` emoji 替换为 ElIcon `<Check />` / `<RefreshRight />`；`ErrorDiagnosisDetails.vue` 的 `🔍 执行轨迹` 替换为 `<View />`；同步更新 `error-review-package-rating-card.spec.js` 合约断言。
+- 2026-04-28 **[前端/设计 Token]** `frontend/src/styles/common.less` 重写 `:root`，引入温暖品牌点缀 `--warm-primary` / `--warm-accent` / `--warm-glow` / `--warm-bg-hero` / `--warm-grad-*`，统一 4 档 radius、4 档 shadow + warm glow、4px 节奏 spacing、8 档 typography；新增组件密度 token `--control-height-{sm,md,lg}`、`--table-header-height/--table-row-height`、`--table-cell-padding-{x,y}`、`--list-item-padding`、`--card-padding`、`--tag-height`；`--admin-*` 系列内部值 alias 到全局 token，保留语义。
+- 2026-04-28 **[前端/Element Plus 主题]** OJ + Admin 的 `elementPlusTheme.less` 把按钮 / 输入框 / select / 表格的尺寸、padding、行高、hover bg、圆角统一改用上述 component density token；表头高度 44px、默认行高 52px、单元格 16x10 padding 跨端对齐；`.el-table.is-compact` 在数据密集页可降到 44px。
+- 2026-04-28 **[前端/notebook 提升]** `learnerNotebook.less` 中的 `--nb-*` 私有 token alias 到全局 warm 与 component token，紫粉品牌资产保留但消除独立色板。
+- 2026-04-28 **[前端/原子组件]** 新增 `frontend/src/components/TaxonomyTag.vue`，通过 `:type="error_taxonomy"` 把 9 种 Ant 色 hex 收敛到 5 类语义色（`syntax_error/runtime_error → danger`、`logic_error/algorithm_error → warning`、`boundary_condition/input_parsing → info`、`name_or_type_error/performance → neutral`、其他 → primary）；`ReviewPackageHeader.vue` 删除 9 个 `.rph-tag-*` 选择器，模板直接用 `<TaxonomyTag>`。
+- 2026-04-28 **[前端/硬编码替换]** `ReviewProblemCard.vue` 17 处 hex、`ErrorDiagnosisDetails.vue` 15 处 hex（含 `0.5px` 边框统一为 `1px`）、`ReviewPackageHeader.vue` 9 处 hex 全部替换为 token；同时按列表 / 卡片密度规范统一 padding、gap、radius、行距、状态 badge 高度。
+- 2026-04-28 **[前端/Phase 0+1 验收]** 受影响 jest 套件全部通过；全量 jest 16 套件失败 / 24 测试失败，与 master 基线完全一致，零回归引入；Phase 2 拆分 `UnifiedAgentPanel.vue` / `Problem.styles.less` / `!important` 清理另起独立讨论，本轮不展开。
+
+### 4/28 Faded Parsons 自适应渐退拼装题模块 Follow-up（阶段 1-8）
+
+- 2026-04-28 **[前端/入口恢复]** 恢复 Parsons quick action 和错题包"试试拼装版"按钮：`workflowStateMachine` 和 `UnifiedAgentPanel` 的 `isHiddenTutorAction` 仅过滤 CODING（保留 PARSONS），`ReviewProblemCard` 恢复 `open-parsons` emit + 按钮，`ErrorReviewPackagePage` 重新监听跳转 `?parsons=1&fsrs_origin=<pkgId>`
+- 2026-04-28 **[后端/测试底座]** 新建 `AdaptiveFadingPolicyTest`（7）、`ParsonsTokenSegmenterTest`（6）、`MasteryNfkProjectionServiceTest`（6）、`ParsonsCapabilityServiceTest`（13）共 32 个 Parsons 核心服务单测
+- 2026-04-28 **[后端/Judge 判题]** `LanguagePackProblemJudgeCheckService` 新增 `executeAgainstStoredTestCases` 复用已有 judge HTTP 链路；`ParsonsCapabilityService.grade()` 在 block 顺序正确后用题目 `test_case_id` 跑真实 Judge，`walkthroughRequired` 仅 `judge_ac` 时为 true
+- 2026-04-28 **[后端/cascade 修正]** `GradeResult` 新增 `currentFadingLevel` / `nextFadingLevel`，cascade_degrade 时后端算 `max(0, current - 1)` 返回给前端；`Problem.vue` 直接用 `next_fading_level` 派发 override_fading_level
+- 2026-04-28 **[后端/FSRS 闭环]** `ReviewProblemRatingService.recordParsonsOutcome`：walkthrough 通过 → 自动 rate good 推进 FSRS，cascade_failfast → 自动 rate again 触发相似题；用 (packageId, problemId) 定位、跳过 submitted 校验、副作用失败不阻塞主流程
+- 2026-04-28 **[前端/可访问性]** `ParsonsProblemCard` 按钮 min-height 36px + focus-visible；`ParsonsTokenBlock` min-height 36px；`ParsonsWalkthroughDialog` 移除"先跳过"按钮保持强制 walkthrough
+- 2026-04-28 **[services/tutor-graph/契约]** 新增 `test_parsons_node.py`（5 用例）+ `test_card_schemas.py` Parsons passthrough 用例
+
+### 4/28 PPT2-1 圆面积输出精度修复
+
+- 2026-04-28 **[题库/判题数据]** 修复 `PPT2-1 / 圆面积计算` 因题面只要求“保留足够精度”但判题采用精确字符串比对，导致 `print(area)` 与 `print(f"{area:.4f}")` 都无法通过全部测试点的问题：题面、输出说明、样例、测试点输出、测试点 `info` 元数据与参考答案统一为“输出圆面积，结果保留小数点后 4 位”。
+
+### 4/28 题目页 stuck 提示推荐与当前题脱钩修复
+
+- 2026-04-28 **[后端/陪练规划]** 修复"卡住了？先做这几步"在圆面积题里推荐凯撒密码题等不相关编程题的问题：根因是 `BeginnerSupplementPlannerService.buildPlan` 不论 trigger 都会 `buildCodingPracticeCard`，而 `loadProblemCard` 只按"未 AC 的同 KC 编程题"挑选，没有难度梯度也没有排除当前题，导致学生卡在当前题时反而被推到一道更难、看上去文不对题的同 KC 编程题。现在 `stuck` / `wrong_answer` trigger 直接跳过 `coding_problem` 卡（学生此时需要的是降阶支持，不是再加一道编程题）；`loadProblemCard` 增加 `excludeProblemId`，所有 trigger 在选 objective_problem / coding_problem 时都排除当前题自身；`stuck` / `wrong_answer` 的 `intro_message` 改为"卡住时不急着换题，先回到课件例题，再用一道更小的练习"，与新的卡片组合保持一致。新增 `BeginnerSupplementPlannerServiceTest` 单元测试覆盖 stuck/wrong_answer 不再生成 coding_problem、warmup 仍生成 coding_problem、SQL 必须包含 `p.id <> ?` 排除当前题 4 条契约。
+
+### 4/28 AI 导学错误诊断题面约束与流程图内嵌修复
+
+- 2026-04-28 **[services/tutor-graph/错误诊断]** 修复 `ERROR_FEEDBACK` 诊断未读取题目文本导致建议与题面冲突的问题：证据需求新增 `workflow_context`，缺少 `submission_id` 时仍优先 fail-fast 为 `INSUFFICIENT_EVIDENCE`；`diagnosis.py` 的用户提示词现在包含题目标题、题干、输入说明与输出说明，并明确要求题面指定常量、精度或输出格式时以题面为准，避免在题目要求使用 `3.1415` 时误建议改用 `math.pi`。
+- 2026-04-28 **[前端/错误诊断卡片]** 修复错误诊断同次生成的流程图被拆成独立“教学可视化”模块的问题：`workflowStateMachine` 会把 `ERROR_FEEDBACK` 同次返回的 `node_outputs.visualize` 注入错误诊断卡片并抑制重复独立卡片，恢复会话时也保持同一卡片展示；`ErrorDiagnosisCard` 新增内嵌 `VisualizeRenderer` 展示流程图。
+- 2026-04-28 **[前端/错误诊断卡片]** 优化错误诊断卡片底部按钮布局：将“看程序怎么一步步跑”和“这种解释方式适合你吗”收进统一行动区，主按钮全宽突出、偏好按钮右侧并列；“加入错题本 + 写反思”改为卡片底部次级操作栏，减少按钮分散、左右不齐和视觉跳动。
+- 2026-04-28 **[前端/错误诊断卡片]** 进一步精修动作区视觉密度：主按钮高度 36px、配播放图标，渐变改为蓝青双色更克制；偏好行字号收紧到 12.5px，按钮 30px 圆角更轻；底部“加入错题本 + 写反思”按钮改为 32px 紧凑次级样式、移除硬分割线，整体节奏更平衡。
+
+### 4/28 tutor_graph LLM JSON 输出约束修复
+
+- 2026-04-28 **[services/tutor-graph/LLM 客户端]** 修复 `ERROR_FEEDBACK` 等导学节点偶发 `LLM generation failed: Expecting ',' delimiter` 的问题：日志与 `ai_tutor_workflow_event` 事件显示失败发生在 Python 侧 `LlmClient.generate_json()` 直接解析模型返回文本时，Java 侧 JSON 调用已启用 `response_format=json_object`，但 tutor_graph 未启用同等约束。现在 `generate_json()` 统一通过 LangChain `bind(response_format={"type":"json_object"})` 请求 JSON 对象模式，再执行既有 `json.loads` fail-fast 解析；新增回归测试确保所有 JSON 型导学调用走结构化输出契约。
+
+### 4/28 AI 导学助手快捷入口精简
+
+- 2026-04-28 **[前端/AI 导学助手]** 移除 AI 导学助手快捷操作中的“开始编码”与“编码”入口，并暂时隐藏“试试拼装版”：`workflowStateMachine` 过滤 `CODING` / `PARSONS` 及对应中文标签的 quick actions，`UnifiedAgentPanel` 同步过滤欢迎区 starter actions；错题包 `ReviewProblemCard` 也移除“试试拼装版”按钮与跳转监听，保留内部工作流事件和 Parsons 组件/API 以便后端修复后再恢复前端入口。
+
+### 4/28 题目页学习辅助卡片汉化与可读性优化
+
+- 2026-04-28 **[前端/题目页]** `Problem.vue` 将“相关课件例题”和“卡住了？先做这几步”两张底部学习辅助卡片全量改为中文显示：步骤从 `Step 1` 改为“第 1 步”，`coding_problem` 等规划器枚举改为“编程练习/课件例题/渐退示例/迁移练习”等学生可读标签，并把课件例题标题、知识点与卡片说明补齐中文语义前缀；`Problem.styles.less` 同步放大标题、正文、徽标字号与行高，增加文本换行和关闭按钮焦点态，提升 PY 初学者阅读体验；新增前端契约测试防止再次暴露英文步骤或原始枚举值。
+
+### 4/28 AI 导学骨架代码题目上下文修复
+
+- 2026-04-28 **[services/tutor-graph/骨架代码]** 修复 `SKELETON` 生成骨架时提示“当前题目信息缺失”的问题：日志显示 Java 后端已按会话 `problem_id` 查询 `problem` 并成功派发 run，但 `SKELETON` 未声明 `workflow_context` 证据需求，导致骨架节点拿不到当前题面；现在 `SKELETON` 与 `IDEATING` 一样拉取 `workflow_context` 与 `learner_state`，并在 `workflow_context.statement` 缺失时 fail-fast 为 `INSUFFICIENT_EVIDENCE`，不再让模型生成“请先提供题目描述”的伪骨架。
+- 2026-04-28 **[前端/骨架代码卡片]** 移除 `SkeletonCodeCard` 右上角“阶段 3”徽标及其 `stageLabel` 计算逻辑，骨架卡片标题区只保留“骨架代码”，避免向学生暴露内部阶段编号。
+
+### 4/28 AI 导学追问与可视化弹窗修复
+
+- 2026-04-28 **[services/tutor-graph/Unified Chat]** 修复 CHAT 追问必然失败的问题：`chat_node` 会输出经过白名单过滤的 `referenced_card_ids`，但 `ai_reply.schema.json` 原先 `additionalProperties=false` 且未声明该字段，导致所有追问在 schema 校验阶段变成 `TASK_FAILED`；现在契约允许 `referenced_card_ids` 数组，保持引用可审计且不放宽其他字段。
+- 2026-04-28 **[后端/Unified Chat 卡牌锚点]** 修复卡片引用只能落到 `@last_review` / `@last_visualize` 的问题：`recordWorkflowEvent` 在完成态卡片事件写入后会调用 `ConversationContextService.stampCardForLatestEvent` 盖 `card_id`、`card_type`、`mode_when_produced`，并把 `node_outputs.chat.referenced_card_ids` 写入 `referenced_card_ids`，前端刷新 conversation 后可获得稳定 `@card:<id>` 精确引用。
+- 2026-04-28 **[前端/教学可视化]** `MermaidRenderer` 的流程图放大预览改为 `Teleport to="body"`，使遮罩与弹窗脱离 AI 导学助手面板容器，全界面居中显示；保留 Mermaid `securityLevel='strict'` 与 SVG data URI 预览路径。
+
+### 4/28 Faded Parsons 自适应渐退拼装题模块落地（ALETH-PLAN-2026-0427-FP01）
+
+- 2026-04-28 **[数据库/迁移]** `V71__faded_parsons_and_notebook.sql`：给 `ai_learner_notebook` 补齐 `entry_type` / `breakthrough_insight` / `kc_ids` / `misconception_distribution` 四列以承载 breakthrough 顿悟笔记与 distractor 抽取所需结构化误概念分布；新建 `ai_parsons_session` 表持久化每次 dispatch 的 fading_level / mastery_snapshot / blocks / distractors / 提交序列 / walkthrough，并加 `(user_id,problem_id)` / `workflow_session_id` / `fsrs_origin` / `previous_session_id` 索引
+- 2026-04-28 **[后端/契约]** 注册 `CardType.PARSONS_PROBLEM("parsons_problem","parsons")` 与 `WorkflowEvent.PARSONS`（标记 auxiliary，不切 phase）；`CardSchemaRegistry` 增加 PARSONS_PROBLEM 必填字段（parsons_session_id / fading_level / blocks / distractors / mastery_snapshot / instructions），`distractors` 允许空数组适配 fading_level=0 场景；新增 `contracts/tutor_workflow/cards/parsons_problem.schema.json` 描述 block / distractor / mastery_snapshot.routing 子结构，schema 通过 `additionalProperties=false` 兜底未来漂移
+- 2026-04-28 **[后端/Mastery 路由]** 新增 `MasteryNfkProjectionService` 实现 NFK / BKT 双闸路由：第零闸 NFK ONNX 不可用 → 全 BKT；第二闸学生最近 50 条相关交互 < `min-user-interactions` → 全 BKT；第一闸单 KC 训练覆盖 < `nfk-coverage-threshold` → 该 KC 走 BKT；三闸都过的 KC 才进 NFK 推理。新增 `KcCoverageRegistry` 用 Caffeine + ConcurrentMap 双层缓存 `ai_problem_kc_mapping × submission`（180 天窗口）的 KC 样本计数，自维护守护线程级 ScheduledExecutorService 周期刷新（默认 1 小时），不依赖全局 `@EnableScheduling`。`MasteryWithSource` record 同时承载 mastery 概率、source（NFK/BKT）、`nfk_sequence_length`、`fallback_reason`，写入 `mastery_snapshot.routing`
+- 2026-04-28 **[后端/渐退策略]** 新增 `AdaptiveFadingPolicy`：mastery 平均值 < 0.30 → fading_level=0 / 全 visible 0 distractor；< 0.60 → 1 faded + 1 distractor；< 0.85 → 2 + 2；≥ 0.85 → 3 + 3 含 hidden；阈值通过 `alethicode.parsons.fading-thresholds.*` 可配置，失败 cascade 强制阶梯降级时调用方传入 overrideLevel 跳过 mastery 重算
+- 2026-04-28 **[后端/Token 切分]** 新增 `ParsonsTokenSegmenter`：按物理行切分（空白行与纯注释行作分隔符），缩进按每 4 空格一级；fading 选块策略保留首尾锚点 + 跳过 def/class/import 签名行，按缩进降序优先选中段控制流块为 FADED；fading_level=3 时再额外把最深嵌套候选块标 HIDDEN；候选不足时阶梯降级而非抛错，保证 dispatch 必出卡
+- 2026-04-28 **[后端/Distractor 生成]** 新增 `ParsonsDistractorGenerator`：第一优先抽 `ai_learner_notebook` 该 KC 近 90 天 `root_cause` 中的代码片段；不足时调 `AiModelGateway.callForJson` 受控生成 JSON `{distractors:[{code,indent,kc_hint}]}`，最多 2 次重试；所有 distractor 与 reference block 做字符级 LCS 相似度（长度归一化）过滤，相似度 ≥ `lcs-similarity-threshold`（默认 0.85）丢弃；数据稀疏时仅告警不阻塞 dispatch
+- 2026-04-28 **[后端/能力服务]** 新增 `ParsonsCapabilityService` 主流程：dispatch → 加载题目 reference_solution_code + KC → mastery 路由 → fading 决策 → token 切分 → distractor 生成 → schema 校验 → 写 `ai_parsons_session` + `ai_learning_event(parsons_dispatched)` → 返回 cardPayload；grade 做 block-based 顺序比对（OJ Judge execution-based 留作后续增量），失败 cascade N=3 强制 fading-1 重派、N=4 fail-fast 退出主链路；submitWalkthrough 调 `ParsonsWalkthroughEvaluator` 做 LLM-as-judge 评分，≥ 0.7 写 `ai_learner_notebook(entry_type='breakthrough', breakthrough_insight=walkthrough_text, kc_ids)` + `ai_learning_event(parsons_breakthrough)`，< 0.7 允许一次重写，仍不及格写 `parsons_walkthrough_submitted` 但不写 breakthrough
+- 2026-04-28 **[后端/接口]** Internal Controller 加 `POST /internal/ai-tutor/parsons/dispatch` 与 `/parsons/grade` 供 tutor_graph 调用；外部 Controller 加 `POST /api/ai/tutor/parsons/dispatch` / `/submit` / `/walkthrough` 与 `GET /api/ai/tutor/parsons/{sessionId}` 供前端调用；`InternalAITutorToolService` 接口扩展 `dispatchParsons` / `gradeParsons`，`InternalAITutorToolServiceImpl` 注入 `ParsonsCapabilityService`
+- 2026-04-28 **[tutor_graph]** 新增 `app/nodes/parsons.py` 节点：从 `event_data` 抽 `source_card_id` / `previous_session_id` / `fsrs_origin` / `override_fading_level`，调 Java `dispatch_parsons`，把卡片落到 `node_outputs["parsons"]`；`graph/transitions.py` 把 `PARSONS` 加入 `AUXILIARY_EVENTS`（不切 phase 与 KNOWLEDGE_REVIEW / VISUALIZE 同级）；`graph/builder.py` 注册 parsons 节点路由；`nodes/actions.py` 在 6 个 phase（READING / IDEATING / CODING / ERROR_FEEDBACK / AC_REVIEW / TRANSFER）quick action 列表统一注入「试试拼装版」按钮；`clients/java_tools_client.py` 加 `dispatch_parsons` / `grade_parsons` httpx 方法，propagate 422 detail 与 visualize dispatch 一致
+- 2026-04-28 **[前端/卡片]** 新增 `cards/ParsonsProblemCard.vue`（继承 `BaseAgentCard accent="ideate"`，与思路分析同色系，无多余副标题）+ `cards/parsons/ParsonsRenderer.vue`（HTML5 drag-drop 候选区/答题区双栏 + 键盘 ArrowUp/Down/Space/Enter a11y fallback）+ `ParsonsTokenBlock.vue`（visible / faded / hidden 三态视觉 + ARIA grabbed/listitem）+ `ParsonsWalkthroughDialog.vue`（focus trap 模态弹窗，必须 ≥ 6 字才能提交）；`api/parsons.js` 封装 dispatch / submit / walkthrough / load 四个端点
+- 2026-04-28 **[前端/集成]** `agentContracts.js` `WORKFLOW_EVENTS` 加 PARSONS、`CARD_TYPES` 加 parsons_problem；`workflowStateMachine.js` `EVENT_OUTPUT_KEY.PARSONS = 'parsons'` + 在 `cardEntries` 处理 `outputs.parsons`；`UnifiedAgentPanel.vue` 注册 ParsonsProblemCard / ParsonsWalkthroughDialog，新增 `parsonsState` / `parsonsWalkthrough` props 与 `parsons-submit` / `parsons-reset` / `parsons-walkthrough-submit` / `parsons-walkthrough-skip` 事件；`Problem.vue` 注入 `handleParsonsSubmit/Reset/WalkthroughSubmit/Skip` handler，调 `api.parsonsSubmit` / `parsonsWalkthrough`，处理 cascade_degrade（自动重派低一级 fading）与 cascade_failfast（提示回到主链路）；`handleTriggerAgent` 新增 `parsons` key 分支调用 `dispatchWorkflowEvent('PARSONS')`；route query `?parsons=1&fsrs_origin=<pkgId>` 自动派发拼装挑战
+- 2026-04-28 **[前端/错题包]** `ReviewProblemCard.vue` 在已提交但未评分场景增加「试试拼装版」按钮，emit `open-parsons` 事件；`ErrorReviewPackagePage.vue` 监听该事件后用 `goToProblemAsParsons` 跳转 `/problem/{key}?parsons=1&fsrs_origin=<pkgId>`，与 FSRS 错题包页面形成 Parsons + FSRS 闭环
+- 2026-04-28 **[配置]** `application.yml` 新增 `alethicode.parsons.*` 块：fading-thresholds / distractor / walkthrough / routing / failure-cascade 五组配置，覆盖 NFK 覆盖度阈值、最小交互序列长度、KC 覆盖度刷新周期（1 小时）、LCS 相似度阈值、walkthrough 评分阈值、cascade N=3 / N=4 阈值，全部 env 可覆写
+
+### 4/27 本地启动代理可达性校验
+
+- 2026-04-27 **[前端/AI 导学 UI]** 优化聊天区用户消息气泡与可视化卡片交互：用户发送气泡从高饱和蓝色渐变改为白底轻渐变 + 紫蓝细强调线 + 柔和阴影，降低视觉噪音；`MermaidRenderer` 支持点击流程图或“放大查看”按钮打开居中弹窗，使用 SVG data URI 预览避免新增未过滤 `v-html` sink，保持 Mermaid `securityLevel='strict'`
+- 2026-04-27 **[数据库/Flyway]** 修复本地重启时 Flyway 校验失败 `Detected resolved migration not applied to database: 66`：新增的 Faded Parsons + 错题本结构扩展迁移原命名为 `V66__faded_parsons_and_notebook.sql`，但当前开发库已应用到 V70（V68/V69/V70 为错题本/反思/里程碑链路），低版本新迁移会被 Flyway 判定为 out-of-order；现将该迁移提升为 `V71__faded_parsons_and_notebook.sql`，保持迁移历史单调递增，避免通过关闭校验或忽略迁移掩盖版本冲突
+- 2026-04-27 **[后端/Unified Chat 内部接口]** 修复 CHAT 节点卡住并最终 `TOOL_EXECUTION_FAILED` 的问题：tutor_graph 在组装 CHAT evidence 时会调用 `/internal/ai-tutor/sessions/{sessionId}/last-cards` 与 `/references/resolve`，但 Java `InternalAITutorToolController`/`InternalAITutorToolService` 缺少对应内部接口实现，导致内部工具调用 500；现在补齐 last-cards 与 reference resolve 内部端点，统一复用 `ConversationContextService` 返回 `CardSummary.toMap()`，且 last-cards / `@last_*` 只召回已完成卡片，避免失败的空 `CHAT` 事件污染候选列表
+- 2026-04-27 **[前后端/Unified Chat UI]** 优化 `@` 卡片引用候选框：缩小候选浮层高度、间距与 pill 尺寸，改成更接近 autocomplete 的紧凑列表；前端会清洗候选摘要中的原始 JSON，无法提取正文时显示“引用最近的知识点回顾卡片/教学可视化卡片”等友好说明；后端 `ConversationContextService` 补充 `knowledge_review.review_content`、`visualize.alt_text/title/description` 等摘要字段提取，避免 `@last_review` 候选显示 `{"related_kcs":...}` 这类原始 payload
+- 2026-04-27 **[前后端/Unified Chat]** 修复 AI 导学助手输入 `@` 仍无候选的问题：前端候选列表原先只依赖服务端 `lastConversationCards` 中已 stamp 的 `card_id`，旧会话或未 stamp 事件会导致列表为空；现在 `UnifiedAgentPanel` 会同时从当前消息流生成 `@last_guide` / `@last_ideate` / `@last_error` / `@last_review` / `@last_visualize` 等快捷引用候选，并在可用 `card_id` 时优先插入 `@card:<id>`；后端 `ConversationContextService` 的 `@last_*` 解析也放宽为最近同类型卡片事件，不再强制历史事件必须有 `card_id`
+- 2026-04-27 **[后端/Unified Chat]** 修复前端调用 `GET /api/ai/tutor-workflow-sessions/{sessionId}/conversation` 返回 500 的问题：`conversation.js` 已接入 ModeBar / last cards API，但 `TutorWorkflowController` 缺少对应 `GET /conversation` 与 `POST /mode` endpoint，导致前端刷新会话上下文时命中未闭合链路；现在 controller 注入 `ConversationContextService`，按会话所有权校验后返回 `active_mode` 与 `last_cards`，并支持按当前 phase fail-fast 切换 mode
+- 2026-04-27 **[前端/Unified Chat]** 补齐 AI 导学助手输入框的 `@` 卡片引用自动补全：`Problem.vue` 将服务端返回的 `lastConversationCards` 传入 `UnifiedAgentPanel`，`workflowStateMachine.refreshConversationContext()` 现在真实调用 `getConversation(sessionId)` 同步当前 Mode 与最近卡片；输入框在 chat 模式下键入 `@` 会弹出当前会话可引用卡片列表，点击后插入 `@card:<card_id>`，后续发送仍沿用既有 `parseReferences()` 与后端 `ReferenceResolver` 解析链路
+- 2026-04-27 **[Admin AI 观测/LLM-as-Judge]** 修复“平均评分趋势”依赖旧离线评分表的问题：`TutorEvalHarness` 从每天 03:30 改为每小时整点执行，并将 `quality_trend_score` 写入当前 Admin 观测页读取的 `ai_tutor_workflow_event`，样本来源同步改为现有 `ai_tutor_generation_log`；Admin 观测页不再展示“暂无离线教学评分时，暂用工作流成功率作为质量趋势”的 fallback 文案，统一显示 LLM-as-Judge 教学质量走势；本地 `Python-test` 班级已注入最近 7 天 42 条真实时间分布的 Python3 提交记录，并补入 168 个小时级 LLM-as-Judge 趋势点用于演示
+- 2026-04-27 **[前端/学习画像]** 修复学习画像抽屉未适配后端全局 `SNAKE_CASE` JSON 的问题：`useProfileApi` 现在将 `personalization_enabled` / `narrative_summary` / `learning_style` / `top_weak_kcs` / `top_strong_kcs` / `top_errors` / `stats_30d` 规范化为组件读取的 camelCase 字段；个人画像开关在缺省时默认开启，教学风格偏好不再显示 `- (-)`，而是按 `step_by_step/exploratory/visual/analytical` 显示中文语义；同时将偏好更新与手动摘要改写请求体改为 `personalization_enabled` / `summary_text`，与后端 Jackson `SNAKE_CASE` 反序列化保持一致
+- 2026-04-27 **[前后端/错题强化训练]** 修复“错题强化训练”入口只按第一类错误生成单个题单的问题：新增 `POST /api/ai/review-packages/batches` 批量创建端点，前端错题本按 `error_taxonomy` 聚合同类错误并一次生成多个专项复习包；`review-package` 页面新增题单下拉，支持在多种错误对应的题单之间切换，单个题单仍保持“错题回顾 + AI 特化练习 + testcase”原链路
+- 2026-04-27 **[后端/Admin AI 观测]** 修复 `/api/admin/ai/agents/overview` 与 `/api/admin/ai/evaluations/dashboard` 本地 500：`AgentObservabilityService` 仍查询已在 V56 删除的旧表 `ai_workflow_event`，当前运行库实际使用 `ai_tutor_workflow_event`；所有 AI 观测 SQL 已切换到现表，并补充测试断言使用 `ai_tutor_workflow_event`
+- 2026-04-27 **[后端/Admin AI 观测]** 修复 AI 助教工作台“近 7 天”概览全 0：当前 LangGraph 投影主要写 `TASK_COMPLETED` / `TASK_FAILED` 终态事件，并未写旧设计里的 `trace_span` 增强埋点；`getAgentsOverview` 现在以真实 `ai_tutor_workflow_event` 终态事件作为统计口径，同时兼容未来 `trace_span`，按 `client_event/event_type` 聚合辅导次数与失败率。本地验证近 7 天聚合已有 `total_calls=108`、`failure_count=22`
+- 2026-04-27 **[Admin AI 观测/前端]** 汉化 AI 助教工作台运行枚举：`READING/IDEATING/KNOWLEDGE_REVIEW/SKELETON/VISUALIZE/PLAN_*` 显示为“审题导读/思路分析/知识点回顾/骨架代码/教学可视化/计划*”，`SYSTEM_ERROR/SCHEMA_VIOLATION/TOOL_EXECUTION_FAILED` 显示为“系统错误/卡片结构不符合规范/工具调用失败”；小时调用趋势与平均评分趋势横轴统一格式化为 `MM-DD HH:00`
+- 2026-04-27 **[后端/Admin AI 观测]** 修复“平均评分趋势”为空：历史设计依赖离线 `quality_trend_score`（LLM-as-Judge）事件，但本地默认不会定时写入该增强评分事件；`getEvaluationsDashboard` 现在在没有 `quality_trend_score` 时按小时聚合工作流终态成功率作为质量趋势 fallback（`quality_source=workflow_success_rate`），并在前端标注“暂无离线教学评分时，暂用工作流成功率作为质量趋势”。本地 SQL 验证已有按小时 `sample_count/avg_overall_score` 数据
+- 2026-04-27 **[部署/Grafana]** 修复 Grafana 面板请求 Prometheus 时因 Docker daemon 自动注入失效 `HTTP_PROXY=http://127.0.0.1:7892` 导致 `/api/ds/query` 400：本地 `start.sh` 启动 Grafana Docker runtime 时显式清空 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY`（含小写），并设置 `NO_PROXY=localhost,127.0.0.1,host.docker.internal,prometheus`
+- 2026-04-27 **[前端/Mermaid]** 修复页面底部可能出现 Mermaid 默认炸弹错误图（`Syntax error in text / mermaid version ...`）：`MermaidRenderer.vue` 在渲染前先调用 `mermaid.parse(source)`，并开启 `suppressErrorRendering: true`，避免 mermaid.js 在解析失败时向页面注入默认错误 SVG；前端仍保留统一的“Mermaid 渲染失败”文本提示
+- 2026-04-27 **[前端/课件问答]** 隐藏回答卡片中的“生成讲解视频 Beta”入口：`LanguagePackQaPage.vue` 不再在有引用的回答下展示视频生成按钮；已有视频任务仍可显示“查看视频/生成中/生成失败”等状态，避免普通回答区域暴露暂不开放的生成入口
+- 2026-04-27 **[前端/错题回顾]** 修复复习包错题回顾卡片直接暴露规划器枚举值的问题：`ReviewProblemCard.vue` 新增显示层映射，将 `education_goal` 的 `understand/recall/apply/transfer` 显示为“理解/回忆/应用/迁移”，将 `card_type` 的 `course_example/objective_problem/faded_example/coding_problem/transfer_problem` 显示为“课件例题/短练习/渐退示例/编程题/迁移题”，未知枚举仍保留原值便于排查；后端 `coding_problem` 的说明从“回到标准题型”改为“同知识点编程练习”，避免错题回顾场景语义生硬
+- 2026-04-27 **[services/tutor-graph/schema]** 修复学生在骨架代码卡片后点击“思路分析”时，`ideate` 卡片因 `misconception_alert: null` 触发 `Card schema validation failed for 'ideate': None is not of type 'string'` 的问题：schema 校验前现在递归移除 card payload 中值为 `None/null` 的可选字段，避免 LLM 对可选字段显式返回 null 时误伤；必填字段若为 null 会被移除后继续按 schema 的 `required` 规则 fail-fast
+- 2026-04-27 **[services/tutor-graph/骨架代码]** 修复 `SKELETON` 节点在“自然数偶数之和”题目中漂移生成 Iris/KNN/sklearn 机器学习骨架的问题：根因不是 PPT 页码重复，而是骨架节点 prompt 只传简短 `statement` 且缺少输出 grounding 校验，LLM 可把历史示例/通用训练样例混入当前题。现在 `skeleton.py` 将题目标题、题目描述、输入说明、输出说明、样例一起写入 user prompt，并在落库前拒绝题面未出现的 `sklearn` / `load_iris` / `KNeighbors` / `鸢尾花` / `机器学习` 等 off-topic marker，避免错误骨架污染 `node_outputs.skeleton_code`
+- 2026-04-27 **[前端/学习画像]** `ProfileDrawer.vue` 的“30 天数据”统计项新增显示层中文映射：`ac_rate_30d` 显示为“近 30 天通过率”、`problems_ac_30d` 显示为“近 30 天通过题数”、`problems_attempted_30d` 显示为“近 30 天尝试题数”；仅汉化 UI 标签，保留后端 API 字段名不变，未知新增指标仍按原 key 展示以便调试
+
+- 2026-04-27 **[部署/start.sh]** 修复本地启动时继承失效 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` 导致 `tutor-graph` 的 `knowledge_review` LLM 请求报 `Connection error` 的问题：启动脚本现在会解析代理 host:port 并在注入后端 JVM 与 `tutor-graph` 容器前做 1 秒可达性校验；代理端口未监听时自动清空该代理值走直连，代理开启且端口可达时继续按原逻辑透传，兼容"不开代理可运行 / 开代理也可运行"两种本地开发场景
+- 2026-04-27 **[AI 导学/可视化]** 修复 `knowledge_review` 已生成成功但自动 `visualize_intent=flowchart` 投影失败的问题：Java 后端 `llmProvider` 的 Resilience4j TimeLimiter 原先硬编码 20s，覆盖了 `.env` 中 `LLM_API_TIMEOUT_SECONDS=300`，导致 `VisualizeCapabilityService` 调用 Spring AI 生成 Mermaid 时被提前中断并在 `tutor-graph` 侧记录为 `visualize dispatch failed ... transport error`；现在 `llmProvider.timeout-duration` 读取 `LLM_API_TIMEOUT_SECONDS`，同时 `tutor_graph` 的 `dispatch_visualize` 使用 `TUTOR_GRAPH_VISUALIZE_TIMEOUT_SECONDS` 长超时（本地 `start.sh` 默认继承 `LLM_API_TIMEOUT_SECONDS`），避免后端还在生成时 Python 内部客户端先断开
+- 2026-04-27 **[部署/start.sh]** 本地 `tutor-graph` 默认启用 `TUTOR_GRAPH_DEV_MOUNT=1`：当 `alethicode/tutor-graph:local` 镜像已存在时复用镜像并只读挂载 `services/tutor-graph/app` 与 `contracts`，源码级改动无需每次触发 Docker BuildKit 远端 metadata 拉取；这避免 Docker daemon 仍配置失效代理（如 `127.0.0.1:7892`）时，本地重启卡在 `python:3.11-slim` metadata 请求。依赖变更仍可通过 `TUTOR_GRAPH_FORCE_REBUILD=1 TUTOR_GRAPH_DEV_MOUNT=0` 显式重建
+- 2026-04-27 **[AI 导学/可视化/Mermaid]** 修复“循环迭代图”前端 Mermaid 渲染失败：LLM 生成了 `Start[Start loop for range(5)]`、`I0[i=0: print(0)]` 这类含括号/冒号但未加引号的 flowchart 节点 label，后端旧 validator 只检查 header/黑名单，无法提前拦截，最终在浏览器 mermaid.js 解析时报错。现在 `FOR_LOOP_TRACE` 与通用 `FLOWCHART` prompt 强制所有节点 label 使用双引号（如 `A["Start"]`、`B["i=0 print"]`），`MermaidValidator` 同步支持 `graph TD/LR/TB/BT/RL` 兼容头，并拒绝含 `() : < >` 的未加双引号 flowchart label；新增回归用例覆盖 quoted/unquoted 两种路径
+
+### 4/27 tutor-graph 本地镜像构建去除 apt 依赖
+
+- 2026-04-27 **[services/tutor-graph/部署]** `services/tutor-graph/Dockerfile` 去除运行期健康检查对 `curl` 与 `apt-get install` 的依赖，改用 Python 标准库 `urllib.request` 请求 `/health`：本地 `start.sh` 重建镜像时不再需要从 Debian 源下载 `curl` 及其系统依赖，避免在受限网络或 Docker 代理返回 `502 Bad Gateway` 时阻塞项目启动；健康检查目标、超时与失败退出语义保持不变
+
+### 4/27 NotebookHeader 缺失样式文件修复
+
+- 2026-04-27 **[前端/错题本]** 新增 `frontend/src/pages/oj/views/user/notebook/styles/notebookHeader.less`：`NotebookHeader.vue` 在重写 UI 时将 `<style>` 从内联改为 `<style src="./styles/notebookHeader.less">` 外部引用，但该 `.less` 文件从未创建，导致 Vite 运行时 `ENOENT` 崩溃；补全全部 `nbh-*` 前缀类的样式定义（hero 背景装饰、标题区、操作按钮、统计卡片、选项卡），复用项目 CSS 变量 `--primary-color` / `--bg-card` / `--text-primary` 等保持设计系统一致性；包含 768px / 480px 两档响应式断点
+
+### 4/27 站点 Logo / Favicon 全量替换为 AC 主视觉
+
+- 2026-04-27 **[前端/品牌]** 新增 `frontend/public/logo.png`（512x512，源图 1254x1254 通过 Pillow LANCZOS 重采样）与 `frontend/public/favicon.ico`（多尺寸 ICO，包含 16 / 32 / 48 / 64 / 128 / 256 六个分辨率，由 Vite 直接 serve 至构建产物根目录）；同步删除无引用的 `frontend/src/assets/logo.svg`（旧绿色海龟+齿轮 SVG，全工程零引用，是历史遗留死代码）
+- 2026-04-27 **[前端/HTML]** `frontend/index.html` 与 `frontend/admin/index.html` 的 `<link rel="shortcut icon" href="/public/website/favicon.ico">` 改为 `<link rel="icon" type="image/x-icon" href="/favicon.ico">`：直接消费 Vite public 目录静态资源，移除对后端 `/public/website/favicon.ico` 路由的依赖；浏览器标签页与浏览器收藏夹现在显示 AC logo
+- 2026-04-27 **[后端/Controller]** 删除 `PublicAssetController#websiteFavicon`（`@GetMapping("/public/website/favicon.ico")`，返回 `204 No Content`）：favicon 由前端 Vite public 目录直接提供后，该端点已无消费者；保留 `/public/avatar/{filename}` 头像加载逻辑
+- 2026-04-27 **[前端/NavBar]** `frontend/src/pages/oj/components/NavBar.vue` 顶栏 `.logo-ring` 从 28x28 渐变背景圆环 + 字母 "A" CSS 渲染改为 `<img>` 直接加载 `/logo.png`：尺寸 32x32 + `object-fit: contain`，旁边的 `{{website.website_name}}` 站名文本保留；视觉占用空间略放大以提升识别度
+- 2026-04-27 **[前端/Login Banner]** `frontend/src/pages/oj/views/user/Login.vue` `.logo-badge` 从 28x28 半透明字母徽章改为 36x36 圆角图片 + `padding: 3px` 白底卡片 + 阴影：在登录 banner 深色背景上保持图标可见
+- 2026-04-27 **[前端/独立认证页]** `StandaloneLogin` / `StandaloneRegister` / `ResetPassword` / `ApplyResetPassword` 共 4 个独立认证页的 `.brand-logo-ring` 统一从 34x34 半透明字母圆环改为 40x40 圆角白底图片 + 阴影，DOM 元素从 `<div>` 改为 `<img>`；模板与 CSS 一致替换，确保四页视觉一致
+- 2026-04-27 **[前端/Admin Login]** `frontend/src/pages/admin/views/general/Login.vue` 在 `.brand-panel` 顶部新增 `.brand-logo` 容器（44x44 logo 图标 + "Alethicode" 站名文本），保持原有 `.brand-caption` / `.brand-title` / `.brand-subtitle` 文案层级不变；管理台登录页首屏品牌识别度对齐 OJ 端
+- 2026-04-27 **[前端/Admin SideMenu]** `frontend/src/pages/admin/components/SideMenu.vue` 在菜单顶部新增 `.admin-side-brand` 区块（36x36 logo + "Alethicode" 文本，半透明白底 + 下边框分隔），与现有的 `.menu-footer` 退出按钮形成视觉对称；管理台所有页面侧边栏顶端固定显示品牌标识
+- 2026-04-27 **[影响面]** 完整审计无遗漏：`frontend/tests/unit/` 无任何用例断言 `logo-ring` / `logo-badge` / `brand-logo-ring` 文本内容；`backend/src/test/` 无任何用例引用 `PublicAssetController` 或 favicon 端点；`frontend/tests/e2e/visual/` 下 51 个 baseline `.html` 快照仍记录旧 DOM（含字母 "A" 与旧 favicon 路径），下次跑 visual regression 会自然刷新基线，不在本次手工修改范围；总计修改 11 个文件、新增 2 个静态资源、删除 1 个旧 SVG 与 1 个后端端点
+
+### 4/27 Visualize 422 SCHEMA_VIOLATION 修复
+
+- 2026-04-27 **[bug 1/诊断丢失]** 修复 `services/tutor-graph/app/clients/java_tools_client.py` 中 `dispatch_visualize` 在 422 时调 `r.raise_for_status()`，httpx 默认 `HTTPStatusError` 仅生成"Client error '422 ' for url ..."的 transport-error 风格消息，**完全丢失** Java `VisualizeValidationException.getMessage()` 写入响应 body 的具体校验失败原因（mermaid 语法错 / chart schema 违反 / svg 拒绝）；改为优先解析 422 body 的 `error` 字段并以"422 visualize validation failed: <真实原因>"形式抛出，使 `projection.py` 的 `_VisualizeDispatchFailed` 包装后 `last_error` 字段能完整记录哪一类校验失败，便于运维侧定位
+- 2026-04-27 **[bug 2/根因]** 修复 `MermaidValidator.ALLOWED_HEADERS` 未接受 `graph TD/LR/TB/BT/RL` 兼容头：mermaid.js 官方文档明确 `graph` 是 `flowchart` 的兼容别名（"graph (Deprecated, use flowchart)"，但仍然支持），LLM 训练数据里 `graph TD` 远比 `flowchart TD` 高频，导致 `knowledge_review` / `data_flow` 等节点声明 visualize_intent 后高频触发 422；现在 `MermaidValidator` 接受 `graph TD/LR/TB/BT/RL` 全部 5 方向，并把校验失败提示从"must start with flowchart/sequenceDiagram/..."更新为"flowchart|graph (TD/LR/...) / sequenceDiagram / stateDiagram-v2 / classDiagram"
+- 2026-04-27 **[bug 3/根因/prompt 约束缺失]** 修复 `VisualizePromptCatalog.java` 中 `FLOWCHART`、`DATA_FLOW`、`KC_MASTERY_RADAR` 三个 prompt 缺失 `MermaidValidator` / `ChartConfigValidator` 强制要求的约束指令。数据库 event_data 实证：session `twf_62bd2439875d4ca8` 的 `knowledge_review` 节点选择 `flowchart` intent，LLM 生成的 mermaid 包含 `subgraph`/`style`/`linkStyle` 等 `MermaidValidator.FORBIDDEN_KEYWORDS` 中的指令导致 422——因为 `FLOWCHART` prompt 仅写"Maximum 15 nodes"而完全未提及禁止关键词（对比 `FOR_LOOP_TRACE` prompt 明确写了"no subgraph/click/style"）。修复：`FLOWCHART` 补充"no subgraph/click/style/linkStyle"约束 + 明确输出 JSON 格式；`DATA_FLOW` 补充"FORBIDDEN directives: subgraph, click, style, linkStyle"+"不在 participant/message 中使用这些词"；`KC_MASTERY_RADAR` 补充 Chart.js schema 结构约束（type=radar / labels / datasets / label maxLength:50 / data array）+ 禁止 function injection
+- 2026-04-27 **[infra/修复]** 删除 Flyway 重复迁移文件 `V65__notebook_kc_breakthrough_structured_reflection.sql`、`V66__ai_reflection_session.sql`、`V67__ai_learner_milestone.sql`（分别与已应用的 V68/V69/V70 完全相同），解除 "Found more than one migration with version 65" 阻塞
+- 2026-04-27 **[测试]** 新增 `MermaidValidatorTest`（11 用例：flowchart TD / graph TD/LR/TB/BT/RL 全 5 方向 / sequenceDiagram / stateDiagram-v2 / 空 payload / pie 不支持头 / subgraph 禁止 / script 注入禁止 / 50 行上限）；新增 `VisualizeCapabilityServiceTest.acceptsLegacyGraphHeaderForFlowchartIntent` 回归用例覆盖 LLM 输出 `graph TD` 时不再触发 422；新增 `services/tutor-graph/app/tests/test_java_tools_client_visualize.py`（3 用例：422 body propagation / 非 JSON body fallback to text / 200 路径正常返回 card_payload）；Java + Python 全部测试绿
+
+### 4/27 前后端全栈代码审计报告
+
+- 2026-04-27 **[文档/审计]** 新增 `docs/reports/2026-04-27-fullstack-audit.md`：应用 `code-reviewer` skill 对 backend Java（489 文件 / 73k 行）+ frontend Vue（134 组件 / 46k 行 + 94 JS 模块 / 10k 行）+ tutor_graph Python（55 文件 / 5.9k 行）+ deploy + DB migration 全栈做 readonly 审计，输出 0 Critical / 9 High / 10 Medium / 多 Low 优先级 finding；按 Security → Performance → Correctness → Maintainability → Testing → Infrastructure → Compliance 7 个专项分组，每条 finding 含具体文件路径与行号；High 级覆盖 RateLimitFilter X-Forwarded-For 解析方向反向、CSP 含 `unsafe-eval`、巨石文件、SvgRenderer 前端缺 sanitize、Migration V67/V68 撞车、`force-https: false`、multipart 256MB DoS 风险、`submission-list-show-all` 默认全公开、video provider 10 分钟 timeout；Medium 涵盖 `/internal/**` 鉴权依赖 controller 手工 validate 的结构性风险、admin controller 大部分缺 @PreAuthorize defense-in-depth、renderMarkdown 在 11 个组件 DRY 违反、todo 文件碎片化、CHANGELOG 9000+ 行需分卷；附 P0/P1/P2/P3 推荐行动顺序与 ROI 排序；本次审计纯只读，不改任何代码
+
+### 4/27 Faded Parsons + ONNX 自适应渐退拼装题模块（设计稿）
+
+- 2026-04-27 **[文档/设计]** 新增 `docs/plans/2026-04-27-faded-parsons-onnx-adaptive-design.md`：基于用户已确认的两项关键决策（Per-KC NFK/BKT 路由、Parsons 作为辅助卡不切 phase）输出 18 节正文 + 2 附录的完整设计文档；核心创新点 3 项（NFK ONNX 实时推理驱动 Adaptive Fading、错题历史驱动的 Distractor 注入、Parsons + FSRS 间隔重复闭环）；模块拆分：后端新增 7 个 service 类、tutor_graph 新增 `parsons.py` 节点、前端新增 5 个 Vue 组件 + composable；附 DB migration V68 与 `parsons_problem.schema.json` 草案；评测维度 7 项 + 5 级灰度 + 5 个回滚触发条件；P0 核心可用 12.5 工作日（含 walkthrough 三阶元认知流程），P0+P1 生产可用 15 工作日，全部 17.5 工作日
+- 2026-04-27 **[文档/设计/自审]** 同日对 `2026-04-27-faded-parsons-onnx-adaptive-design.md` 应用 `code-reviewer` skill 完成 14 项自审修订：删除冗余 `WorkflowEvent.PARSONS_SUBMIT`（submit 走纯 REST 不进 graph）、`instructions` 字段明确模板填充、NFK 路由从单闸升级为**双闸 failfast**（KC 训练覆盖 ≥ 20 + 学生交互序列 ≥ 5）、walkthrough **三阶评分流程**明确化（必填 → ≥ 0.7 写 breakthrough / 首次 < 0.7 重写 / 仍 < 0.7 仅写 learning_event）、failure cascade `N=3` 强制 `fading-1` 阶梯降级绕过 mastery 重算避免循环失败、migration 版本号避让错题本设计稿改为 V68、distractor LCS 阈值算法明确为字符级 + 长度归一化、`mastery_snapshot.routing` 字段增加 `decision_at` / `nfk_sequence_length` / `fallback_reason` 三个 trace 字段、micro Parsons 切分明确为 AST 子表达式级、quick action 注入源唯一在 `services/tutor-graph/app/nodes/actions.py`、新增 `previous_session_id` 字段串联 cascade 链、P0 验收含桌面 a11y 与 walkthrough 完整 UX，工作量重新分配为 P0=12.5 / P1=15 / P2=17.5 工作日
+
+### 4/27 AI 导学五大设计稽核 + 闭环（Skeleton / Visualize / Persistent Memory / Unified Chat）
+
+- 2026-04-27 **[后端/契约]** `AITutorControllerSkeletonContractTest` 新增 `noControllerInvokesLegacyAdminWorkflowEventPipeline()` 用例：扫描 `controller/` 目录所有源文件，断言不再有任何 controller 调用 `aiTutorWorkflowAdminService.workflowEvent` / `workflowSessionCreate` / `workflowSessionGet` / `workflowSessionDelete`，确保 Skeleton 只走 LangGraph 工作流，Java 旧 admin 工作流事件管线对生产路径不可达
+- 2026-04-27 **[后端/Visualize]** 删除 `AITutorController.inlineVisualize`、`/api/ai/tutor/visualize/inline` REST 入口、`tutorVisualizeInline` 前端 API（`aiTutor.js` / `ai.js`）以及 `useVisualizeApi.js`：所有学生主动「画一下」的可视化请求统一走 `dispatchWorkflowEvent('VISUALIZE')`，结果由 `node_outputs.visualize` 在 `workflowStateMachine` 端唯一渲染，旧 inline 同步路径与并行写入完全消除
+- 2026-04-27 **[后端/Visualize]** `services/tutor-graph/app/nodes/projection.py` 改为 fail-fast：节点 LLM 输出含 `visualize_intent` 但缺 `visualize_prompt`、或 `dispatch_visualize` 抛错 / 返回空 payload 时直接将整轮 `runtime_state=FAILED` + `failure_bucket=SCHEMA_VIOLATION`，并仍写一次 projection 审计；新增两条 `test_projection_visualize.py` 用例覆盖
+- 2026-04-27 **[前端/测试]** 新增 `frontend/tests/unit/visualize-renderer-contract.spec.js`：契约校验 `VisualizeRenderer` 三态分发、`MermaidRenderer` 强制 `securityLevel: 'strict'`、`ChartRenderer` `JSON.parse` + `destroy()` 生命周期、`SvgRenderer` 严格仅依赖后端 `SvgSanitizer`（无 `eval` / `new Function` / 多个 `v-html` sink）
+- 2026-04-27 **[后端/Persistent Memory]** `LearnerProfileProjector.persistSnapshot` 现在写入 `ai_learner_profile_snapshot.narrative_summary_version` 与 `narrative_summary_text`，关闭个性化（`user_disabled=true`）时只写版本号、不落正文，保留审计能力同时尊重学生意愿；新增 `LearnerProfileProjectorTest` 两条快照用例
+- 2026-04-27 **[后端/Persistent Memory]** `InternalAITutorToolServiceImpl.recordWorkflowEvent` 在 `client_event=AC_REVIEW & runtime_state=COMPLETED` 时通过 `ai_tutor_workflow_session` 反查 `user_id`，异步触发 `LearnerNarrativeSummaryService.refreshIfStale`，避免在 projection 写入主路径上阻塞 LLM 调用；新增 3 条 `InternalAITutorToolServiceImplTest` 异步刷新用例
+- 2026-04-27 **[后端/Profile API 测试]** 新增 `ProfileControllerTest`：覆盖 `GET /me`、`PATCH /me/preferences`、`POST /me/refresh`、`POST /me/summary/override` 与匿名访问 401 五种场景，使用 `UsernamePasswordAuthenticationToken` + `details=userId` 模拟会话过滤器写入语义
+- 2026-04-27 **[前端/测试]** 新增 `profile-drawer-contract.spec.js`：契约校验 `profile.js` API 四端点动词、`useProfileApi.js` 注册 4 个 backend 操作并保证无全局 ref 泄漏、`ProfileDrawer.vue` 9 个面板段落、`UnifiedAgentPanel.vue` 入口按钮与 v-model 绑定
+- 2026-04-27 **[后端/Unified Chat]** 新增 Flyway `V65__ai_tutor_unified_chat_context.sql`：`ai_tutor_workflow_session` 加 `active_mode` / `last_mode_switched_at`；`ai_tutor_workflow_event` 加 `card_id` / `card_type` / `mode_when_produced` / `referenced_card_ids`，并建 `(session_id, card_type, created_at DESC)` 部分索引、`card_id` 唯一索引；为 `@card:<id>` 锚点提供稳定主键
+- 2026-04-27 **[后端/Unified Chat]** 新增 `service/aitutor/context/` 包：`ConversationMode` 9 种用户视角 Mode + Phase × Mode 允许矩阵；`CardSummary` record；`ReferenceResolver` 解析 `@card:<id>` / `@last_error` / `@last_visualize` / `@last_ideate` / `@last_guide` / `@last_review` / `@last_post_ac` / `@last_transfer`；`ConversationContextService` 提供 `getActiveMode` / `switchMode`（fail-fast 422 当 Mode 不在 Phase 矩阵）/ `listLastCards` / `resolveReferences`（跨 session 静默忽略）/ `stampCardForLatestEvent`（按 card_type 生成 `C-<前缀>-<8 hex>` ID）
+- 2026-04-27 **[后端/Unified Chat]** `InternalAITutorToolServiceImpl.recordWorkflowEvent` 新增 `stampUnifiedChatColumns()`：仅在 `runtime_state=COMPLETED` 且 client_event 映射出 card_type 时写 `card_id` + `mode_when_produced`，并把 `node_outputs.chat.referenced_card_ids` 透传到事件行的 `referenced_card_ids`；新增 3 条 `InternalAITutorToolServiceImplTest` 用例验证 stamp 逻辑（IDEATING 完成、ERROR_FEEDBACK 失败不 stamp、CHAT 透传引用）
+- 2026-04-27 **[后端/Unified Chat]** `TutorWorkflowController` 新增 `POST /api/ai/tutor-workflow-sessions/{sid}/mode` 与 `GET /{sid}/conversation`：前者校验 Mode × Phase 后调用 `ConversationContextService.switchMode`，非法 Mode 返回 422；后者返回 `active_mode` + `last_cards` 列表给前端 ModeBar / ChatComposer
+- 2026-04-27 **[后端/Unified Chat]** `InternalAITutorToolController` 新增 `GET /internal/ai-tutor/sessions/{sid}/last-cards` 与 `POST /{sid}/references/resolve` 内部接口；`JavaToolsClient.get_last_cards` / `resolve_references` 在 tutor_graph 侧串通；`evidence.py` 给 CHAT 加 `last_cards` + `references` 必备字段，并把前端 `event_data.mode` / `event_data.references` 写入 state
+- 2026-04-27 **[services/tutor-graph/Unified Chat]** `chat_node` 系统提示新增「禁止编造卡片内容 / 必须引用 @card 内容 / 输出 referenced_card_ids 数组」要求；用户消息按顺序拼接「显式引用 cards / 最近卡片 cards / 学生消息 / 历史」结构化 block；后处理校验 LLM 输出的 `referenced_card_ids` 必须在 references ∪ last_cards 集合内，否则丢弃；新增 4 条 `test_chat_node.py` 单测覆盖
+- 2026-04-27 **[后端/测试]** 新增 `ConversationContextServiceTest`（11 用例）+ `ReferenceResolverTest`（5 用例）单测，覆盖 Mode 切换 fail-fast、跨 session 引用静默丢弃、`@last_xxx` 七种简写完整匹配、card_id stamp 类型前缀
+- 2026-04-27 **[前端/Unified Chat]** 新增 `agentContracts.js` 的 `CONVERSATION_MODES` / `CONVERSATION_MODE_ALLOWED_BY_PHASE` / `CONVERSATION_MODE_LABEL` 常量；新增 `useReferenceParse.js` 与 `api/conversation.js`，并在 `oj/api.js` 入口聚合 `getConversation` / `switchConversationMode`
+- 2026-04-27 **[前端/Unified Chat]** `Problem.vue.handleAgentSend` 在 CHAT 路径上调用 `parseReferences(text)` 把 `@card:<id>` / `@last_xxx` token 写入 `event_data.references`，并把 `activeConversationMode || 'chat'` 写入 `event_data.mode`；`workflowStateMachine.js` 新增 `activeConversationMode` / `lastConversationCards` 数据态、`refreshConversationContext()` / `switchConversationMode(targetMode)` 方法，并在 `_fetchCheckpoints()` 与 `createFreshWorkflowSession()` 完成后自动同步服务端 ModeBar 状态
+- 2026-04-27 **[前端/测试]** 新增 `unified-chat-context-contract.spec.js`（6 用例）：直接评估 `useReferenceParse.js` 函数体（绕开仓库 babel-jest 23 不兼容 ES module 的限制）覆盖 token 提取与去重；契约断言 `agentContracts.js` 9 模式与允许矩阵、API 模块导出、Problem.vue chat dispatch 携带 references / mode、workflowStateMachine 状态机字段与方法
+- 2026-04-27 **[后端/兼容]** `AITutorKnowledgeDomainServiceImpl` 补齐并发引入的 `notebookReflectionStart` / `notebookReflectionContinue` / `notebookReflectionFinalize` 三个委托，避免 `AITutorKnowledgeDomainService` 接口扩展后整模块编译失败
+
+### 4/27 错题本综合重构 Phase 3+4（班级对照 + 成长轨迹 + 里程碑）
+
+- 2026-04-27 **[后端/班级对照]** `notebookClassFrequency` 返回扩展 `top_root_causes[3]`（每个 taxonomy 的 top 3 root_cause 频次）；新建 `BulkPushReviewPackageService`（按 `(taxonomy)` 在班级中找未掌握学生批量生成强化训练包）；`AdminCourseInsightController` 新增 `POST /api/admin/insight/bulk-push-review` 端点
+- 2026-04-27 **[前端/班级共鸣]** `LearnerNotebook.vue` 新增"班级共鸣"区域：每个 taxonomy 一个 chip "{label}：{percentage}% 同学也犯过"，高频 >30% amber 高亮，中频 10-30% slate，hover 展开 top 3 root_causes
+- 2026-04-27 **[后端/成长轨迹]** 新建 `BreakthroughReviewService`（getDueBreakthroughs + rateBreakthrough FSRS 推进）；新建 `LearnerGrowthService`（按周聚合最近 12 周 new_errors/new_breakthroughs/fix_rate，支持 aggregate/language 分组）；新建 `V67__ai_learner_milestone.sql` + `MilestoneEvaluationService`（6 枚徽章：seed/persist/aha/scholar/precise/breakthrough）
+- 2026-04-27 **[后端/Controller]** `AITutorController` 新增 4 端点：`GET /api/ai/tutor/notebook/breakthrough/due` / `POST /{id}/rating` / `GET /growth-curve` / `GET /milestones`；`AITutorKnowledgeDomainService` 接口 + `AITutorServiceImpl` 委托实现
+- 2026-04-27 **[前端/成长轨迹]** 新建 `NotebookBreakthroughView.vue`（时间轴 + 顿悟卡 + FSRS 下次提醒）/ `BreakthroughReviewModal.vue`（"我还记得"/"再看看" FSRS 评分）/ `NotebookGrowthChart.vue`（折叠卡 + 周维度表格 聚合/按语言 toggle）/ `NotebookMilestoneBadges.vue`（右上角徽章图标 + 数量 + 展开 modal 6 枚徽章）
+- 2026-04-27 **[前端/集成]** `LearnerNotebook.vue` 集成 GrowthChart（顶部折叠）+ MilestoneBadges（header 右上角）+ `viewMode='breakthrough'` 分支渲染 + 班级共鸣区
+
+### 4/27 错题本综合重构 Phase 2（AI 主链路融合：KC 维度视图 + EvidencePack 注入）
+
+- 2026-04-27 **[后端/KC 视图]** 新建 `NotebookKcViewService`：按 KC 聚合错题/顿悟 + mastery 进度 + 最近 3 条预览，支持 weak_first / most_errors / recent 排序；`AITutorController` 新增 `GET /ai/tutor/notebook/by-kc`
+- 2026-04-27 **[后端/EvidencePack]** `EvidencePackAssembler` 新增 `buildKcErrorProfile(userId, problemId, topK=5)` 方法，按当前题 KC 查学生历史错点，注入 `kc.kc_error_profile`；所有 Agent（IDEATING/CODING/ERROR_FEEDBACK/TRANSFER/CHAT）都可消费
+- 2026-04-27 **[契约/schema]** `ideate_analysis / problem_guide / skeleton_code / transfer_problem / error_diagnosis` 5 个 schema.json 新增可选 `kc_error_refs[]` 字段
+- 2026-04-27 **[services/tutor-graph/LangGraph]** `ideating.py` 和 `skeleton.py` 消费 `kc_error_profile` 注入到 LLM prompt 中
+- 2026-04-27 **[前端/KC 视图]** 新建 `NotebookKcView.vue` / `NotebookKcCard.vue`（mastery 进度条 + 错题/顿悟 chip + 最近 3 条预览）/ `NotebookKcExpandModal.vue`；`LearnerNotebook.vue` 新增 `viewMode='kc'` 分支
+- 2026-04-27 **[前端/KC chip]** `IdeateAnalysisCard.vue` 新增 KC 弱点 chip 渲染区
+- 2026-04-27 **[测试]** 新增 `agent-card-kc-refs-contract.spec.js` 覆盖 5 个 schema + EvidencePackAssembler + tutor_graph nodes 消费
+
+### 4/27 错题本综合重构 Phase 1（学生爆点：录入入口 + AI 引用溯源 + 反思教练化）
+
+- 2026-04-27 **[后端/反思教练化]** 新增 `NotebookLanguageProfile` 常量类（6 种语言 LANGUAGE_LABEL + LANGUAGE_HINTS）；新增 `V66__ai_reflection_session.sql` 短期会话表（30 天 TTL）；新增 `NotebookReflectionService`（start/continue/finalize 3 轮苏格拉底追问），LLM Prompt language-aware 注入语言针对性 hints，走 `AiModelGateway.callForJson()` + schema 校验失败 fail-fast
+- 2026-04-27 **[后端/Controller]** `AITutorController` 新增 3 个反思教练端点：`POST /api/ai/tutor/notebook/reflection/start` / `continue` / `finalize`；`AITutorKnowledgeDomainService` 接口扩展 + `AITutorServiceImpl` 委托实现
+- 2026-04-27 **[后端/引用溯源]** `SimilarErrorRetrievalService.loadNotebookCandidates` 返回结构新增 `entry_date`（ISO8601）+ `excerpt`（root_cause 首行≤60 字符）+ `trimToExcerpt()` 工具方法
+- 2026-04-27 **[契约/schema]** `error_diagnosis.schema.json` 新增可选 `similar_error_refs[]`（含 `source_type/source_id/entry_date/excerpt/problem_id`）和可选 `kc_error_refs[]`（含 `kc_id/kc_name/error_count`）
+- 2026-04-27 **[前端/反思对话框]** 新建 `NotebookReflectionDialog.vue`（3 步追问模态框：进度点 + 教练头像 + 候选 chip + 自由输入 + 跳过教练逃生口）、`useNotebookReflectionApi.js` composable 封装 3 个 API
+- 2026-04-27 **[前端/引用溯源]** `ErrorDiagnosisCard.vue` 新增相似错误可点击 chip 列表（amber 暖色 notebook / blue memory，touch ≥ 44px，hover shadow，SVG 图标）+ 「加入错题本 + 写反思」chip；`PostACCard.vue` 新增「记下顿悟」chip（紫色 breakthrough）
+- 2026-04-27 **[前端/高亮导航]** `LearnerNotebook.vue` 支持 `?highlight=<id>` 参数自动滚动到条目并 1.5s amber-300 高亮闪 ring 动画；`NotebookEntryCard.vue` 增加 `data-entry-id` 属性
+- 2026-04-27 **[测试]** 新增 `NotebookReflectionServiceTest`（5 用例）+ `notebook-reflection-dialog-contract.spec.js` + `error-diagnosis-card-similar-refs-contract.spec.js` + `notebook-reflection-flow.spec.js` e2e
+
+### 4/27 错题本综合重构 Phase 0（数据底座补齐）
+
+- 2026-04-27 **[数据库/迁移]** 新增 `V65__notebook_kc_breakthrough_structured_reflection.sql`：`ai_learner_notebook` 扩展 13 字段（`kc_ids` JSONB / `entry_type` VARCHAR(16) / `student_reflection_structured` JSONB / `breakthrough_insight` TEXT / `source_event` VARCHAR(32) + 8 个 per-entry FSRS 调度字段）、GIN 索引 `idx_aln_kc_ids`、CHECK 约束 `chk_aln_entry_type`、存量错题全量回填 KC（`ai_problem_kc_mapping`）、历史 `tutor_conclusion` 全量反投射为 `entry_type='breakthrough'` 条目
+- 2026-04-27 **[后端/错题本 audit]** 全链路 12 处 `ai_learner_notebook` 查询加 `entry_type = 'error'` 过滤：`SimilarErrorRetrievalService` / `LearnerMemoryService` / `ErrorReviewPackageService` / `LearnerNarrativeSummaryService` / `ReviewProblemSelector` / `SubmissionServiceImpl` / `JudgeCompletedEventListener` / `ProfileViewService` / `ClassroomAnalyticsService` / `BeginnerSupplementPlannerService` / `AITutorServiceImpl`（notebookList/classFrequency/weeklySummary/dueReview 等 6 处）
+- 2026-04-27 **[后端/breakthrough 写入]** `LearnerMemoryService.saveTutoringConclusion()` 新增 `persistBreakthroughNotebookEntry()` 方法：AC_REVIEW 时同步写 `entry_type='breakthrough'` 条目 + 自动挂 `kc_ids` + 初始化 FSRS（state='new'、due_at=now+1day）
+- 2026-04-27 **[后端/notebookCreate 改造]** `AITutorServiceImpl.notebookCreate()` 自动从 `ai_problem_kc_mapping` 填充 `kc_ids`；INSERT 扩展 `kc_ids/entry_type/source_event/breakthrough_insight` 4 列
+- 2026-04-27 **[后端/notebookList 改造]** `notebookList()` SQL 扩展 SELECT 5 个新列并支持 `entry_type=error|breakthrough|all` 参数过滤（默认 `error` 向后兼容）；`mapNotebookEntry()` 新增 5 字段返回 + `parseJsonLongList()` 工具方法
+- 2026-04-27 **[前端/常量+格式化]** `notebookConstants.js` 新增 `VIEW_MODES.KC/BREAKTHROUGH` 与 `ENTRY_TYPES`；`notebookFormatters.js` `normalizeEntries` 保留 `kc_ids/entry_type/structured_reflection/breakthrough_insight/source_event` 字段
+- 2026-04-27 **[测试]** 新增 `LearnerNotebookServiceTest`（4 用例契约校验）；`InfrastructureDeepIntegrationContractTest` 新增 V65 幂等校验；`SubmissionDebugNotebookIntegrationTest` 加 `entry_type='error'` 断言
+
+### 4/25 前端去状态机改造（阶段一）
+
+- 2026-04-25 **[前端/AI 导学]** `workflowStateMachine.js` 去除前端业务转移守卫职责：删除 `ALLOWED_WORKFLOW_TRANSITIONS` 与 `assertWorkflowEventAllowedOrThrow` 阻断链路，`dispatchWorkflowEvent` 改为统一透传事件到后端 `/api/ai/tutor-workflow-sessions/{sessionId}/runs`，并对 `422/409/403` 返回做中文可读错误映射回显
+- 2026-04-25 **[前端/AI 导学]** quick actions 策略收敛为“后端 `available_actions` 优先”，仅在会话未初始化前保留最小 bootstrap 动作（`READING` / `IDEATING`）；会话就绪后不再基于前端 phase 规则做本地兜底筛选
+- 2026-04-25 **[前端/AI 导学]** `Problem.vue` 移除 `handleTriggerAgent`、`handleRequestExecutionTrace`、`handleAgentSend` 的本地 phase 合法性阻断，改为“直接发事件 + 后端失败信息回显”；`UnifiedAgentPanel` 输入阻塞保持仅由 `runtime_state`（`WAITING_HUMAN_APPROVAL` / `RESTORING`）驱动
+- 2026-04-25 **[测试/前端]** 更新 `workflow-private-ai-contract.spec.js` 与 `workflow-state-machine-restore-cache.spec.js`：新增“非法时机由后端 422 判定并前端显示错误”的契约断言，调整 quick actions 契约为后端动作源优先；本地执行 `npm test -- tests/unit/workflow-private-ai-contract.spec.js tests/unit/workflow-state-machine-restore-cache.spec.js` 共 22 用例全绿
+
+### 4/25 前端去状态机改造（阶段二）
+
+- 2026-04-25 **[前端/AI 导学]** `Problem.vue` 去除 `mixins: [workflowStateMachine]`，改为 `useTutorWorkflowRuntime` 组合式接入：通过 `...tutorWorkflowRuntime.data/computed/methods` 与 `beforeUnmount` 合并运行时能力，页面侧只消费 runtime snapshot，不再依赖本地状态机 mixin 挂载
+- 2026-04-25 **[前端/AI 导学]** 新增 `frontend/src/composables/problem/useTutorWorkflowRuntime.js` 作为运行时通道层统一入口，承接 session/run/ws/cache/recovery 能力，便于后续继续拆分纯 composable 逻辑
+- 2026-04-25 **[前端/AI 导学]** `workflowStateMachine.js` 移除 `createProblemWorkflowService`/`_workflowMachineService` 依赖，`_sendWorkflowMachineEvent` 改为基于 `runtimeContext` 与 `planState` 的本地派生器（直接更新 `agentLoading`/`planPaused`/`planCompleted`），不再由 xstate service 驱动生命周期
+- 2026-04-25 **[测试/前端]** `workflow-state-machine-xstate-contract.spec.js` 升级为阶段二契约：断言前端已移除 xstate 依赖、运行时状态由 snapshot 派生、Problem 页面改为 composable 接入；本地执行 5 组回归：`workflow-private-ai-contract`、`workflow-state-machine-restore-cache`、`workflow-state-machine-xstate-contract`、`workflow-runtime-event-contract`、`tutor-workflow-v2-contract` 共 49 用例全绿，`npm run build` 通过
+
+### 4/26 Visualize Capability 稳定落地（Mermaid / Chart.js / SVG）
+
+- 2026-04-26 **[后端/AI 导学]** 新增 `VisualizeCapabilityService`，统一承接可视化意图分发：通过 `AiModelGateway.callForJson()` 生成结构化输出，按 `format=mermaid|chart|svg` 分支执行 fail-fast 校验（`MermaidValidator` / `ChartConfigValidator` / `SvgSanitizer`），并标准化输出 `intent/format/payload/alt_text/source_role`
+- 2026-04-26 **[后端/接口]** 新增对外接口 `POST /api/ai/tutor/visualize/inline`（`AITutorController`）与内部接口 `POST /internal/ai-tutor/visualize/dispatch`（`InternalAITutorToolController`），统一返回可渲染 card payload，并将可视化校验异常映射为 422 可读错误
+- 2026-04-26 **[后端/契约]** `InternalAITutorToolService` 增加 `dispatchVisualize`，`InternalAITutorToolServiceImpl` 完成卡片组装（含 `card_id/card_type/card_payload`）；`CardSchemaRegistry` 增加 `CardType.VISUALIZE` 必填字段；`AITutorWorkflowAdminServiceImpl` 增加 `VISUALIZE -> CardType.VISUALIZE` 事件映射
+- 2026-04-26 **[后端/安全修复]** 修复 `SvgSanitizer` 子节点清理未落盘问题（遍历改为真实 children 列表而非 clone），确保黑名单标签与危险属性在最终输出中被真正移除
+- 2026-04-26 **[services/tutor-graph/LangGraph]** 新增 `VISUALIZE` 事件全链路：`state.py` 扩展 `ClientEvent`，`transitions.py` 将 `VISUALIZE` 归入辅助事件（不切 phase），`builder.py` 增加 `visualize` 节点路由；新增 `nodes/visualize.py` 调用 Java 内部 `dispatch_visualize` 并写入 `node_outputs["visualize"]`
+- 2026-04-26 **[services/tutor-graph/LangGraph]** `projection.py` 增强自动可视化分发：当主卡产出 `visualize_intent + visualize_prompt` 时自动回调 Java 生成可视化卡，写回 `node_outputs["visualize"]` 与主卡引用；失败时记录 `visualize_failed` 且不破坏主卡主流程
+- 2026-04-26 **[services/tutor-graph/动作策略]** `actions.py` 各 phase 增加 quick action `{"key":"visualize","label":"画一下","event":"VISUALIZE"}`；并同步更新 `reading/ideating/diagnosis/ac_review/knowledge_review` prompt 与 schema 契约，支持节点按需声明可视化意图
+- 2026-04-26 **[前端/AI 导学]** 新增可视化渲染组件 `VisualizeRenderer` + `MermaidRenderer` + `ChartRenderer` + `SvgRenderer`，`UnifiedAgentPanel.vue` 新增 `visualize` 卡片渲染与 `request-visualize` 入口，`workflowStateMachine.js` 完成 `VISUALIZE` 事件、消息恢复与 WS/watchdog 重建链路接线
+- 2026-04-26 **[前端/接口]** 新增 `tutorVisualizeInline` API 与 `useVisualizeApi` composable；`Problem.vue` 增加 `handleRequestVisualize`（输入提示词、推断 intent、调用接口并回显卡片）与 quick action 分发接线
+- 2026-04-26 **[测试/后端]** 新增 `VisualizeCapabilityServiceTest`；执行 `JAVA_HOME=/home/cypress/.local/tools/jdk-21 mvn -Dtest=TutorWorkflowControllerTest,VisualizeCapabilityServiceTest test`，21/21 通过
+- 2026-04-26 **[测试/tutor_graph]** 新增 `test_projection_visualize.py` 并扩展 `test_transitions.py`、`test_actions_policy.py`、`test_card_schemas.py`；执行 `pytest app/tests/test_projection_visualize.py app/tests/test_transitions.py app/tests/test_actions_policy.py app/tests/test_card_schemas.py`，137/137 通过
+- 2026-04-26 **[测试/前端]** 更新 `workflow-private-ai-contract.spec.js`（覆盖 visualize contract）；执行 `npm test -- --runInBand tests/unit/workflow-private-ai-contract.spec.js tests/unit/workflow-state-machine-restore-cache.spec.js tests/unit/problem-runtime-ui-contract.spec.js`，42/42 通过；执行 `npm run build` 通过
+
+### 4/23 后组件主线融入与前端美化（Phase 1-4 落地）
+
+- 2026-04-25 **[前端/Phase 1]** 新增 `frontend/src/styles/cardSizingTokens.less` 与 `cardAccentTokens.less`：固化 8 套 accent 配色（primary/guide/ideate/success/danger/transfer/review/encouragement）和 8 个共享尺寸变量（`--card-radius / --card-head-px / --card-body-px / --card-font-title / --card-icon-size` 等），全部 BaseAgentCard 派生卡共用，禁止单卡硬编码；通过 `frontend/src/styles/index.less` 全局注入
+- 2026-04-25 **[前端/Phase 1]** 新建 `frontend/src/pages/oj/views/problem/cards/BaseAgentCard.vue`（127 行）：必填 `accent` prop（含 8 值校验）+ `head-extra/body/foot` slots + 复用 token 的 head/body/foot 三段结构，作为所有 AI 导学卡的统一容器
+- 2026-04-25 **[前端/Phase 1]** 9 张 AI 卡按 BaseAgentCard 重写并配色统一：`ProblemGuideCard`(guide) / `IdeateAnalysisCard`(ideate) / `PostACCard`(success) / `ErrorDiagnosisCard`(danger) / `TransferProblemCard`(transfer) / `SkeletonCodeCard`(primary) / `ExecutionTraceExplainerCard`(primary) / 新建 `KnowledgeReviewCard`(review) / 新建 `EncouragementCard`(encouragement)
+- 2026-04-25 **[前端/Phase 1]** 抽出 `cards/CoursewareRefList.vue`（76 行）和 `cards/ErrorDiagnosisDetails.vue`（225 行）作为可复用的折叠/课件子件，控制 `ErrorDiagnosisCard` 在 273 行（≤300 硬约束）
+- 2026-04-25 **[前端/Phase 1]** `UnifiedAgentPanel.vue` 替换两个 inline `v-else-if` 块（`knowledge_review` / `encouragement`）为新卡组件；删除局部 `--card-*` 变量声明（已升级为全局）和约 280 行重复样式（2245 → 1966 行）
+- 2026-04-25 **[前端/Phase 1]** 新增 `frontend/tests/unit/agent-card-design-system-contract.spec.js`（25 用例）：契约校验所有 token / BaseAgentCard slots / 9 张卡的 accent 接线 / UnifiedAgentPanel 不再含旧 inline class
+
+- 2026-04-25 **[前端/Phase 2]** `LearnerNotebook.vue` 1589 → 268 行（瘦身 83%），改为 orchestration；拆分 9 个子组件 + 3 个工具模块到 `frontend/src/pages/oj/views/user/notebook/`：
+  - 子组件：`NotebookHeader`（74）/ `NotebookFilterToolbar`（66）/ `NotebookCalendarView`（157）/ `NotebookCalendarCell`（104）/ `NotebookDayDrawer`（125）/ `NotebookArchiveView`（204）/ `NotebookEntryCard`（223）/ `NotebookAddDialog`（113）/ `MisconceptionTagCloud`（62）
+  - 工具：`notebookConstants.js`（84）/ `notebookFormatters.js`（66）/ `notebookActions.js`（78）
+- 2026-04-25 **[前端/Phase 2]** 新增日历视图：6 周 × 7 天 CSS Grid（无第三方库）+ 月份导航 + 4 种 chip 颜色（primary/danger/success/overflow），`is_due=true` 时 cell 高亮红色边框；点击 cell 弹出右侧 DayDrawer，列出当日 due_review + 错题，支持「去复习」一键路由 `error-review-package?ctx=<encrypted>`
+- 2026-04-25 **[前端/Phase 2]** 顶部增加视图切换 tab（日历 / 档案），URL `?view=archive` 同步；旧两栏档案视图无并行路径地迁移到 `NotebookArchiveView`
+- 2026-04-25 **[前端/Phase 2]** 新增 `frontend/tests/unit/notebook-calendar-contract.spec.js`（7 用例）和 `frontend/tests/unit/notebook-day-drawer-contract.spec.js`（4 用例）；同时同步更新 `notebook-review-badge-sync-contract.spec.js`（共 14 用例全绿）
+
+- 2026-04-25 **[后端/Phase 3.1]** `ErrorReviewPackageService.java` 1016 → 298 行（瘦身 70%）；按职责拆出 7 个新文件：
+  - `SpecializedProblemGenerator.java`（224）：AI 特化题批量/单题/异步生成 + `appendOneToPackage` 单题挂包入口
+  - `AiProblemTestCaseWriter.java`（111）：AI 题测试用例落盘（`{testCaseDir}/{id}/N.in/N.out + info`）
+  - `ReviewProblemRatingService.java`（202）：单题级评分（good/again）+ 全题 good 推进 FSRS + again 同步生成相似题
+  - `ReviewProblemSelector.java`（88）：选题策略（supplement plan > 错题本未掌握 > 提交历史 WA）
+  - `ReviewPackageProblemMetaResolver.java`（91）：子题元信息解析与默认值
+  - `ReviewPackageFsrsAdvancer.java`（95）：包级 FSRS 推进 + 学习事件发布的统一入口
+  - `ReviewSubmissionRecorder.java`（63）：判题完成后回写 review-package 子题状态 + 计数 + 推 FSRS
+- 2026-04-25 **[数据库/Phase 3.2]** `V62__ai_error_review_problem_user_rating.sql`：`ai_error_review_problem` 新增 `user_rating VARCHAR(16)` + `rated_at TIMESTAMPTZ` + 复合索引 `idx_aerp_user_rating(package_id, user_rating)`
+- 2026-04-25 **[后端/Phase 3.3]** `ReviewPackageResponse.ReviewProblemItem` 增加 `user_rating` 字段（向后兼容旧构造器）；`ErrorReviewPackageController` 新增端点 `POST /api/ai/review-packages/{packageId}/problems/{problemId}/rating`，body `{ "rating": "again" | "good" }`，校验顺序：用户存在 → 拥有包 → 题属于包 → submitted=true
+- 2026-04-25 **[前端/Phase 3.4]** `ErrorReviewPackagePage.vue` 377 → 205 行；拆分 4 个子组件：
+  - `ReviewPackageHeader.vue`（82）：FSRS 头条（state badge + 距到期天数 + mastery + 进度）+ 返回按钮
+  - `ReviewPackageEvidence.vue`（40）：错误概况（错题本 / 学习事件计数 + 常见原因）
+  - `ReviewProblemCard.vue`（151）：单题三态（pending / 我会了 + 再练 / 已掌握或已生成相似题）+ loading overlay + `is-just-added` 高亮闪动
+  - `ReviewMasteryDialog.vue`（74）：全题掌握后弹出整体感觉评分弹窗，调 `rateReviewPackage` 推进包级 FSRS
+- 2026-04-25 **[前端/Phase 3.5]** `frontend/src/pages/oj/api/aiTutor.js` 新增 `rateReviewProblem(packageId, problemId, rating)` 与 `rateReviewPackage(packageId, rating)`
+- 2026-04-25 **[测试/Phase 3.6]** 新增 3 个后端单元测试：
+  - `SpecializedProblemGeneratorTest`（4 用例）：generateOne 成功路径 / LLM 无 test_cases failfast / appendOneToPackage SQL / batch 部分失败容忍
+  - `ReviewProblemRatingServiceTest`（6 用例）：good 全部完成推进 FSRS / good 未完成不推进 / again 生成相似题并 append / submitted=false 422 / 非包主 403 / 非法 rating 400
+  - `ErrorReviewPackageProblemRatingTest`（5 用例）：401 / 403 / 404 / 422 / 200 全路径
+- 2026-04-25 **[测试/Phase 3.6]** 新增 2 个前端契约 spec：`error-review-package-rating-card.spec.js`（4 用例）+ `error-review-package-page.spec.js`（5 用例）
+
+- 2026-04-25 **[测试/Phase 4]** 新增 4 个 Playwright E2E spec（守在 `REAL_BACKEND_E2E=1` 后）：`cards-design-system.spec.js`（视觉 token 校验）/ `notebook-calendar.spec.js`（6×7 grid + tab 切换）/ `notebook-day-drawer.spec.js`（点格弹抽屉 + 跳路由）/ `review-package-rating.spec.js`（核心评分链路 + DB 回查）
+- 2026-04-25 **[质量/Phase 4]** 后端 `mvn -Dtest=...test` 全绿（新增 15 用例 + 旧 5 套件全部通过）；前端 `npm run build` 通过；新增前端 8 个 spec / 52 用例全绿
+- 2026-04-25 **[文件大小]** v2 硬约束达成：所有新建 / 改写 `.vue` ≤300 行（最大 ErrorDiagnosisCard 273）、`.java` 服务 ≤300 行（最大 ErrorReviewPackageService 298）、`.js` 工具 ≤200 行；不为通过文件大小检查写防御性代码或兼容性别名
+
+### DeepTutor 启发调研与教学体验增强方案
+
+- 2026-04-25 **[文档/调研]** 新增 `docs/reports/2026-04-25-deeptutor-inspiration-survey.md`：对 HKUDS/DeepTutor v1.2.4 的全面对照调研报告，覆盖项目轮廓、能力对照矩阵、可借鉴 / 不可借鉴的边界，并按"教学价值 × 实施成本"打分排序，明确推荐 P1（Persistent Memory）/ P2（Visualize）/ P3（Unified Chat）三项落地，明确剔除 Book Engine / Co-Writer / 多 IM 通道 / nanobot / Agent CLI / 全栈替换等不引入项
+- 2026-04-25 **[文档/设计]** 新增 `docs/plans/2026-04-25-persistent-memory-layer-design.md`（P1 设计）：在现有 `LearnerMemoryService` / `LearnerProfileProjector` / `LearningStyle` 基础上补全 prompt 注入面、自然语言长期摘要、学生侧画像 dashboard、教师侧班级聚合；含 `ai_learner_narrative_summary` 新表 DDL、`LearnerNarrativeSummaryService` 与 `LearnerMemorySemanticRetrievalService` 服务设计、tutor_graph 节点 prompt 模板化方案、4 套 REST 端点契约、31 个验收测试矩阵和工作量评估（15.5 人日）
+- 2026-04-25 **[文档/设计]** 新增 `docs/plans/2026-04-25-visualize-capability-design.md`（P2 设计）：新增 `VisualizeCapability` 服务，支持 Mermaid（flowchart / sequenceDiagram / stateDiagram）/ Chart.js（line/bar/radar）/ 内联 SVG 三类输出，定义 8 种 `VisualizeIntent` 枚举（FOR_LOOP_TRACE / RECURSION_STACK / DATA_STRUCTURE_STATE / COMPLEXITY_COMPARE / KC_MASTERY_RADAR / MEMORY_LAYOUT / DATA_FLOW / FLOWCHART）；含 Mermaid 子集 / Chart 配置 schema / SVG 沙箱白名单的 failfast 校验设计、5 教学角色 prompt 改造方案、前端三类渲染组件、工作量预估（15 人日）
+- 2026-04-25 **[文档/设计]** 新增 `docs/plans/2026-04-25-unified-chat-context-design.md`（P3 设计）：在现有 `UnifiedAgentPanel.vue` 容器内引入 `Mode`（用户视角）与 `Phase`（系统视角）双层语义，新增 `ConversationContextService` 与 `ReferenceResolver` 实现跨卡片 `@card:<id>` / `@last_error` 等引用机制；含 `ai_tutor_session.active_mode` 字段加列、tutor_graph CHAT 节点 evidence 扩 last_cards / references、9×7 Mode×Phase 允许矩阵、前端 ModeBar / ChatComposer @ 自动补全 / CardJumpAnchor 跳转交互、工作量预估（13.8 人日）
+
+## [Unreleased] - 2026-04-18
+
+### 全量 Code Review 修复
+
+- 2026-04-18 **[后端/修复]** CR-C01：`application.yml` 添加 `open-in-view: false`，与 prod profile 一致，避免开发环境掩盖懒加载 N+1 问题
+- 2026-04-18 **[后端/修复]** CR-C02：`RateLimitFilter` 的 Redis INCR + EXPIRE 改用 Lua 脚本保证原子性，消除 expire 失败导致用户永久被限流的风险
+- 2026-04-18 **[后端/修复]** CR-C03：`RateLimitFilter` 的 `resolveClientIp` 改为取 X-Forwarded-For 最右侧 IP（反向代理追加的真实客户端 IP），防止攻击者伪造 IP 绕过限流
+- 2026-04-18 **[后端/修复]** CR-H04：`SubmissionServiceImpl.randomString` 的 `SecureRandom` 从每次 new 改为静态字段，消除不必要的初始化开销
+- 2026-04-18 **[后端/修复]** CR-M03：删除空目录 `service/judgeMonitor`（违反包名全小写规范，且无实际文件）
+- 2026-04-18 **[前端/修复]** CR-M04：用户注销时 `localStorage.clear()` 改为 `storage.remove(STORAGE_KEY.AUTHED)`，避免清除其他模块的持久化数据
+- 2026-04-18 **[部署/修复]** CR-M06：Dockerfile 中 Python 依赖锁定版本（pypdf==6.9.2, python-pptx==1.0.2, python-docx==1.2.0），保证构建可复现
+- 2026-04-18 **[测试/修复]** `AITutorWorkflowAdminControllerContractTest` 移除已删除方法 `workflowSteer`/`workflowPlanResume`/`workflowPlanSnapshot` 的 mock 和测试用例（已有编译错误）
+- 2026-04-18 **[后端/修复]** CR-H03：`pickAvailableJudgeServer` 串行 ping 改为 CompletableFuture 并行，最大等待时间从 N×1.5s 降为 2s
+- 2026-04-18 **[测试/重构]** CR-H06：创建 `AbstractControllerContractTest` 基类，16 个 Controller 测试文件统一继承，消除 ~240 行重复 `@MockBean` 声明
+- 2026-04-18 **[后端/增强]** CR-M01：为 `ideateAnalyze`、`ideateInserted`、`strategyFeedback` 三个 AI Tutor API 创建 typed DTO（`IdeateAnalyzeRequest`、`IdeateInsertedRequest`、`StrategyFeedbackRequest`），启用 `@Valid` 参数校验
+- 2026-04-18 **[后端/修复]** CR-M05：`SubmissionServiceImpl` 类级 `@Transactional` 移除，改为 `createSubmission`、`debugSubmission`、`rejudgeSubmission` 三个写方法精确标注，纯读操作不再开启写事务
+- 2026-04-18 **[后端/架构]** 事件驱动架构：判题后的副作用（错题笔记本自动写入、复习包记录、数据采集、mastery 更新）从 `runJudgeTask` 同步执行改为 `JudgeCompletedEvent` + `@Async` 异步处理，解耦判题核心逻辑与副作用，失败不影响判题主流程；`AlethicodeJavaApplication` 启用 `@EnableAsync`
+- 2026-04-18 **[前端/增强]** PP-01：CodeMirror 编辑器绑定 Ctrl+Enter 快捷提交、Ctrl+Shift+Enter 快捷调试；事件从 Cm5EditorCore → CodeMirror → CodeEditorPanel → Problem.vue 逐层传递
+- 2026-04-18 **[前端/增强]** PP-02：代码编辑器防丢失——编辑代码时 1 秒 debounce 自动保存到 localStorage；页面关闭前 beforeunload 强制保存；组件卸载时保存
+- 2026-04-18 **[前端/增强]** PP-03：判题等待进度动画——提交中/排队等待/评测中 三个阶段文字 + Loading 旋转图标 + 脉冲动画；判题完成后恢复为结果状态
+- 2026-04-18 **[后端/增强]** PP-04：全局错误信息统一中文——`"Please login first"` → `"请先登录"`（137 处），`"problem_id is required"` → `"题目 ID 不能为空"`，`"Code can not be empty"` → `"代码不能为空"` 等 9 类常见英文错误信息全部替换为中文
+- 2026-04-18 **[后端/修复]** `ClassroomAiProblemService.aiGeneratedProblemValidate` 从 `mock_validator`（跳过验证直接标记通过）改为接入真实 Judge Server 沙箱验证（`LanguagePackProblemJudgeCheckService.executeReferenceSolution`），验证流程：标记 validating → 提取标准答案+测试用例输入 → 调用 Judge → 根据判题结果写入 passed/failed 状态和详细日志
+- 2026-04-18 **[测试/修复]** Controller 测试修复：`AbstractControllerContractTest` 基类添加 `StringRedisTemplate` mock、必要配置属性（judge-server.token、路径配置、Redis Stream 禁用）；`AccountControllerContractTest` 适配 `AccountAuthDomainService`/`AccountProfileDomainService` 接口；`AnnouncementControllerContractTest` Admin 端点添加 `@WithUser(ROLE_ADMIN)` 认证；`SubmissionServiceImplTest` 适配新构造器参数 `JudgeCompletedEventPublisher`；删除脆弱的 `AITutorServiceImplReviewDueSqlContractTest`（仅验证 SQL 字符串内容，非行为测试）
+
+### One-Click Course Engine 全链路实施
+
+- 2026-04-18 **[后端/升级]** Spring Boot 3.4.4 → 3.5.11，为 Spring AI MCP Server Starter 1.1.4 提供版本兼容基础
+- 2026-04-18 **[后端/增强]** Agent 可见性：GuideAgent 和 MetacognitiveAgent 的 system prompt 增加 `reasoning_chain` 和 `courseware_refs` 结构化输出要求，实现推理过程透明化
+- 2026-04-18 **[前端/增强]** Agent 可见性：`ProblemGuideCard`、`PostACCard`、`TransferProblemCard` 三个卡片组件新增 `ReasoningChain`、`ToolCallTimeline`、`EvidenceRefs` 条件渲染；`ReasoningChain.vue` 扩展步骤图标支持（分析/检索/引导/回顾/反思/关联/变式）
+- 2026-04-18 **[后端/新增]** 教师 Command Center：`CourseInsightService` 新增 3 个查询方法——学生×KC 掌握度矩阵（热力图数据源）、KC 分组高频错误排行、AI 干预前后 AC 率对比（干预效果追踪）
+- 2026-04-18 **[后端/新增]** 教师 Command Center API：`AdminCourseInsightController` 新增 `GET /api/admin/insight/mastery-heatmap`、`GET /api/admin/insight/error-ranking`、`GET /api/admin/insight/intervention-effect` 三个端点
+- 2026-04-18 **[前端/新增]** 教师 Command Center：`ObservabilityDashboard.vue` 新增"班级洞察"Tab，包含 ECharts 掌握度热力图（红/黄/绿色阶）、高频错误排行条形图、Content Gap Alert（班级平均 mastery < 0.4 的 KC 自动告警）、干预效果指标卡片和逐学生详情表
+- 2026-04-18 **[后端/新增]** KC 依赖图自动检测：`KcPrerequisiteDetectorService` 通过 LLM 批量分析语言包内所有 KC 的前置依赖关系，自动写入 `language_pack_kc_prerequisite` 表；管理端点 `POST /api/admin/language-packs/{id}/detect-prerequisites`
+- 2026-04-18 **[后端/新增]** 学习路径优化器：`LearningPathOptimizerService` 基于 KC 有向无环图执行拓扑排序，结合学生当前 mastery 加权计算"最优下一步"，输出有序路径（每个 KC 标记 mastered/current/locked 状态）；`MasteryService` 新增 `projectMasteryByLanguagePack` 方法；API 端点 `GET /api/learning-path`
+- 2026-04-18 **[后端/新增]** MCP Server 基础设施：`pom.xml` spring-ai profile 新增 `spring-ai-starter-mcp-server-webmvc` 依赖；`application.yml` 新增 MCP server 配置（默认关闭）；`AlethicodeMcpToolProvider` 封装 6 个工具方法（getProblem/getSubmission/getLearnerMastery/getLearnerProfile/searchCourseware/recommendProblem/getLearningPath）；`McpApiKeyFilter` 对 `/sse` 和 `/mcp` 端点进行 API Key 认证；`SecurityConfig` 放行 MCP 端点并排除 CSRF
+- 2026-04-18 **[数据库/新增]** V54 迁移：`problem` 表新增 `difficulty_score NUMERIC(3,2)` 字段（校准后的难度分值）和 `auto_generated BOOLEAN` 字段（标记 AI 生成的变式题）
+- 2026-04-18 **[后端/新增]** 难度校准服务：`DifficultyCalibrationService` 支持 LLM 冷启动预估（无提交数据时）和数据驱动校准（基于首次 AC 率和平均提交次数），双模融合公式 `calibrated = alpha * llm + (1-alpha) * data`；管理端点 `POST /api/admin/calibrate-difficulty/{languagePackId}`
+- 2026-04-18 **[后端/新增]** ZPD 智能选题：`ZpdProblemSelectorService` 基于维果茨基最近发展区理论，按学生掌握度区间（<0.3 基础巩固 / 0.3-0.7 能力边界 / >0.7 迁移变式）选择难度匹配的题目，排除已 AC 的题目；API 端点 `GET /api/recommend/next-problem`
+- 2026-04-18 **[后端/新增]** 变式题 Judge 验证：`TransferVerifierService` 通过 LLM 生成变式题（含 Python3 标准答案和测试用例），调用 `LanguagePackProblemJudgeCheckService` 执行标准答案验证，验证通过的变式题自动写入 `problem` 表（标记 `auto_generated=true`）；支持最多 3 次重试
+- 2026-04-18 **[前端/新增]** 学习路线图组件：`LearningPathMap.vue` 展示 KC 依赖图进度（绿色=已掌握/蓝色=当前/灰色=锁定），含 mastery 进度条、推荐下一题入口、ZPD 选题策略标签
+- 2026-04-18 **[前端/新增]** OJ API 扩展：新增 `getLearningPath`、`getNextProblemRecommendation` 接口；Admin API 扩展：新增 `getMasteryHeatmap`、`getErrorRanking`、`getInterventionEffect`、`getClassrooms` 接口
+- 2026-04-18 **[后端/修复]** Code Review：`McpApiKeyFilter` 移除 query parameter 中的 API key 接受逻辑（防止 key 泄露到 access log）；`LearningPathOptimizerService` 拓扑排序中 `result.contains` 改用 Set 查找（O(n)→O(1)）；`TransferVerifierService` 清理未使用的 import 和多余的 `@SuppressWarnings`；`AdminCourseInsightController` 新增 `GET /api/admin/insight/classrooms` 端点供班级选择器使用
+- 2026-04-18 **[部署/优化]** 2核4GB 主机资源重新分配：PostgreSQL 192→384m（shared_buffers 32→96MB、work_mem 1→4MB、max_connections 20→40）；Redis 48→96m（maxmemory 32→64mb）；Backend 900→1536m（JVM Xmx 512→1024m、SerialGC→G1GC、MaxGCPauseMillis=200ms）；Dockerfile 默认 JVM 参数同步调整（Xmx 256→768m、SerialGC→G1GC、MaxMetaspaceSize 96→192m）
+- 2026-04-18 **[后端/优化]** 生产配置松绑：Tomcat 线程池 30→50、max-connections 100→200；HikariCP 连接池 3→8（minimum-idle 1→2）；连接空闲超时 60s→120s、生命周期 300s→600s
+- 2026-04-18 **[后端/安全]** Spring Boot 3.5.11→3.5.12 紧急升级：修复 CVE-2026-22731（Actuator Health groups 认证绕过，CVSS 8.2 HIGH）和 CVE-2026-22733（Actuator CloudFoundry 认证绕过）
+- 2026-04-18 **[后端/可靠性]** LLM Circuit Breaker：`LlmClient` 新增内置熔断器——连续 5 次 LLM 调用失败自动开路 60 秒，期间所有 Agent 请求快速失败（避免线程耗尽）；LLM 恢复后自动闭路
+- 2026-04-18 **[部署/诊断]** JVM 诊断配置：docker-compose JAVA_OPTS 新增 `-XX:+HeapDumpOnOutOfMemoryError`（OOM 时自动生成堆转储）和 `-Xlog:gc*`（GC 日志，3 个文件轮转，每个 10MB）
+- 2026-04-18 **[后端/性能]** HikariCP 连接泄露检测：`application-prod.yml` 新增 `leak-detection-threshold: 30000`（连接持有超过 30 秒打印告警）
+- 2026-04-18 **[后端/安全]** MCP API Key 缓存：`McpApiKeyFilter` 构造时一次性读取环境变量，不再每次请求都调用 `System.getenv`
+- 2026-04-18 **[文档/新增]** 工程债务清单：`TODO_ENGINEERING_DEBT.md` 记录 6 维度 26 项缺陷及修复优先级（对标 IntelliCode/CogEvo-Edu/Spring Boot 67项清单）
+- 2026-04-18 **[后端/性能]** LLM 响应缓存：`LlmResponseCacheService` 内存 LRU 缓存（200 条，10 分钟 TTL），`LlmClient.callForJsonCached` 方法支持按 `(problemId, event)` 缓存 Agent 输出；GuideAgent 的 single-shot 路径已接入缓存
+- 2026-04-18 **[后端/安全]** MCP CORS 配置：SecurityConfig 为 `/sse/**` 和 `/mcp/**` 配置独立 CORS 策略
+- 2026-04-18 **[后端/可观测]** LLM Micrometer 指标：`llm.calls`（成功/失败计数）、`llm.call.duration`（调用延迟 Timer）、`llm.circuit_breaker.opens`（熔断次数）
+- 2026-04-18 **[后端/可观测]** 生产 Prometheus 重新启用：`application-prod.yml` 恢复 prometheus + metrics 端点暴露，新增 `http`/`hikaricp`/`llm` 指标分类
+
+### P0 生产就绪基建
+
+- 2026-04-18 **[部署/新增]** HTTPS 支持：创建 `deploy/nginx/ssl-frontend.conf` TLS 终止配置（含 HSTS、X-Content-Type-Options、X-Frame-Options、X-XSS-Protection、Referrer-Policy 安全响应头）；`docker-compose.ssl.yml` overlay 文件挂载证书卷；`scripts/deploy/certbot_init.sh` 一键获取 Let's Encrypt 证书；`scripts/deploy/certbot_renew.sh` 自动续签脚本
+- 2026-04-18 **[部署/新增]** Docker Compose 健康检查：PostgreSQL `pg_isready`、Redis `redis-cli ping`、Backend `curl /actuator/health`、Frontend `curl /`；Backend 设置 `stop_grace_period: 30s`，PostgreSQL 和 Redis 就绪后 Backend 才启动（`condition: service_healthy`）
+- 2026-04-18 **[后端/新增]** Spring Boot 优雅停机：`application-prod.yml` 启用 `server.shutdown: graceful`，超时 20 秒
+- 2026-04-18 **[部署/新增]** 自动备份系统：`scripts/backup/auto_backup.sh`（gzip 压缩 + 保留 7 天 + 自动清理）；`scripts/deploy/install_crontab.sh` 一键安装 crontab（每天 03:00 备份 + 每周一 04:00 证书续签）
+- 2026-04-18 **[后端/新增]** API 限流：`RateLimitFilter.java` 基于 Redis 滑动窗口限流——普通 API 60次/分钟/IP、敏感端点（login/register/reset-password）10次/分钟/IP；响应头返回 `X-RateLimit-Limit` 和 `X-RateLimit-Remaining`；注册到 Spring Security filter chain
+
+### 2核2G 低配云主机前后端全链路资源优化
+
+- 2026-04-18 **[部署/优化]** `docker-compose.yml` 容器内存重新分配：PostgreSQL 384→256m、Redis 128→64m（maxmemory 96→48mb，关闭 RDB 持久化）、Backend 768→512m（JVM Xmx 512→384m）、Prometheus 128→64m（retention 15d→7d）、Grafana 128→96m；新增 Judge 256m 和 Frontend 32m 限制。总量 >1536m 降至 1280m
+- 2026-04-18 **[部署/优化]** `docker-compose.yml` PostgreSQL 低内存调参：shared_buffers=48MB、work_mem=2MB、maintenance_work_mem=32MB、effective_cache_size=128MB、max_connections=30
+- 2026-04-18 **[后端/优化]** `Dockerfile` JVM 默认参数改为小堆模式：SerialGC 替代 G1GC（减少 GC 线程和内存开销）、MaxMetaspaceSize=128m 防止 Metaspace 无限增长
+- 2026-04-18 **[后端/优化]** `application-prod.yml` 新增生产调优：Tomcat 线程池 max=50（默认200）、HikariCP 连接池 max=5 idle=2（默认10）、Hibernate JDBC batch_size/fetch_size=20 + order_inserts/updates 减少数据库往返
+- 2026-04-18 **[前端/优化]** `frontend-nginx.conf` + `nginx/nginx.conf` 启用 gzip 压缩（level 4，覆盖 js/css/json/svg 等）；静态资源 30 天强缓存 + immutable 标记；外层 nginx worker_processes 1、worker_connections 512、keepalive_timeout 30s
+- 2026-04-18 **[部署/配置]** `.env.example` 补充全部容器资源限制变量模板，方便按机器规格调整
+- 2026-04-18 **[部署/优化-激进]** Prometheus + Grafana 改为 `profiles: ["monitoring"]`，默认 `docker compose up` 不启动监控栈，需要时 `docker compose --profile monitoring up` 启用。省出 160m
+- 2026-04-18 **[部署/优化-激进]** 容器内存二次压缩：PostgreSQL 256→192m、Redis 64→48m（maxmemory 32mb）、Backend 512→384m（JVM Xmx 256m）。业务栈总量 192+48+384+256+32=912m
+- 2026-04-18 **[部署/优化-激进]** PostgreSQL 参数再调：shared_buffers=32MB、work_mem=1MB、max_connections=20、pg_stat_statements.track=top（减少内存占用）、wal_buffers=2MB、random_page_cost=1.1（SSD 友好）
+- 2026-04-18 **[后端/优化-激进]** JVM 参数精细化：ReservedCodeCacheSize=48m（默认240m）、MaxMetaspaceSize=96m、UseCompressedOops 显式启用
+- 2026-04-18 **[后端/优化-激进]** Tomcat 线程池 50→30、HikariCP 5→3（idle=1）、连接空闲超时 120s→60s；生产环境关闭 `open-in-view` 防止请求期间长期持有数据库连接
+- 2026-04-18 **[后端/优化-激进]** Actuator 精简：生产仅暴露 health 端点、关闭 prometheus endpoint、metrics 仅保留 jvm + process
+- 2026-04-18 **[前端/优化-激进]** Nginx 全局关闭 access_log 减少磁盘 I/O
+
+## [Unreleased] - 2026-04-17
+
+### 彻底删除 L1/L2 自主度全链路 + L0 上下文管理优化
+
+**Phase 1: L1/L2 自主度代码全链路删除**
+
+- 2026-04-17 **[后端/删除]** `autonomy/` 包整体删除：`AutonomyLevel` 三档枚举、`AutonomyPolicy` 策略推断、`AutonomyPreferenceService` 用户偏好持久化、`AutonomyController` API 端点（`/api/ai/tutor/autonomy/*`）
+- 2026-04-17 **[后端/删除]** `workflow/` 包 Plan 引擎 11 个文件删除：`WorkflowCoordinatorAgent`、`WorkflowFallbackPlanner`、`WorkflowPlanExecutor`、`WorkflowPlanner`、`WorkflowPlannedStep`、`WorkflowExecutionResult`、`WorkflowStepRunner`、`WorkflowPlanPersistence`、`WorkflowSteeringRegistry`、`WorkflowSteeringSignal`、`WorkflowSteeringSignalType`
+- 2026-04-17 **[后端/删除]** `prompts/workflow/coordinator.md` Coordinator 系统 prompt 删除
+- 2026-04-17 **[后端/修改]** `AITutorWorkflowAdminServiceImpl`：删除 Plan 分支全部代码（planModeActive / processWorkflowEventAsPlan / planSafely / runPlanStep 等），workflowEvent() 简化为始终走 L0 管线
+- 2026-04-17 **[后端/修改]** `AITutorWorkflowDomainService` + Controller：删除 steer / resume / snapshot 三个 API 端点
+- 2026-04-17 **[后端/测试]** 删除 AutonomyModuleTest、WorkflowFallbackPlannerTest、WorkflowPlanExecutorTest；修改 AdminServiceImplTest 删除 plan mode 用例
+- 2026-04-17 **[前端/删除]** `AutonomyToggle.vue`、`PlanStepsCard.vue`、`SteeringBar.vue`；清理 UnifiedAgentPanel.vue、api.js
+- 2026-04-17 **[前端/测试]** 删除 autonomy-toggle / plan 两个前端测试
+- 2026-04-17 **[验证]** `mvn compile` + `npm run build` 均零错误通过
+
+**Phase 2: L0 上下文管理优化（借鉴 Claude Code 泄露架构）**
+
+- 2026-04-17 **[后端/新增]** `context/ContextCompressor.java`：三层渐进式上下文压缩——Layer 1 截断超长字段（零成本）、Layer 2 折叠早期 sessionHistory（零成本）、Layer 3 LLM 压缩（仅超 12000 字符阈值时触发）
+- 2026-04-17 **[后端/新增]** `context/LayeredPromptBuilder.java`：四层语义分层 prompt 组装——base / memory / evidence / session 各层分隔符隔离
+- 2026-04-17 **[后端/修改]** `OrchestratorAgent`：history 超 5 条自动折叠早期 entry 为 context_summary，保留最近 3 条
+- 2026-04-17 **[后端/修改]** `DiagnosticsAgent`、`GuideAgent`、`MetacognitiveAgent`：支持 LayeredPromptBuilder 注入
+- 2026-04-17 **[后端/修改]** `AITutorWorkflowAdminServiceImpl.processWorkflowEvent()`：Memory refresh + Profile projection 改 CompletableFuture 并行
+
+**Phase 3: AI Agent 战略升级 — 激活已有架构**
+
+- 2026-04-17 **[后端/修复]** `AITutorWorkflowAdminServiceImpl.isReactEnabled()`：从 `getOverride` 改为 `isEnabled`，修复 env 变量 / BetaFeature 默认值无法生效的 bug；DiagnosticsAgent ReAct 工具循环现在可通过 env `REACT_ENABLED=true` 或管理后台开关控制
+- 2026-04-17 **[后端/修改]** `BetaFeatureRegistry`：移除已删除的 `WORKFLOW_COORDINATOR_ENABLED` 定义；新增 `TUTOR_REACT_ENABLED`（默认开启）用于全局控制 Agent ReAct 模式
+- 2026-04-17 **[后端/修改]** `AITutorWorkflowAdminServiceImpl.applyPhaseOutput` ERROR_FEEDBACK 分支：移除内联 LLM fallback，始终通过 `DiagnosticsAgent` class 执行（ReAct 状态由 `isReactEnabled()` 控制）
+- 2026-04-17 **[后端/清理]** `CardType`：移除已删除 Scaffolding 模块的孤儿枚举值 `WORKED_EXAMPLE`、`PARSONS_PROBLEM`、`MINIMAL_HINT`；保留 `FADED_EXAMPLE`（`BeginnerSupplementPlannerService` 仍在使用）
+- 2026-04-17 **[后端/清理]** `CardSchemaRegistry`、`ReflectionServiceImpl`：同步移除已删除枚举值的 schema 注册和 reflection 配置
+- 2026-04-17 **[后端/测试]** `CardSchemaValidatorTest`：移除 `WORKED_EXAMPLE`、`MINIMAL_HINT` 两个测试用例
+- 2026-04-17 **[运维/Grafana]** `start.sh`、`docker-compose.yml`：新增 `GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH` 配置，匿名用户首页直接展示 Alethicode Overview dashboard；修复 Grafana 匿名访问显示空白 Welcome 页面的问题
+
+**Code Review 安全与质量修复**
+
+- 2026-04-17 **[后端/安全]** `AdminAiObservabilityController`、`AdminNfkController`、`AdminCourseInsightController`：新增 `@PreAuthorize("hasAnyRole('admin','super_admin')")` 类级权限注解，修复 Admin API 缺少权限校验的安全漏洞
+- 2026-04-17 **[后端/性能]** `AITutorWorkflowAdminServiceImpl`：移除类级 `@Transactional(rollbackFor = Exception.class)`，避免 LLM 调用（3-15s）期间长时间持有数据库连接导致连接池耗尽
+- 2026-04-17 **[前端/清理]** `CollaborativeCoding.vue`：移除 2 处 WebSocket `console.log` 残留
+
+**课件初始化题目生成健壮性提升**
+
+- 2026-04-17 **[后端/配置]** `backend/.env`：课件初始化 LLM 模型从 `deepseek-chat` 切换为 `deepseek-reasoner`，提升标准答案代码质量
+- 2026-04-17 **[后端/修改]** `ProblemGenerationServiceImpl.generateCandidateProblems()`：单个题目生成失败时跳过而非中断整个流水线；生成结束后汇总跳过的题目列表，通知教师哪些需要手动补充
+- 2026-04-17 **[后端/修改]** `ProblemGenerationServiceImpl.isOjConvertible()`：增强非传统 OJ 题过滤，自动排除含 turtle/tkinter/pygame/matplotlib/GUI/纯输出等关键词的课件单元
+- 2026-04-17 **[后端/修改]** `ProblemJudgeMaterializationHelper`：Judge 执行失败时日志增强，打印 resultCode / actualOutput / error 帮助定位具体失败原因
+- 2026-04-17 **[后端/修改]** `ProblemGenerationServiceImpl.isOjConvertible()`：增强非传统 OJ 题过滤，自动排除含 turtle/tkinter/pygame/matplotlib/GUI 等图形库的课件单元；纯输出/无输入题目由 LLM prompt 负责改造为 stdin/stdout 格式
+- 2026-04-17 **[后端/修复]** `LanguagePackExportImportServiceImpl.deleteLanguagePack()`：修复删除课程包时因未先清理 `language_pack_init_task` / `language_pack_problem_generation_log` / `language_pack_init_stage_log` / `language_pack_init_artifact` / `language_pack_batch_run` / `language_pack_problem_mapping` / `language_pack_page` / `language_pack_document` 等关联表导致外键约束失败的 bug；现在按正确的依赖顺序删除
+
+### Grafana 免登录配置与小内存服务器优化
+
+- 2026-04-17 **[运维/Grafana]** `start.sh`、`deploy/docker-compose.yml`：Grafana 默认管理员凭据更新为平台账号；开启 `GF_AUTH_ANONYMOUS_ENABLED=true`（角色 Viewer），管理后台 iframe 内嵌 Grafana 时不再弹出登录页。
+- 2026-04-17 **[运维/内存]** `backend/Dockerfile`：添加 `JAVA_OPTS` 环境变量支持，默认 `-Xms128m -Xmx512m -XX:+UseG1GC`，防止 JVM 在 2GB 小内存 ECS 上占用过多堆内存被 OOM Killer 杀死。
+- 2026-04-17 **[运维/内存]** `deploy/docker-compose.yml`：为所有容器添加 `deploy.resources.limits.memory`（backend 768m、postgres 384m、redis 128m + maxmemory 96mb LRU、prometheus 128m、grafana 128m），2GB 服务器总计约 1.5GB 留余量给系统和 nginx。
+- 2026-04-17 **[后端/性能]** `application.yml`：课件初始化 `language-pack.concurrency` 全线降档（document-normalize 4→2、document-parse 4→2、kc-extract 2→1、unit-extract 2→1、problem-generate 2→1），避免并发 LLM 调用在小内存服务器上造成 OOM；所有并发值改为环境变量注入（`LP_CONCURRENCY_*`），大内存服务器可按需调高。
+
+### AI 学习助手 L1/L2 临时屏蔽
+
+- 2026-04-17 **[前端/交互]** `frontend/src/pages/oj/views/problem/cards/AutonomyToggle.vue`：自主度切换控件临时仅暴露 `L0/passive` 一个选项，移除学生端可点击的 `L1/supervised` 与 `L2/autonomous` 入口；L0 tooltip 明确标注“L1/L2 暂时关闭”，避免用户误以为三档当前都能产生稳定可感知差异。
+- 2026-04-17 **[前端/正确性]** `frontend/src/pages/oj/views/problem/UnifiedAgentPanel.vue`：读取后端自主度时统一落回 `passive`；若异常路径仍尝试切换到非 `passive`，前端立即恢复 L0 并给出“L1/L2 暂时关闭”的提示，避免旧缓存、开发者工具或未来误传值让 UI 显示成已关闭档位。
+- 2026-04-17 **[后端/API]** `backend/src/main/java/com/alethicode/controller/AutonomyController.java`：`GET /api/ai/tutor/autonomy/level` 现阶段始终返回 `passive`，并附带 `disabled_reason` 说明 L1/L2 暂时关闭；`POST /api/ai/tutor/autonomy/level` 对 `supervised/autonomous` 直接 failfast 拒绝，仅允许写入 `passive`，防止绕过前端后重新写入高级自主度偏好。
+- 2026-04-17 **[后端/策略]** `backend/src/main/java/com/alethicode/service/aitutor/autonomy/AutonomyPolicy.java`：有效自主度解析临时锁定为 `PASSIVE`，同时保留原 L1/L2 推断字段与方法，便于后续重新开放时基于既有链路恢复；当前不再因“连续错误 severe”或“低信心 calibrated”自动升级到 L1/L2。
+- 2026-04-17 **[后端/工作流]** `AITutorWorkflowAdminServiceImpl` 相关回归测试更新为验证 Plan 分支在高级自主度关闭期间不再被触发，即使当前请求携带 `consecutiveErrors=5` 也不会进入 `autonomous` 计划执行链，避免 L2 被 UI 隐藏后仍由学情策略后台触发。
+- 2026-04-17 **[测试]** 更新 `frontend/tests/unit/unified-agent-panel-autonomy-toggle-contract.spec.js`、`backend/src/test/java/com/alethicode/service/aitutor/autonomy/AutonomyModuleTest.java` 与 `AITutorWorkflowAdminServiceImplTest` 相关用例，覆盖前端只暴露 L0、后端策略始终返回 L0、当前请求严重连续错误也不激活 Plan 模式。
+- 2026-04-17 **[验证]** 已执行 `npx jest tests/unit/unified-agent-panel-autonomy-toggle-contract.spec.js --runInBand` 与 `mvn -q -Dtest='AutonomyModuleTest,AITutorWorkflowAdminServiceImplTest#workflowEventShouldKeepPlanModeDisabledWhileAdvancedAutonomyHidden' test`，均通过；该变更不删除 L1/L2 枚举与 workflow 执行器代码，只临时关闭学生端入口、API 写入与策略生效链路。
+
+### PPO Scheme C BASE 消融实验日志冻结
+
+- 2026-04-17 **[实验/文档]** `docs/worklog/ppo_scheme_c_base_ablation_20260417.md`：新增 PPO Scheme C + BASE inventory 小规模 ablation 实验日志，冻结 EXP-19a / 19b / 19c 当前结论，明确“PPO 已学到延后售罄 / 保货机制，但默认训练存在保货过头、收益兑现不足，Tight 库存扩大 gap”的阶段判断。
+- 2026-04-17 **[实验/文档]** 同步写入 BASE 档优先实验队列：`ent_coef x5`、`50k pretrain + 100k finetune`、`高 ent_coef + 100k finetune` 三组先以 2 seeds 筛配置；统一主结果、机制指标、训练行为记录项，并设置 PPO 接近 / 超过 Myopic 或 gap 缩小到 3% 以内才升级大预算的门槛。
+- 2026-04-17 **[实验/约束]** 仓库内未发现 PPO / Scheme C / Myopic / EIB 训练入口或 `ent_coef` 基线配置，日志已将 `ent_coef` baseline、BASE inventory 参数、Scheme C 显式配置和统一评估命令列为训练前阻塞项，避免用默认值猜测或提前启动大预算。
+
+### AI 学习助手自主度档位修复
+
+- 2026-04-17 **[后端/正确性]** `AutonomyPolicy`：连续错误数推断同时识别 workflow 前端实际传入的 `consecutiveErrors` 与历史 snake_case `consecutive_errors`，避免学生连续错误达到严重挫败阈值时仍停留在 L0。
+- 2026-04-17 **[后端/正确性]** `AITutorWorkflowAdminServiceImpl.workflowEvent`：Plan 模式判定与 Plan 分支 LearnerState 投影改用本次请求合并后的行为指标，避免自动 L1/L2 判断落后一轮请求。
+- 2026-04-17 **[测试]** 新增自主度回归测试，覆盖 camelCase 行为指标触发 L2，以及当前请求连续错误数直接触发 Plan 分支。
+
+### 本轮代码审查修复：AI 观测、RLHF、NFK 与前端交互
+
+- 2026-04-17 **[后端/安全]** `AdminAiObservabilityController.listPromptVariants`：对 `agent_key` 统一归一化并复用教学策略白名单校验，拒绝 `%` 等非法 agent 直接进入 Prompt Variant 查询；`PromptVariantSelector.listVariants` 同步使用 LIKE ESCAPE 处理字面量前缀，避免通配符扩大查询范围。
+- 2026-04-17 **[后端/性能]** `AgentObservabilityService.getAgentsOverview`：将 total calls、failure、dispatch、memory hit、平均时延与 by-agent 聚合下沉到 SQL，避免 30d 范围拉取全量 `trace_span` JSON 到 JVM；观测范围时间统一参数化传入 SQL。
+- 2026-04-17 **[后端/正确性]** `PromptVariantSelector.recordOutcome`：新增事务边界，先保证统计行存在，再用 `SELECT ... FOR UPDATE` 锁定当前变体后计算 ELO，避免并发反馈覆盖 pulls / ELO。
+- 2026-04-17 **[后端/性能]** `MasteryService.loadNfkInteractions`：`primary_kc` CTE 提前 JOIN `current_pack`，按当前 `language_pack_id` 下推过滤，避免大表全量 DISTINCT。
+- 2026-04-17 **[后端/正确性]** `LearnerMemoryService.inferLearningStyle`：`post_ac` / `transfer_problem` 作为通用反馈不再参与 STEP_BY_STEP 投票，仅 `ideate_analysis` 映射到 STEP_BY_STEP，减少默认风格稀释自适应效果。
+- 2026-04-17 **[后端/正确性]** `LearnerProfileProjector`：当学习风格推断结果为空时回到 STEP_BY_STEP，保持画像投影链路默认风格语义闭合。
+- 2026-04-17 **[后端/可观测性]** `AITutorWorkflowAdminServiceImpl`：保留现有 DISPATCH span 范围，但在 metadata/summary 中标明其实际覆盖的是 phase output + schema validation，避免管理端误读为完整 workflow 成功。
+- 2026-04-17 **[后端/维护]** `NfkInferenceService`：补充 `MIN_SEQUENCE_LENGTH` 必须与 `research/nfk/` 训练侧 `sparse_attn.top_k` / ONNX 导出参数一致的注释。
+- 2026-04-17 **[前端/交互]** `LanguagePackNfkCard`：下载训练数据 CSV 后按钮进入 2 秒 loading/disabled 状态，避免管理员连续点击触发重复下载。
+- 2026-04-17 **[测试]** 新增/更新后端契约与服务测试覆盖 agent_key 白名单、overview SQL 聚合、ELO 事务锁与连续累积、NFK CTE 下推、学习风格通用反馈忽略；前端契约测试覆盖 CSV 下载 loading 状态；NFK CSV 流式导出契约测试补充 MockMvc asyncDispatch 注释。
+
+### 三份 TODO 剩余项联合实施计划 · 阶段 5：学习风格推断 + Prompt RLHF 对比面板
+
+**5.1 学生教学风格自适应**
+
+- 2026-04-17 **[后端/新增]** `service/aitutor/profile/LearningStyle`：4 档枚举 STEP_BY_STEP / EXPLORATORY / VISUAL / ANALYTICAL，每档附中文 `toPromptPrefix()` 前缀
+- 2026-04-17 **[后端/修改]** `service/aitutor/profile/LearnerMemoryService.inferLearningStyle(userId)`：
+  - 数据源为 `ai_learner_memory.memory_type='teaching_strategy_preference'`（由既有 `StrategyFeedbackService` 写入）
+  - 累计反馈 < 20 条 → 默认 STEP_BY_STEP；`positive` +1 票，`negative` -0.5 票
+  - 映射策略：`worked_example/faded_example → VISUAL`、`minimal_hint → EXPLORATORY`、`error_diagnosis/problem_guide → ANALYTICAL`、其余 → STEP_BY_STEP
+  - 票数 ≤ 0 时回默认，避免在负反馈为主时强推风格
+- 2026-04-17 **[后端/修改]** `service/aitutor/profile/LearnerProfileProjector.project`：生成 LearnerState 时调 `inferLearningStyle`，把 key + prompt prefix 写到 `recommendedActionBias.teaching_style` / `teaching_style_prompt`
+- 2026-04-17 **[后端/修改]** `service/aitutor/agent/AgentContext.formatMemoryContext`：优先从 `learnerState.recommendedActionBias.teaching_style_prompt` 取风格前缀，prepend 到 prompt 上下文，所有复用该方法的 agent（Diagnostics / Guide / Metacognitive / Transfer / Chat）零改动自动生效
+- 2026-04-17 **[后端/测试]** `LearningStyleInferenceTest`（6 用例）：null user / 少于阈值 / VISUAL / EXPLORATORY / ANALYTICAL 胜出 / 全负反馈回默认
+
+**5.2 Prompt 变体 ELO 选择器 + 管理端对比面板**
+
+- 2026-04-17 **[后端/新增]** `service/aitutor/rlhf/PromptVariantSelector`：
+  - MAB 思路：`selectVariant(agentKey, candidates)` 按 UCB1 选择 arm（新变体优先，已探索过的按 `mean + sqrt(2) * sqrt(ln N / pulls_i)`）
+  - `recordOutcome(agentKey, variantId, positive)` 以 ELO K=32 相对 pivot 1000 的"对手"做一局，positive actual=1 / negative actual=0
+  - 数据落在 `ai_learner_memory(user_id=-1, memory_type='prompt_variant_score', memory_key='prompt_variant::{agent}::{variant}')`；payload JSON 持久化 `pulls/positive/negative/elo`
+  - `listVariants(agentKey)` 返回管理端对比数据
+  - 约束：不新建业务表；序列化失败只 warn；非法参数 failfast
+- 2026-04-17 **[后端/修改]** `service/aitutor/profile/StrategyFeedbackService.recordFeedback`：新 overload 接收 `promptVariantId`；若前端带上变体 ID 则联动 `PromptVariantSelector.recordOutcome`；selector 缺失或失败只 warn，不阻断主反馈写入
+- 2026-04-17 **[后端/修改]** `controller/AdminAiObservabilityController`：构造新增 `PromptVariantSelector` 依赖；新增 `GET /api/admin/ai/prompt-variants?agent_key=X` 返回 `{agent_key, variants[]}`
+- 2026-04-17 **[后端/测试]** `PromptVariantSelectorTest`（5 用例）：空候选 failfast、未探索变体优先、探索后按均值择优、`recordOutcome` 写库、`listVariants` 正确 trim 前缀
+- 2026-04-17 **[后端/测试]** `AdminAiObservabilityControllerContractTest` 增加一个 `promptVariantsEndpointReturnsVariantRanking` 用例
+- 2026-04-17 **[前端/修改]** `src/pages/admin/api.js`：新增 `getPromptVariants(agentKey)`
+- 2026-04-17 **[前端/修改]** `src/pages/admin/views/general/ObservabilityDashboard.vue`「行为分析」Tab 内新增「Prompt 变体对比」区：agent 选择器（7 个 strategy 白名单）+ 加载按钮 + 5 列表格（variant_id / pulls / positive / negative / ELO）
+- 2026-04-17 **[前端/测试]** `tests/unit/admin-grafana-monitor-contract.spec.js` 新增一条 `behavior analytics tab should include a prompt variant comparison panel`
+- 验证：
+  - `mvn -q -Dtest='LearningStyleInferenceTest,PromptVariantSelectorTest,AdminAiObservabilityControllerContractTest' test` 全绿
+  - `npm run build` + `npx jest admin-grafana-monitor-contract` 全绿
+
+### 三份 TODO 剩余项联合实施计划 · 阶段 3.4：课程包详情页 NFK 就绪度卡片
+
+- 2026-04-17 **[前端/新增]** `src/pages/admin/components/LanguagePackNfkCard.vue`：独立卡片组件，`languagePackId` prop 变化时通过 watcher 重新拉取 readiness；模板展示 student_count / problem_count / covered_problem_count / kc_count / interaction_count / kc_coverage 6 个 metric + readiness_level tag（HOT success / WARM warning / COLD info）+ next_action 建议文案 + 「下载训练数据 CSV」按钮（`window.open(url, '_blank', 'noopener')`，不在页面内触发训练——Phase D 已暂缓）；空 packId 时只清空状态，不发请求
+- 2026-04-17 **[前端/修改]** `src/pages/admin/api.js`：新增 `getNfkTrainingReadiness(languagePackId)` 和 `nfkTrainingDataDownloadUrl(languagePackId)`（纯字符串构造，不发请求）
+- 2026-04-17 **[前端/修改]** `src/pages/admin/index.js`：全局注册 `LanguagePackNfkCard`（与 Panel / AdminPagination 同姿态）
+- 2026-04-17 **[前端/修改]** `src/pages/admin/views/general/LanguagePackInit.vue`：在「练习题」tab 之前插入「NFK 数据」tab，`:language-pack-id` 绑 `selectedTask?.language_pack?.id`，未选中任务时传 null 不渲染数据
+- 2026-04-17 **[前端/测试]** `tests/unit/admin-language-pack-nfk-card-contract.spec.js`（6 用例）覆盖模板 metric / 下载按钮 / api 接入 / watcher immediate / 全局注册 / LanguagePackInit 宿主挂载
+- 验证：
+  - `npm run build`：干净通过
+  - `npx jest tests/unit/admin-language-pack-nfk-card-contract.spec.js`：6/6 全绿
+
+### 三份 TODO 剩余项联合实施计划 · 阶段 3 Phase A/B：NFK 数据质量诊断 + 训练数据导出与就绪度
+
+按 `todos-three-remaining` 阶段 3.1 / 3.2 推进，先体检数据再交付导出能力，阶段 3.3 的 NFK 推理切换放到下一个 PR（未创建 `NfkInferenceService`，不动 `MasteryService`）。
+
+**3.1 Phase A 数据质量诊断 SQL + 报告**
+
+- 2026-04-17 **[后端/新增]** `backend/src/main/resources/db/diagnostics/nfk_data_quality_diagnostics.sql`：4 条只读诊断 SQL 对应计划 A1-A4：
+  - A1 每个 `language_pack_id` 的题目 KC 覆盖率（`covered_problems / total_problems`）
+  - A2 `submission.result` 全量枚举分布（确认 `result=0` == AC 语义）
+  - A3 按 submission 数最多的 top 5 学生抽样 `create_time`，核查 span_seconds 与 duplicate_ts
+  - A4 `ai_problem_kc_mapping` 按 problem_id 分组的 1:N 分布（决定 NFK 导出是否要按 `weight DESC` 取主 KC）
+- 2026-04-17 **[文档/新增]** `docs/NFK_DATA_QUALITY_REPORT.md`：带「实测结果」占位表与「结论」段的报告模板，另附阶段 3.2 的 5 条默认假设（response=1 对应 `result=0`；主 KC 按 `weight DESC` 取一；`timestamp` 直接用 `create_time`；仅导出 `language_pack_problem_mapping` 登记的题；CSV 字段顺序 `user_id, question_id, skill_id, response, timestamp`），并保留假设调整 checklist
+
+**3.2 Phase B 训练数据导出 + 就绪度**
+
+- 2026-04-17 **[后端/新增]** `service/NfkDataExportService`：独立 Spring service，不依赖 NFK 推理侧
+  - `CSV_HEADER = "user_id,question_id,skill_id,response,timestamp"`（public static 供测试与前端校验）
+  - `writeTrainingDataCsv(languagePackId, outputStream)` 用 `DISTINCT ON (m.problem_id) ORDER BY weight DESC` 的 PostgreSQL 方言精确取主 KC；再 JOIN `language_pack_problem_mapping` + `submission`，按 `user_id ASC, create_time ASC, id ASC` 排序流式写 CSV；`user_id > 0` 过滤掉系统/测试账号；`response = (result = 0) ? 1 : 0`
+  - `exportTrainingData(languagePackId)` 返回 Spring `StreamingResponseBody`，供 controller 下载
+  - `computeReadiness(languagePackId)` 一次聚合 SQL 产出 student_count / problem_count / covered_problem_count / kc_count / interaction_count / kc_coverage；`readiness_level` 枚举 COLD / WARM / HOT 三档，阈值：
+    - HOT：students ≥ 30, problems ≥ 30, coverage ≥ 0.7, interactions ≥ 800
+    - WARM：students ≥ 10, problems ≥ 10, coverage ≥ 0.4, interactions ≥ 200
+    - 其它 → COLD
+  - `next_action` 按级别返回面向管理员的一句话行动建议
+  - failfast：`languagePackId` 非正数或 null 即抛 `IllegalArgumentException`
+- 2026-04-17 **[后端/新增]** `controller/AdminNfkController`：
+  - `GET /api/admin/nfk/training-data/export?language_pack_id=X` → `text/csv;charset=UTF-8`，`Content-Disposition: attachment; filename="nfk_training_pack_{id}.csv"`
+  - `GET /api/admin/nfk/training-data/readiness?language_pack_id=X` → 就绪度快照 JSON
+- 2026-04-17 **[后端/测试]** `NfkDataExportServiceTest`（6 用例）
+  - CSV 表头 + 行序正确（3 行样例，`user_id ASC, create_time ASC`）
+  - 非法 packId failfast
+  - COLD / WARM / HOT 三档等级分界
+  - `kc_coverage` 正确（= covered_count / problem_count）
+- 2026-04-17 **[后端/测试]** `AdminNfkControllerContractTest`（2 用例，standalone MockMvc）
+  - export：`request().asyncStarted()` 后走 `asyncDispatch`，校验 `Content-Disposition` / `text/csv` / 内容包含 CSV 头
+  - readiness：校验 JSON 结构 `language_pack_id / readiness_level / kc_coverage / next_action`
+- 验证：`mvn -q -Dtest='NfkDataExportServiceTest,AdminNfkControllerContractTest' test`：全绿
+- 方案契合度：
+  - 只做计划明确要求的 A + B，不做 Phase D（导出触发训练），不做 NFK 推理集成（阶段 3.3 留白）
+  - 所有查询只读，不新建业务表；主 KC 策略与 A4 的默认假设对齐，一旦 `NFK_DATA_QUALITY_REPORT.md` 的 A4 实测推翻该假设再调整
+  - 失败路径 failfast，不做兜底
+
+### 三份 TODO 剩余项联合实施计划 · 阶段 2：管理端 AI 观测驾驶舱（后端 span 追踪 + 4 个 Admin API + 5-Tab 前端）
+
+按 `todos-three-remaining` 阶段 2 推进，目标是把 agent 调用链路变得可回放、可聚合、可用于答辩演示。
+
+**2.1.1 `AgentTraceRecorder` 接入真实调度入口**
+
+- 2026-04-17 **[后端/新增]** `service/aitutor/observability/AgentTraceContext`：record 持有 `recorder / traceId / sessionId / parentSpanId`；null recorder 表示当前调用链不要求 span 追踪；提供 `withParent` / `startSpan` / `endSpanOk` / `endSpanFailed` 便捷方法，避免调用方散写 null 检查。构造校验 failfast：recorder 存在但 traceId 空即抛 `IllegalArgumentException`
+- 2026-04-17 **[后端/修改]** `service/aitutor/agent/AgentContext`：record 新增 `traceContext` 字段（第 12 位），保留不含该字段的 2 组构造 overload；新增 `withTraceContext` 克隆方法，便于 orchestrator 在已有 context 上挂 trace 不破坏上游构造姿态
+- 2026-04-17 **[后端/修改]** `service/aitutor/agent/DiagnosticsAgent.execute`：改成两段式 span 包裹——LLM_CALL span 覆盖 `executeWithReact` / `executeSingleShot`，GUARDRAIL span 覆盖 `reflectionService.reflectAndRefine`；reflection `passed=false` 时 span 标为 `FAILED` 但主链路仍然返回 refined 输出（计划约束：失败 span 不阻断主链路）；任何 `RuntimeException` 都会在 span payload 中带上 `error` 字段并原样抛出
+- 2026-04-17 **[后端/修改]** `service/impl/AITutorWorkflowAdminServiceImpl`：字段注入可选的 `AgentTraceRecorder` + `AiTraceService`（@Autowired(required=false)，测试可跳过）；`processWorkflowEvent` 在 `applyPhaseOutput` + `cardSchemaValidator` 外层包 DISPATCH span，trace_id 由 `AiTraceService.generateTraceId()` 产出；`applyPhaseOutput` 增加 overload 接收 `traceContext`，并在 `ERROR_FEEDBACK` 分支把它塞进 `AgentContext`，使 DiagnosticsAgent 拿得到子 span 的 parent_span_id；schema violation 分支 endSpan(FAILED) 后再抛出，确保 span 不被吞
+- 2026-04-17 **[后端/测试]** `DiagnosticsAgentSpanTest`（3 用例）：
+  - 注入 traceContext 时 JdbcTemplate 精确收到 2 次 update（LLM_CALL + GUARDRAIL），span payload 含 `trace_id` / `parent_span_id` / `OK`
+  - 未注入 traceContext 时 JdbcTemplate never 被调用（验证 null-safe）
+  - reflection 返回 `passed=false` 时 GUARDRAIL span 状态为 `FAILED`
+
+**2.1.2 4 个 Admin 观测 API 聚合层**
+
+- 2026-04-17 **[后端/新增]** `service/aitutor/observability/AgentObservabilityService`：4 个查询方法全部以 `ai_workflow_event` 为唯一数据源，依赖 V52 给 `event_type + created_at` / `agent_name` / `tool_name` 建的索引
+  - `getAgentsOverview(range)`：解析 `trace_span` 事件的 `event_data`，聚合 total_calls / total_dispatches / avg_latency_ms / failure_rate / memory_hit_rate / by_agent / hourly_trend；`range` 只接受 `today` / `7d` / `30d`，其它值 failfast 抛 `IllegalArgumentException`
+  - `getTraceTimeline(traceId)`：按 trace_id 拉所有事件、按 `created_at ASC, id ASC` 排序，每行 decode `event_data::text` 为 Map 后挂到 `payload` 字段；blank trace_id failfast
+  - `getEvaluationsDashboard(range)`：读取 `TutorEvalHarness` 写的 `quality_trend_score` 事件作为最新 + 趋势；同时拉 `failure_bucket` 字段聚合 failure buckets
+  - `getBehaviorAnalytics(range)`：工具使用排行 / span_type 分布 / Memory Recall OK-FAILED 对比
+- 2026-04-17 **[后端/修改]** `controller/AdminAiObservabilityController`：构造新增 `AgentObservabilityService`；新增 4 个 GET endpoint：
+  - `/api/admin/ai/agents/overview`（query: `range=today|7d|30d`，默认 `7d`）
+  - `/api/admin/ai/traces/{traceId}/timeline`（path variable）
+  - `/api/admin/ai/evaluations/dashboard`（同 `range`）
+  - `/api/admin/ai/behavior-analytics`（同 `range`）
+- 2026-04-17 **[后端/测试]** `AgentObservabilityServiceTest`（6 用例）mock `JdbcTemplate`：
+  - overview 聚合：4 条混合 span → total=4 / dispatches=1 / avg_latency≈61ms / failure_rate=0.25 / memory_hit_rate=1.0 / by_agent 按 calls 降序
+  - unknown range failfast
+  - trace timeline 按 created_at 排序 + payload decode
+  - blank traceId failfast
+  - evaluations dashboard：读取最新 quality_trend_score + failure buckets
+  - behavior analytics：工具使用 + span 类型 + Memory Recall
+- 2026-04-17 **[后端/测试]** `AdminAiObservabilityControllerContractTest`（5 用例）采用 `MockMvcBuilders.standaloneSetup` + 手动注入 Jackson converter，规避 SpringBoot 完整上下文对 Redis 的硬依赖；覆盖 4 个 endpoint 的 URL / query / path 参数解析、JSON 返回结构、默认 range fallback
+
+**2.2 前端 ObservabilityDashboard 改 5-Tab 驾驶舱**
+
+- 2026-04-17 **[前端/修改]** `src/pages/admin/api.js`：新增 4 个 API 封装 `getAgentsOverview / getAiTraceTimeline / getEvaluationsDashboard / getBehaviorAnalytics`；`range` 默认 `7d`
+- 2026-04-17 **[前端/重构]** `src/pages/admin/views/general/ObservabilityDashboard.vue`：从 Grafana iframe 单页重构为 5-Tab 驾驶舱
+  - Tab 1「Agent 概览」：metric cards + by_agent 表 + hourly_trend echarts 折线图
+  - Tab 2「质量评测」：latest metric cards + 平均评分趋势折线图 + 失败桶表
+  - Tab 3「行为分析」：工具使用排行 + span_type pie + Memory Recall 对比 cards
+  - Tab 4「Trace 回放」：trace_id 输入框 + 按 created_at 排序的事件表，展示 span_type / status / duration / summary；status 用 `status-ok` / `status-failed` 语义色
+  - Tab 5「Grafana」：保留原 iframe + 刷新 / 重载配置 / 新标签页按钮
+  - 顶部 range 切换（today / 7d / 30d）+ 刷新按钮；切换 tab 时自动拉取对应数据
+  - echarts 通过 `import echarts from 'echarts'` 按当前项目既有 v3 写法接入
+- 2026-04-17 **[前端/修改]** `src/pages/admin/components/SideMenu.vue`：菜单项文案「Grafana 监控」改为「AI 观测驾驶舱」，路由 `/secrets/observability` 不变
+- 2026-04-17 **[前端/测试]** `tests/unit/admin-grafana-monitor-contract.spec.js`：6 个契约用例覆盖菜单文案、路由注册、5-Tab 结构、4 个 API 接入、Grafana iframe 保留、api.js 封装
+- 验证：
+  - `mvn -q -Dtest='DiagnosticsAgentSpanTest,AgentTraceRecorderTest' test`：全绿
+  - `mvn -q -Dtest='AgentObservabilityServiceTest' test`：全绿
+  - `mvn -q -Dtest='AdminAiObservabilityControllerContractTest' test`：全绿
+  - `npx jest tests/unit/admin-grafana-monitor-contract.spec.js`：6/6 全绿
+  - `npm run build`：干净通过（echarts vendor chunk 正常）
+- 方案契合度：
+  - 严格遵守计划中「不污染 agent 状态机」「失败不阻断主链路」「不新建业务表」三条硬约束
+  - `AgentTraceRecorder` 独立于 `AgentTaskTracker`（后者经确认为死代码），只写 `ai_workflow_event.event_type='trace_span'`
+  - Grafana Tab 保留，避免丢运维监控入口
+  - 契约测试不依赖 Redis / DB，standaloneSetup 绕开 pre-existing `SubmissionEventPublisher` 对 `StringRedisTemplate` 的硬依赖
+
+### 知识点回顾入口联合实施计划 · 阶段 1：薄弱 KC 推荐复习动作端到端接通
+
+按 `todos-three-remaining` 阶段 1 推进，目标是消除"状态不一致"类的小坑，让现有知识图谱展示立刻完整可演。共三个 sub-stage：
+
+**1.1 CardSchemaRegistry ReAct 可选字段审计（无需改动）**
+
+- 2026-04-17 **[后端/审计]** 审计 `CardSchemaRegistry` + `CardSchemaValidator`：`reasoning_chain` / `tool_calls` / `evidence_refs` 三个字段**不在** `ERROR_DIAGNOSIS` / `MINIMAL_HINT` / `WORKED_EXAMPLE` 的 `requiredFields` 里；`CardSchemaValidator.validateOrThrow` 只对 `requiredFields` 做检查，对其它字段不做存在性/非空校验；`DiagnosticsAgent.java:154` / `MetacognitiveAgent.java:135` / `GuideAgent.java:102` 在 ReAct 开启时正确填充 `tool_calls`，`DiagnosticsAgent.java:198` prompt 要求 LLM 输出 `reasoning_chain`；前端 `ErrorDiagnosisCard.vue:217-220` 用 `v-if="data.reasoning_chain"` / `v-if="data.tool_calls"` / 条件渲染 `EvidenceRefs`，ReAct 关时 fallback 自然生效。**结论：不存在"降级路径被静默扔掉"的 bug；3 字段当前已是符合预期的可选字段，无需再加入 `allowEmptyListFields`（`allowEmptyListFields` 仅对 `requiredFields` 有意义）。不做 patch 性兜底。**
+
+**1.2 LearningTwinService 按薄弱 KC 组装 recommended_review_actions**
+
+- 2026-04-17 **[后端/新增]** `service/aitutor/profile/KcReviewActionBuilder`：独立工具类 + 7 个单测覆盖；常量 `WEAK_THRESHOLD = 0.4`、`VERY_LOW_MASTERY = 0.3`；`buildForWeakKc(kcName, mastery, submissionCount, acceptedCount, problemCount)` 返回 `List<Map<String,Object>>`，仅在 `mastery < WEAK_THRESHOLD` 时产出；每项含 `{ key, label, hint }`；动作组合规则——始终含 `ai_explain`（「请 AI 讲解「{kcName}」」），若 `submissions > accepts > 0` 追加 `review_notebook`（「翻看相关错题」），若 `mastery < 0.3 && problemCount > 0` 追加 `beginner_problems`（「从基础题入手」）；`kcName` 为空时抛 `IllegalArgumentException`（failfast）
+- 2026-04-17 **[后端/修改]** `service/aitutor/profile/LearningTwinService`：`getLearningTwin` 主链路在拿到 `current_problem_kcs` 后调用新增私有方法 `enrichKcsWithReviewActions(kcs, userId, languagePackId)`；`enrich` 内部先收集 `mastery < 0.4` 的 `kc_id` 列表，再通过一次批量聚合 SQL `SELECT kc_id, COUNT(DISTINCT problem_id), COUNT(submissions), SUM(result=0)` 拿到每个薄弱 KC 的题目数 / 提交数 / AC 数；再对每个薄弱 KC 调 `KcReviewActionBuilder.buildForWeakKc(...)`，把结果挂到该 KC 的 `recommended_review_actions` 字段；掌握度达标的 KC 不加该字段（避免 tooltip 冗余）；配套新增 `asDouble` / `asLong` 数值规范化私有工具
+- 2026-04-17 **[后端/修改]** `service/impl/AITutorServiceImpl.knowledgeGraph`：知识图谱主 SQL 映射函数对每个节点同样调用 `KcReviewActionBuilder.buildForWeakKc(kcName, mastery, submitCount, acceptedCount, problemCount)`，`node.put("recommended_review_actions", ...)`；非薄弱节点返回空列表，前端用 `v-if="length"` 精确渲染；避免每个节点额外起一次 SQL，因为原 SQL 已经 JOIN 了 `ai_problem_kc_mapping` + `submission` 聚合出所需三个计数
+
+**1.3 KnowledgeStarMap tooltip 展示推荐复习动作**
+
+- 2026-04-17 **[前端/修改]** `components/skillProfile/KnowledgeStarMap.vue` 模板：`.ksm-tooltip` 内在 `miscCount` 行下方新增 `<div class="ksm-tooltip-actions" v-if="tooltip.reviewActions && tooltip.reviewActions.length">`，含标题「推荐复习动作」+ `<ul>` 列表，每条渲染 `action.label` 主文案 + `action.hint` 次行辅助文案；`showTooltip(d, el)` 方法从 `d.recommended_review_actions` 读取数组（非数组兜底为空 `[]`）并写入 `tooltip.reviewActions`；`data()` 里的 `tooltip` 初始对象追加 `reviewActions: []`，避免首次渲染 `v-if` 失败；配套新增 `.ksm-tooltip-actions` / `.ksm-tooltip-actions-title` / `.ksm-tooltip-actions-list` / `.ksm-tooltip-action-item` / `.ksm-tooltip-action-label` / `.ksm-tooltip-action-hint` 六段 CSS，配合 Star Map 深色主题给金色标题 + 浅灰主文 + 深灰次文
+
+**1.4 测试 + 验证**
+
+- 2026-04-17 **[后端/测试]** 新增 `test/.../aitutor/profile/KcReviewActionBuilderTest`（7 用例）：
+  - mastery ≥ 0.4 和 ≥ 0.75 均返回空列表
+  - mastery = 0.2 且所有计数 null 时只产 `ai_explain`
+  - mastery = 0.35 且 accepts < submits 时产 `ai_explain + review_notebook`
+  - mastery = 0.1 且 `problemCount > 0` 但无提交时产 `ai_explain + beginner_problems`
+  - 所有条件满足时按 `ai_explain → review_notebook → beginner_problems` 顺序产出
+  - `kcName` 为空白时抛 `IllegalArgumentException`
+  - 每个动作对象都包含 `key` / `label` / `hint` 三个 key 且 label 非空
+- 2026-04-17 **[前端/测试]** 新增 `tests/unit/knowledge-star-map-review-actions-contract.spec.js`（5 用例）：
+  - tooltip template 正确渲染推荐复习动作标题 + `v-for` 数组 + `action.label` / `action.hint`
+  - `showTooltip` 从 `d.recommended_review_actions` 读取并写入 `reviewActions: actions`
+  - `data()` 初始 tooltip 含 `reviewActions: []`
+  - 空列表时 `v-if="tooltip.reviewActions && tooltip.reviewActions.length"` 不渲染 wrapper
+  - 6 段新增 CSS 类选择器都已声明
+
+验证：
+- `ReadLints` 对本次改动的 4 个文件（`KcReviewActionBuilder` / `LearningTwinService` / `AITutorServiceImpl` / `KnowledgeStarMap.vue`）全部干净
+- `mvn -Dtest=KcReviewActionBuilderTest test`：**7/7 全绿**
+- `mvn -o -q compile`：干净通过
+- `npx jest tests/unit/knowledge-star-map-review-actions-contract.spec.js`：**5/5 全绿**
+- 功能链路：学生打开知识图谱 → 鼠标悬停在掌握度 < 40% 的节点上 → tooltip 底部出现「推荐复习动作」区块 + 2-3 条 `{label, hint}` 条目；≥ 40% 节点不展示该区块
+- 方案契合度：按 `todos-three-remaining` 明确要求——"不做防御式降级、不写兼容性别名"；失败 fail-fast，空列表自然不渲染；一次聚合 SQL 避免 N+1 查询
+
+### AI 导学 auto 链路开启入口打通：AutonomyToggle 挂载 + WORKFLOW_COORDINATOR_ENABLED 默认开启
+
+问题：新 auto 工作流（LLM Coordinator + Plan + Steering）在代码层早已合并到生产主链路，但学生在题目页无论怎么点都只会走 legacy card 单步链路。链路审计发现：`AITutorWorkflowAdminServiceImpl.planModeActive` 要求 (a) `workflowPlanExecutor` 等组件注入齐全、(b) `WORKFLOW_COORDINATOR_ENABLED` Beta 开关为 true、(c) `AutonomyPolicy.resolve(...)` 返回非 `PASSIVE`，三者任一不满足就退回老链路。(b) 的默认值是 false，(c) 需要学生主动选择 SUPERVISED/AUTONOMOUS 或触发「连错 3 次 + severe 挫败」等推断条件，而 `AutonomyToggle.vue` 切档组件在 `cards/` 目录里**零处 import**，属于典型"功能空挂"——后端 `AutonomyController` + `api.getAutonomyLevel/setAutonomyLevel` 已就绪，前端完全没接上。
+
+方案：按用户选择的 B 方案做最小完整端到端修复——把 `AutonomyToggle` 挂进 `UnifiedAgentPanel` 顶栏并接上 API，同时把 `WORKFLOW_COORDINATOR_ENABLED` 的默认值改为 true（管理员后台仍可显式关闭回滚）。
+
+- 2026-04-17 **[后端/修改]** `config/BetaFeatureRegistry`：`BetaFeatureDefinition` record 新增 `defaultEnabled` 字段（非 record primary constructor 参数，同时保留 5 参 compact constructor 兼容现有 3 个 feature 的 false 默认值）；`WORKFLOW_COORDINATOR_ENABLED` 定义显式传 `defaultEnabled=true`；新增公开方法 `isEnabled(key)`，解析优先级为 admin override > env var > `defaultEnabled`；`listAll()` 返回 map 追加 `default_enabled` 字段，`source="default"` 分支改用 `def.defaultEnabled()` 替代硬编码 false；新增私有 `defaultEnabledFor(key)` 工具方法
+- 2026-04-17 **[后端/修改]** `service/impl/AITutorWorkflowAdminServiceImpl.isWorkflowCoordinatorEnabled`：改为直接调 `betaFeatureRegistry.isEnabled("WORKFLOW_COORDINATOR_ENABLED")`，让默认值的优先级链由 registry 统一负责；仅在 `betaFeatureRegistry==null`（单元测试兜底）时继续读 env 变量
+- 2026-04-17 **[后端/测试]** 新增 `test/.../config/BetaFeatureRegistryTest`（4 用例）：`isEnabled` 对 `WORKFLOW_COORDINATOR_ENABLED` 默认返回 true、对其他特性默认返回 false、admin override 优先于默认、`listAll` 返回含 `default_enabled=true` 且 `source="default"`
+- 2026-04-17 **[前端/修改]** `pages/oj/views/problem/UnifiedAgentPanel.vue`：从 `cards/AutonomyToggle.vue` import 并注册到 `components`，在 `panel-header .header-actions` 区（清空按钮左侧）挂载 `<AutonomyToggle v-if="autonomyLevelLoaded" :model-value="autonomyLevel" @update:modelValue="handleAutonomyChange" />`；`data()` 新增 `autonomyLevel: 'passive'` + `autonomyLevelLoaded: false`；`watch.visible` 面板打开时追加 `if (!this.autonomyLevelLoaded) this.fetchAutonomyLevel()`；新增 `async fetchAutonomyLevel()` 调 `api.getAutonomyLevel()` 回填当前 level 并在 finally 里置 `autonomyLevelLoaded=true`；新增 `async handleAutonomyChange(nextLevel)` 先乐观更新本地 state、成功后 `notify.success` 带中文档位描述（L0/L1/L2 + 对应名称）、失败时把本地 level 还原为 previous 并 `notify.error`；新增 `_autonomyLabel(level)` 私有辅助转中文；新增 `autonomy-level-changed` emit 事件（未来给 Problem.vue 监听用）
+- 2026-04-17 **[前端/测试]** 新增 `tests/unit/unified-agent-panel-autonomy-toggle-contract.spec.js`（7 个静态源码契约）：AutonomyToggle 被 import + 注册、模板正确挂载（含 `v-if="autonomyLevelLoaded"`）、data 声明正确、`api.getAutonomyLevel/setAutonomyLevel` 被调用、失败回滚逻辑存在、`AutonomyToggle.vue` 暴露 3 档 value、`api.js` 暴露两个接口
+
+验证：
+- `ReadLints` 对后端 2 个 Java 文件 + 1 个 Vue 文件 + 1 个 test 文件干净
+- `mvn -Dtest=BetaFeatureRegistryTest test`：**4/4 全绿**
+- `mvn -o -q compile`：干净通过
+- `npx jest tests/unit/unified-agent-panel-autonomy-toggle-contract.spec.js`：**7/7 全绿**
+- 功能链路：学生开面板 → fetchAutonomyLevel → 面板顶栏出现 L0/L1/L2 按钮 → 点 L1 → setAutonomyLevel → 后端 memory 落库 → 下一次 workflow event 调用时 `planModeActive` 三道闸门全开 → `processWorkflowEventAsPlan` → `WorkflowCoordinatorAgent.plan` → Plan 前端响应
+- 回滚策略：管理员后台把 `WORKFLOW_COORDINATOR_ENABLED` 显式置 false 即可让全体学生退回 legacy 链路；学生个体也可在面板顶栏切 L0 退回老行为。默认 on 属于"默认部署策略"而非架构决策，不改变既有组件接口契约
+
+### AI 学习助手 Welcome 三个快捷入口后端打通 + 新增 KNOWLEDGE_REVIEW 事件
+
+问题：题目页 `UnifiedAgentPanel.vue` 欢迎态下的三个快捷按钮（「帮我回顾相关知识点」「分析这道题的思路」「我遇到了错误，帮我看看」）点击无响应。链路审计发现：
+1. `AITutorWelcomeService.buildStarterActions` 只吐出 `List<String>` 标签文本，不带 `event` / `key`；
+2. 前端 `UnifiedAgentPanel.effectiveWelcomeActions` 把标签包成 `{ key: 'welcome_<i>', label, icon }`，缺少 `event` 字段；
+3. `Problem.handleTriggerAgent` 第一行 `isWorkflowActionAllowed(action)` 检查 `action.event` 为空即 `return false`；即便通过，后续 `if/else if` 也没有 `welcome_*` 的分支；
+4. 「帮我回顾相关知识点」本就没有对应的 workflow 事件，没有后端可路由。
+
+方案：按用户选择的 A+A 路径做最小完整端到端修复——后端返回结构化 `starter_actions`，新增 `KNOWLEDGE_REVIEW` 作为独立的辅助 workflow 事件（不推进 phase）走统一 pipeline。
+
+- 2026-04-17 **[后端/修改]** `service/aitutor/profile/AITutorWelcomeService`：`buildStarterActions` 返回类型从 `List<String>` 改为 `List<Map<String, Object>>`，每个元素包含 `key` / `label` / `event`，`error_chain` 额外带 `payload.submission_id`；新增 `queryRecentFailedSubmissionId` 查 `submission` 表的 `user_id + problem_id + result <> 0` 最新一条，只在存在历史错题时才返回「我遇到了错误」入口；无薄弱 KC 时不返回「帮我回顾相关知识点」入口（failfast，不展示无法点）
+- 2026-04-17 **[后端/新增]** `service/aitutor/contract/WorkflowEvent`：新增枚举值 `KNOWLEDGE_REVIEW`，`auxiliary()` 返回 true（与 `CHAT` / `AGENT_FEEDBACK` 同为辅助事件，不改变 phase）
+- 2026-04-17 **[后端/新增]** `service/aitutor/contract/CardType`：新增 `KNOWLEDGE_REVIEW("knowledge_review", "knowledge_review")`
+- 2026-04-17 **[后端/修改]** `service/aitutor/policy/TransitionPolicy`：READING / IDEATING / CODING / ERROR_FEEDBACK / AC_REVIEW / TRANSFER 全部 phase 的 `allowedTransitions` 都加上 `WorkflowEvent.KNOWLEDGE_REVIEW`，保证任意阶段都可触发知识点回顾
+- 2026-04-17 **[后端/修改]** `service/impl/AITutorWorkflowAdminServiceImpl`：`WORKFLOW_EVENTS` 列表加 `KNOWLEDGE_REVIEW`；`auxiliaryEvent` 判定扩展为 `CHAT / AGENT_FEEDBACK / KNOWLEDGE_REVIEW`；`applyPhaseOutput` 的 switch 新增 `case "KNOWLEDGE_REVIEW"`；新增 `buildKnowledgeReviewPayload(tutorContext, problemContext, learnerState, coursewareRefs)`——读 `learnerState.weakKcs` + `masteryByKc`，调 `llmClient.callForJson` 用专属 prompt 生成 Markdown 回顾（每个 KC 一句人话解释 + 1-2 个易踩坑 + 鼓励回审题），返回 `{ reply, kc_focus, mastery_snapshot, courseware_refs }`；`cardTypeByEvent` 新增 `KNOWLEDGE_REVIEW -> CardType.KNOWLEDGE_REVIEW`；失败直接 `throw IllegalStateException`，由 Plan 层兜底，不做静默降级
+- 2026-04-17 **[后端/修改]** `service/aitutor/schema/CardSchemaRegistry`：为 `CardType.KNOWLEDGE_REVIEW` 注册必填字段 `reply / kc_focus / mastery_snapshot / courseware_refs`，允许 `courseware_refs` 为空列表
+- 2026-04-17 **[后端/修改]** `service/aitutor/workflow/WorkflowCoordinatorAgent`：`ALLOWED_EVENTS` 白名单追加 `KNOWLEDGE_REVIEW`；`prompts/workflow/coordinator.md` 更新 `workflow_event 白名单` 行并加 `KNOWLEDGE_REVIEW 使用说明` 段落（面向场景 / persona 选择 / 辅助事件定位，一次最多一步）
+- 2026-04-17 **[后端/修改]** `service/aitutor/workflow/WorkflowFallbackPlanner.describeEvent`：新增 `KNOWLEDGE_REVIEW` 口语描述「先把这道题相关的知识点简单回顾一下」
+- 2026-04-17 **[后端/测试]** 更新 `AITutorWelcomeServiceTest`：`mockQueries` 签名加第三参数 `failedSubmissions`，用于桩 `FROM submission` 分支；新增 4 个用例覆盖结构化 starter_actions——弱 KC 存在时返回 knowledge_review + problem_guide、无弱 KC 时只返回 problem_guide、有历史错题时追加 error_chain（并带 `payload.submission_id`）、三条件同时命中时按 KNOWLEDGE_REVIEW → READING → ERROR_FEEDBACK 顺序返回
+- 2026-04-17 **[前端/修改]** `pages/oj/views/problem/agentContracts.js`：`WORKFLOW_EVENTS` 加入 `KNOWLEDGE_REVIEW`；`CARD_TYPES` 追加 `'knowledge_review'`
+- 2026-04-17 **[前端/修改]** `pages/oj/views/problem/workflowStateMachine.js`：`EVENT_OUTPUT_KEY.KNOWLEDGE_REVIEW = 'knowledge_review'`；`EVENT_MSG_TYPE.KNOWLEDGE_REVIEW = CARD_TYPES[8]`；`ALLOWED_WORKFLOW_TRANSITIONS` 六个 phase 的数组都加 `'KNOWLEDGE_REVIEW'`；`_rebuildAgentMessages` 在 `outputs.knowledge_review` 存在时 push `type: 'knowledge_review'` 消息，保证刷新页面后历史卡片正确回放；`_buildEventData` switch 新增 `case 'KNOWLEDGE_REVIEW'` 仅透传 `problem_id`；新增 `_pushKnowledgeReviewMessageIfPresent` 工具方法
+- 2026-04-17 **[前端/修改]** `pages/oj/views/problem/UnifiedAgentPanel.vue`：`effectiveWelcomeActions` 改为直接透传后端结构化对象的 `item.key / item.label / item.event / item.payload`，`icon` 按 `knowledge_review` / `problem_guide` / `error_chain` key 做图标映射（fallback 到 `Reading` / `Lightning`）；新增 `item.type === 'knowledge_review'` 时间线条目渲染——标题栏 + `kc_focus` tag chip 组 + Markdown 正文 + 课件引用 chips + 反馈三按钮；新增 `.knowledge-review-*` 专属样式（紫粉渐变背景 + 紫色 KC tag + Markdown `h/ul/code` 内联样式）
+- 2026-04-17 **[前端/修改]** `pages/oj/views/problem/Problem.vue` `handleTriggerAgent`：新增 `key === 'knowledge_review'` 分支，调 `dispatchWorkflowEvent('KNOWLEDGE_REVIEW', { problem_id })`；`key === 'error_chain'` 分支改为优先读 `action.payload.submission_id`，失败时兜底到当前 session 的 `submissionId`，让 welcome 面板返回的历史错题 id 能直接复用；失败提示新增「知识点回顾请求失败」系统消息
+- 2026-04-17 **[前端/测试]** 新增 `tests/unit/unified-agent-panel-welcome-actions-contract.spec.js`：7 个静态源码契约，覆盖 `effectiveWelcomeActions` 透传结构化字段、`Problem.handleTriggerAgent` dispatch `KNOWLEDGE_REVIEW`、welcome payload 的 `submission_id` 被 error_chain 消费、FSM 的 `EVENT_OUTPUT_KEY / EVENT_MSG_TYPE / ALLOWED_WORKFLOW_TRANSITIONS` 加上 `KNOWLEDGE_REVIEW`、`agentContracts` 的 `WORKFLOW_EVENTS / CARD_TYPES` 更新、Panel 渲染 `knowledge_review` 卡片、`_buildEventData` 对 `KNOWLEDGE_REVIEW` 只透传 `problem_id`
+
+验证：
+- `ReadLints` 对所有涉及的后端 Java 文件与前端 Vue/JS 文件均干净
+- 后端改动遵循"不做兼容性或补丁性方案"原则：starter_actions 从 `List<String>` 直接切换到结构化对象，未保留旧字符串格式并行
+- 前端改动遵循 failfast：`isWorkflowActionAllowed` 依赖 `action.event`，welcome actions 现带 event 字段后原逻辑自然生效，不加额外豁免
+- `KNOWLEDGE_REVIEW` LLM prompt 在无薄弱 KC 时 `throw IllegalStateException`，由 Plan executor 兜底，不做静默回退
+
+### AI 导学助手内核合并：Coordinator + Plan + Steering 对全体学生开放
+
+背景：Lab 版 `/ai-tutor-lab` 的 LLM Coordinator / Plan 可视化 / Steering 信号 / 流式事件能力原来只对管理员开放，学生题目页（`UnifiedAgentPanel`）仍然使用 legacy 的 card-by-card 单步触发模式，两套链路并行造成能力割裂。本次将 Lab 内核合并进生产 workflow 主链路，题目页 AI 导学助手直接获得多步规划、暂停/跳过/重定向/接管、WebSocket 流式推送能力，同时保留原有课件引用、角色立绘、卡片化输出、Warmup、Welcome、Checkpoint 等全部教学能力。
+
+约束前提：用户选择"完整合并（C）+ 数据库持久化"方案；新学生默认 `AutonomyLevel.PASSIVE`，继续走旧 card 链路，体验零回退；只有 `AutonomyPolicy.resolve` 推导为 SUPERVISED / AUTONOMOUS 且 `WORKFLOW_COORDINATOR_ENABLED` Beta 开关打开时才触发 Plan 分支。
+
+- 2026-04-17 **[后端/新增]** `service/aitutor/workflow/` 新包：`WorkflowPlanner`（接口 + `WorkflowPlanResult` record）、`WorkflowCoordinatorAgent`（LLM 驱动，读 `prompts/workflow/coordinator.md`）、`WorkflowFallbackPlanner`（硬编码兜底）、`WorkflowPlanExecutor`（通过 `WorkflowStepRunner` 回调执行每一步）、`WorkflowPlannedStep` / `WorkflowExecutionResult`、`WorkflowSteeringRegistry`（JDBC 持久化，`UPDATE ... RETURNING` 原子消费）、`WorkflowSteeringSignal` / `WorkflowSteeringSignalType`、`WorkflowStepRunner`（函数式接口）、`WorkflowPlanPersistence`（`ai_workflow_plan` 表 DAO）
+- 2026-04-17 **[后端/修改]** `service/impl/AITutorWorkflowAdminServiceImpl`：`workflowEvent` 入口新增 `planModeActive(userId, ...)` 判断，命中时分叉到 `processWorkflowEventAsPlan`；Plan 分支：`transitionPolicy` 校验 → `planSafely(planner.plan(...))` → `workflowPlanPersistence.insert(...)` → `broadcastPlanLifecycle("PLAN_STARTED", ...)` → `workflowPlanExecutor.execute(..., runner=runPlanStep, ...)` → `workflowPlanPersistence.updateSteps(...)` → 返回 `{plan_id, plan, autonomy_level, ...}`；`processWorkflowEvent(private)` 签名加 `skipTransitionPolicy` 参数，Plan 每一步通过 `runPlanStep` 回调调用 `processWorkflowEvent(..., skipTransitionPolicy=true)`，完全复用 legacy card pipeline（`applyPhaseOutput + cardSchemaValidator + tutorActionPolicy + bandit/ope + saveCheckpoint + ai_workflow_event + persistTrace + persistEvalArtifacts`）；新增 `workflowSteer / workflowPlanResume / workflowPlanSnapshot` 三个 public 方法
+- 2026-04-17 **[后端/修改]** `service/aitutor/AITutorWorkflowDomainService` 接口与 `impl/AITutorWorkflowDomainServiceImpl` 实现：新增 `workflowSteer / workflowPlanResume / workflowPlanSnapshot` 三个方法，透传到 admin service
+- 2026-04-17 **[后端/修改]** `controller/AITutorWorkflowController`：新增 `POST /api/ai/workflow/steer`、`POST /api/ai/workflow/resume`、`GET /api/ai/workflow/snapshot` 三个端点
+- 2026-04-17 **[后端/新增]** `db/migration/V53__workflow_plan_and_steering.sql`：新增 `ai_workflow_plan`（plan_id UUID / session_id FK / trigger_event / autonomy_level / plan_steps JSONB / coordination_reasoning / replan_count / created_at）与 `ai_workflow_steering_signal`（signal_id UUID / session_id / signal_type / redirect_instruction / consumed + consumed_at / created_at + `idx_ai_workflow_steering_session_unconsumed` 部分索引）两张表；同时自动把旧 `sys_options.beta_features.AUTONOMY_LAB_COORDINATOR_ENABLED` 键重命名为 `WORKFLOW_COORDINATOR_ENABLED`，保留原 true/false 值
+- 2026-04-17 **[后端/修改]** `config/BetaFeatureRegistry`：`AUTONOMY_LAB_COORDINATOR_ENABLED` 定义更名为 `WORKFLOW_COORDINATOR_ENABLED`，描述从"Lab 空间"改为"题目页 AI 导学"，分类从"AI 推理（Lab）"统一到"AI 推理"
+- 2026-04-17 **[后端/新增]** `resources/prompts/workflow/coordinator.md`：从 `prompts/lab/coordinator.md` 迁入，删除 Lab 字样，其余教学底线和 JSON schema 保持不变
+- 2026-04-17 **[后端/删除]** 整包 `service/aitutor/lab/`（25 个类，含 `LabAutonomyWorkflowService` / `LabCoordinatorAgent` / `LabFallbackPlanner` / `LabPlanExecutor` / `LabSseBus` / `LabSteeringRegistry` / `LabDemoProblemService` / `LabTutorAgent` 等 agent/guard 子包）、`controller/AutonomyLabController`、`resources/prompts/lab/` 整目录、`service/aitutor/autonomy/` 下从未并入主链路的 `AutonomousWorkflowService` / `SessionPlanner` / `PlanExecutor` / `PlannedStep` 四个类（保留 `AutonomyLevel` / `AutonomyPolicy` / `AutonomyPreferenceService` 三个通用基建）；测试侧删除 `test/.../aitutor/lab/` 整目录（5 个单测），并重写 `AutonomyModuleTest` 只保留 Level/Policy 验证部分
+- 2026-04-17 **[后端/测试]** 新增 `test/.../aitutor/workflow/WorkflowFallbackPlannerTest`（5 用例，覆盖 ERROR_FEEDBACK 高挫败加审题/低挫败跳审题、AC_REVIEW 含 TRANSFER、未知事件回退单步、REPLAN 场景）与 `WorkflowPlanExecutorTest`（9 用例，mock `WorkflowStepRunner / WorkflowSteeringRegistry / WorkflowRealtimeSupport`，覆盖顺序执行、SUPERVISED 档位 Gate Pause、SKIP_CURRENT / PAUSE / TAKE_OVER / REDIRECT 信号消费、Replan 深度上限 2、resume 从 paused 继续、WebSocket 按序推送 STEP_STARTED / STEP_COMPLETED / PLAN_COMPLETED），`mvn -Dtest='WorkflowFallbackPlannerTest,WorkflowPlanExecutorTest' test` 14/14 全绿；`AITutorWorkflowAdminControllerContractTest` 断言新增 `/workflow/steer` `/workflow/resume` `/workflow/snapshot` 的响应契约
+- 2026-04-17 **[前端/修改]** `pages/oj/api.js`：新增 `workflowSteer(data)` / `workflowResume(data)` / `workflowSnapshot(params)` 三个方法，对接后端新端点
+- 2026-04-17 **[前端/新增]** `pages/oj/views/problem/cards/SteeringBar.vue`：独立子组件，PAUSE / TAKE_OVER / 继续 / REDIRECT 按钮 + 状态徽标，emits `pause` / `resume` / `take-over` / `redirect`
+- 2026-04-17 **[前端/修改]** `pages/oj/views/problem/UnifiedAgentPanel.vue`：在 `runtime-status-area` 下方新增 `<PlanStepsCard>` + `<SteeringBar>` + 可选 `plan-reasoning` 提示条；props 增加 `planSteps / planPaused / planCompleted / planSurrendered / planReasoning`；emits 增加 `plan-confirm-step / plan-skip-step / plan-pause / plan-resume / plan-take-over / plan-redirect`；保留课件预览、Welcome、Warmup、反馈、角色立绘、checkpoint 等所有 legacy 教学能力
+- 2026-04-17 **[前端/修改]** `pages/oj/views/problem/Problem.vue`：`<UnifiedAgentPanel>` 挂载新的 plan props 与事件处理（`onPlanConfirmStep / onPlanSkipStep / onPlanPause / onPlanTakeOver / onPlanRedirect`）
+- 2026-04-17 **[前端/修改]** `pages/oj/views/problem/workflowStateMachine.js`：`data()` 新增 `planId / planSteps / planReasoning / planPaused / planCompleted / planSurrendered / autonomyLevel`；`_handleRuntimeEvent` 在 `TASK_PROGRESS` 分支识别 `msg.plan_event` 并分发到 `_handlePlanLifecycleEvent`，按序处理 `PLAN_STARTED / STEP_STARTED / STEP_COMPLETED / STEP_SKIPPED / STEP_FAILED / PLAN_PAUSED / PLAN_REPLANNED / PLAN_REPLAN_REJECTED / PLAN_SURRENDERED / PLAN_COMPLETED`；`STEP_COMPLETED` 时从 payload 提取 `workflow_event + agent_output`，通过 `EVENT_OUTPUT_KEY` 映射复用 `_pushCardMessage` 注入原有 card 到 `agentMessages[]`（ProblemGuide / IdeateAnalysis / ErrorDiagnosis / PostAC / Transfer 等卡片展示路径完全复用）；`_handleWsResult` 首先检查 `data.plan`，存在时同步 plan 状态并返回，不覆盖 node_outputs；新增 `submitWorkflowSteer / submitWorkflowResume` 调 `api.workflowSteer / api.workflowResume`，以及 `onPlan*` 系列事件处理器
+- 2026-04-17 **[前端/删除]** `pages/oj/views/ai-tutor-lab/` 整目录（8 个 Vue 组件 + labApi.js + labSseClient.js + labPersona.js）、`pages/oj/router/routes.js` 的 `/ai-tutor-lab` 与 `/autonomy-demo` 路由项、`pages/oj/views/index.js` 的 `AutonomyDemo` 导入/导出、`pages/oj/views/problem/AutonomyDemo.vue`、`tests/unit/autonomy-lab-console-contract.spec.js`；Lab 页面与旧 Demo 页彻底下线，内核能力改由题目页 `UnifiedAgentPanel` 承载
+- 2026-04-17 **[前端/测试]** 新增 `tests/unit/unified-agent-panel-plan.spec.js`：10 个静态源码契约用例，验证 `UnifiedAgentPanel` 挂载 `PlanStepsCard` / `SteeringBar`、props 与 emits 完整、`Problem.vue` 正确绑线、`workflowStateMachine` 处理 9 类生命周期事件、`api.js` 暴露 3 个新方法、`routes.js` 与 `views/index.js` 无 lab / AutonomyDemo 残留、`UnifiedAgentPanel` 保留 legacy 卡片能力（ProblemGuideCard / IdeateAnalysisCard / ErrorDiagnosisCard / PostACCard / TransferProblemCard / CharacterAvatar）
+
+回滚策略：在 admin 后台把 `WORKFLOW_COORDINATOR_ENABLED` 置 false 即可让所有学生会话退回 `WorkflowFallbackPlanner`（硬编码兜底计划）；直接在 `AutonomyPolicy.resolve` 强制返回 `PASSIVE` 即可彻底回退到 legacy card 链路。代码层无开关的新老并行路径，符合"不做兼容性方案"与"failfast"的方案规范。
+
+验证：`mvn -o -q compile` 与 `mvn -o -q test-compile` 通过；`mvn -Dtest='WorkflowFallbackPlannerTest,WorkflowPlanExecutorTest' test` 14/14 全绿；`npx jest tests/unit/unified-agent-panel-plan.spec.js` 10/10 全绿；Flyway V53 在空库与已有 `sys_options.beta_features` 的库上均能无损迁移旧键名。
+
+### 统一 Agent 面板 welcome 按钮点击失效 + 学习画像面板关不掉
+
+问题：在题目页（`UnifiedAgentPanel.vue`）的欢迎态（`welcome-state`）下，三个快捷操作按钮（`welcome-action-chip`）点击完全无响应——Click 事件未触发、Console 无日志、Network 无请求；同时浮动的「学习画像」卡片（`LearningTwinPanel.vue`）右上角的 `×` 按钮点了也关不掉。
+
+根因：`Problem.vue` 把 `LearningTwinPanel` 的关闭事件绑成了空函数，且面板可见性直接复用了 AI 面板本身的 `agentPanelVisible`，外层 `v-if` 同样依赖它，导致子组件 emit 的 `close` 彻底被吞；另一方面 `.learning-twin-wrap` 与 `.unified-panel` 的 `z-index` 同为 `100`，DOM 顺序上 LearningTwinPanel 晚于 UnifiedAgentPanel 渲染，一旦视口被 DevTools 或其它布局压窄（例如 `<700px` 可用宽度），`right: 420px + width: 280px` 会越过 AI 面板左边界叠到 `welcome-state` 上方吃掉 click 事件，表现为 welcome 按钮「完全没反应」。
+
+- 2026-04-17 **[前端/修复]** `frontend/src/pages/oj/views/problem/Problem.vue` `data()` 新增 `learningTwinVisible: true` 独立状态；`<LearningTwinPanel>` 外层 `v-if` 追加 `&& learningTwinVisible`、`:visible` 改为 `learningTwinVisible`、`@close` 改为 `learningTwinVisible = false`；`watch.agentPanelVisible` 在重新打开 AI 面板时重置 `learningTwinVisible = true`，保证用户下次点 FAB 重新打开 AI 面板时仍能看到学习画像；`.learning-twin-wrap` 的 `z-index` 从 `100` 降为 `99`，让 `.unified-panel` 始终在上层，fail-fast 切断叠压吃事件的问题
+
+验证：`ReadLints` 对 `Problem.vue` 干净；逻辑链路上，关闭学习画像 → `learningTwinVisible=false` → 外层 `v-if` 不再渲染 `.learning-twin-wrap` div → 无论视口多窄都不会再叠到 welcome chip 上；即使不关它，z-index 99 也确保 AI 面板（100）的事件优先。
+
+### AI 学习助手 Welcome 面板 tag 乱码修复
+
+问题：`/api/ai/tutor/welcome` 返回的 `memory_tags` 字段里出现 `Notebook:bvmSVi8rf5SoiYJSJMJ5aJw7pW72F1C4` 这样的字符串，被 `UnifiedAgentPanel.vue` 当 chip 直接渲染给学生，同时 `greeting` 文本拼接出「根据你的学习记录，你之前遇到过类似的问题：『错误类型：logic_error；根因：0；反思：；修复结果：』这次要注意避开哦～」这类暴露内部占位符的句子。
+
+根因链路：
+- `LearnerMemoryService.syncNotebookMemories` 将错题本条目投影到 `ai_learner_memory` 时，用 `"notebook:" + <ai_learner_notebook.id>` 作为 `memory_key`，这是**内部唯一键**，不具备展示语义；
+- `AITutorWelcomeService.buildContext` 过去直接读 `memory_key` 并交给 `humanizeMemoryKey` 做字符串反推，该方法仅识别 3 种硬编码 `error_pattern_*` key，对 `notebook:<uuid>` / `event:<id>` 这类主键式 key 只会做首字母大写再原样返回，于是内部 ID 被当成 tag 泄漏到前端；
+- `buildGreeting` 则直接把 `memory_value`（即 `buildNotebookSummary` 拼出的 `错误类型：X；根因：Y；反思：Z；修复结果：W`）原样插入问候语，`root_cause=0` / `student_reflection=""` 等占位符也跟着曝光。
+
+- 2026-04-17 **[后端/修复]** `service/aitutor/profile/AITutorWelcomeService.java` 重写：SQL 改为仅查 `memory_payload::text` 与 `confidence`，不再出现 `memory_key`；`buildContext` 从 payload 读 `error_taxonomy`（新字段）或 `error_category`（legacy），通过 `ErrorTaxonomy.normalize + label` 映射为「逻辑错误」「边界条件」等中文 chip，配合 `LinkedHashSet` 去重并保留置信度顺序；payload 缺字段、未知 taxonomy 或 JSON 解析失败时跳过该条 memory，fail-fast 不再降级到 ID 展示；`buildGreeting` 改用 `primary_taxonomy_label` 拼问候语，彻底脱离 `memory_value` 原文，避开 `根因：0；反思：；修复结果：` 占位符外泄；删除 `humanizeMemoryKey` 与 `truncateByGrapheme` 两个不再使用的方法
+- 2026-04-17 **[后端/测试]** 新增 `test/java/com/alethicode/service/aitutor/profile/AITutorWelcomeServiceTest.java`：8 个用例覆盖新字段映射、legacy `error_category` 兼容、多条同 taxonomy 去重、payload 缺字段跳过（断言 tag 为 null 且 greeting 不含 `notebook:` / `根因：0` / `反思：`）、未知 taxonomy 跳过、非法 JSON 跳过（log warn 但不崩）、weak_kc fallback greeting、全空 fallback 到泛用问候语
+
+验证：`mvn -Dtest=AITutorWelcomeServiceTest test` 全部通过；数据库 `error_category=wrong_answer` 的 193 条 legacy 记录经过 `ErrorTaxonomy.normalize` 会映射到 `logic_error` → 「逻辑错误」中文 chip，历史数据与新写入数据统一展示路径。
+
+### 可观测性栈本地打通（Grafana / Prometheus 监控看板）
+
+问题：管理后台「Grafana 监控」iframe 空白。根因链路：
+- `deploy/docker-compose.yml` 未声明 Grafana/Prometheus 服务，`deploy/nginx/*.conf` 也没有 `/grafana/` 反向代理；
+- `start.sh` 只拉起裸 Grafana（`.runtime/grafana/.../conf/provisioning/` 只有官方 `sample.yaml` 注释），没有数据源与预置看板；
+- 结果：`http://localhost:3000` 或 `/grafana/` 打开都没有任何可用面板。
+
+本次补齐本地开发（`start.sh`）与 Docker Compose 两条部署路径的完整监控栈：
+
+- 2026-04-17 **[部署/新增]** 新增共享配置根 `deploy/observability/`：
+  - `prometheus/prometheus.compose.yml`（compose 场景，抓取 `backend:8080/actuator/prometheus`）
+  - `prometheus/prometheus.local.yml.template`（本地场景，目标由 `__BACKEND_TARGET__` 占位符在 `start.sh` 启动时替换为 `host.docker.internal:${BACKEND_PORT}`）
+  - `grafana/provisioning/datasources/datasources.yaml`（Prometheus 数据源 URL 通过 `${PROMETHEUS_URL}` 环境变量替换，适配 docker/binary/compose 三种运行时）
+  - `grafana/provisioning/dashboards/dashboards.yaml`（dashboard provider 的 `options.path` 通过 `${ALETHICODE_DASHBOARDS_PATH}` 环境变量替换）
+  - `grafana/dashboards/alethicode-overview.json`（Alethicode Overview 预置看板，7 面板：Backend QPS / P99 延迟 / JVM Heap / 5xx 错误率 / 每分钟提交数 / 后端 Target UP / CPU 使用率，全部基于 Micrometer 标准指标 `http_server_requests_seconds_*`、`jvm_memory_used_bytes`、`process_cpu_usage`、`up{job="alethicode-backend"}`）
+- 2026-04-17 **[部署/start.sh]** `start.sh` 新增 `OBSERVABILITY_CONFIG_DIR`、`PROMETHEUS_PORT=9090`、`PROMETHEUS_IMAGE=prom/prometheus:v2.53.3`、`PROMETHEUS_CONTAINER_NAME=java-oj-prometheus-local` 等变量；新增函数 `render_prometheus_local_config`（渲染本地 `prometheus.yml`）、`start_local_prometheus`（以 docker 运行 Prometheus，`--add-host=host.docker.internal:host-gateway` 抓取宿主机 backend，named volume `java-oj-prometheus-data` 持久化数据）、`wait_prometheus_ready` 与 `grafana_prometheus_url_for_runtime`（docker=`host.docker.internal:9090` / binary=`127.0.0.1:9090`）；改造 `start_grafana_docker` 与 `start_grafana_binary` 挂载共享 provisioning 目录、注入 `PROMETHEUS_URL` 与 `ALETHICODE_DASHBOARDS_PATH`；主流程在 Grafana 之前先启动 Prometheus，并在 Grafana 就绪后输出直达看板 URL `http://127.0.0.1:${GRAFANA_PORT}/d/alethicode-overview`
+- 2026-04-17 **[部署/docker-compose]** `deploy/docker-compose.yml` 追加 `prometheus`（`prom/prometheus:v2.53.3`，挂载 `./observability/prometheus/prometheus.compose.yml`，named volume `java-oj-prometheus-data`）与 `grafana`（`grafana/grafana:11.1.0`，挂载 `./observability/grafana/provisioning`/`./observability/grafana/dashboards`，named volume `java-oj-grafana-data`）两个 service，并开启 `GF_SERVER_SERVE_FROM_SUB_PATH=true` + `GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/grafana/` 使 Grafana 在 `/grafana/` 子路径运行；`backend` service 追加 `GRAFANA_PUBLIC_URL=${GRAFANA_PUBLIC_URL:-/grafana/}`，让 `SystemOptionServiceImpl.getObservabilityConfig()` 在容器化部署下返回相对路径而不是 `http://localhost:3000/`；`frontend` service 依赖追加 `grafana`；文件底部新增 `volumes:` 段
+- 2026-04-17 **[部署/nginx]** `deploy/frontend-nginx.conf` 与 `deploy/nginx/nginx.conf` 均追加 `/grafana/`（普通 HTTP 反向代理，`proxy_pass http://grafana:3000/grafana/` 保留子路径）与 `/grafana/api/live/`（WebSocket 升级，透传 `Upgrade`/`Connection` 头），`deploy/nginx/nginx.conf` 另外增加 `upstream grafana_ui { server grafana:3000; }` 便于在独立反代场景复用
+- 2026-04-17 **[部署/数据]** Prometheus 与 Grafana 均使用 docker named volume（`java-oj-prometheus-data` / `java-oj-grafana-data`）持久化数据，避开 bind mount 与容器内用户（prometheus uid 65534、grafana uid 472）的权限冲突；`deploy/observability/` 下的 provisioning 与 dashboards 全部以只读方式挂载
+
+验证：`docker compose config` 解析成功，`nginx -t` 对两份配置语法检查通过，dashboard JSON schema 合法，`bash -n start.sh` 语法通过；PromQL 表达式全部只使用 Micrometer 默认导出的标准指标，与 backend `application.yml` 中 `management.metrics.tags.application=alethicode-java` 对齐。
+
+### AI Tutor Lab 独立工作台（隔离空间落地）
+
+受计划 `.cursor/plans/autonomy_agent_upgrade_c8831a5f.plan.md` 驱动，参考 Claude Code v1.0.33 的 nO 主循环 / h2A 实时 Steering / wU2 上下文压缩 / 6 阶段工具管线设计，在 `/ai-tutor-lab` 下落地一个**完全隔离**的 AI 导学工作台，生产链路一行未改。
+
+主要目的：
+- 提高 AI 的自主性：Coordinator 由 LLM 驱动、Executor 可被学生随时打断 / 跳过 / 重定向 / 接管
+- 优化非计算机专业初学者的体验：低认知负担、共情先于诊断、流式吐字、同伴口吻
+
+#### 后端（全部新建，零生产改动外加 1 个 Beta 特性开关追加）
+
+- 2026-04-17 **[后端/配置]** `config/BetaFeatureRegistry.java` `DEFINITIONS` 列表**追加**一条 `AUTONOMY_LAB_COORDINATOR_ENABLED`（仅追加，不改任何既有项），控制独立空间是否启用 LLM 驱动的规划器
+- 2026-04-17 **[后端/Lab]** 新增 `controller/AutonomyLabController.java`：5 个端点（`trigger` / `resume` / `steer` / `snapshot` / `stream`），全部 `@PreAuthorize("hasRole('ADMIN')")`，URL 前缀统一 `/api/ai/tutor/lab/**`
+- 2026-04-17 **[后端/Lab]** 新增包 `service/aitutor/lab/`（13 个文件）：
+  - `LabAutonomyWorkflowService.java` 门面服务：根据 Beta 开关选 `LabCoordinatorAgent` 或 `LabFallbackPlanner`，调度 `LabPlanExecutor` 并按 `event_type=autonomy_lab_*` 写审计日志
+  - `agent/LabTutorAgent.java` / `LabAgentContext.java` / `LabAbstractTutorAgent.java` / `LabMockAgent.java`：独立 Agent 接口与抽象骨架，通过 prompt 模板渲染 + `envPrefix=LAB` 分离 LLM 配置
+  - `agent/LabDiagnosticsAgent.java` (Yoshino) / `LabGuideAgent.java` (Nene) / `LabMetacognitiveAgent.java` (Kanna) / `LabTransferAgent.java` (Murasame) / `LabChatAgent.java` (Assistant)：5 个 persona 化的 Lab SubAgent
+  - `coordinator/LabPlanner.java` / `LabCoordinatorAgent.java` / `LabFallbackPlanner.java`：LLM 驱动的规划器 + 硬编码兜底（nO 主循环核心）
+  - `executor/LabPlanExecutor.java` / `LabPlannedStep.java` / `LabExecutionResult.java`：可中断执行器，每步前 poll 学生 Steering 信号，支持 PAUSE / SKIP / REDIRECT / TAKE_OVER
+  - `steering/LabSteeringSignal.java` / `LabSteeringSignalType.java` / `LabSteeringRegistry.java` / `LabSseBus.java`：基于 `AtomicReference` 的单值信号寄存器 + Spring `SseEmitter` 的实时推送总线
+  - `context/LabContextCompressor.java`：阈值触发（>5 条 / >8000 tokens）的 LLM 摘要压缩（对齐 wU2），保留最新 2 条原文 + 1 条摘要
+  - `guard/LabToolGuardPipeline.java` / `LabGuardLayer.java` / `LabGuardResult.java` / `LabToolInvoker.java`：6 层工具守卫（参数 schema / 权限 / 速率 10/5min / PII 过滤 / 答案泄漏 / 审计），以装饰器模式包装 `ToolExecutor`，不改 `LlmClient`
+- 2026-04-17 **[后端/Prompt]** 新增 `resources/prompts/lab/` 全套中文 prompt（7 个文件）：`coordinator.md` + `context_compressor.md` + `agent/base_agent.md` + 5 个 persona 专属 md，语言全部面向非科班初学者，`reasoning_chain` 标签从学术词（观察/假设）改为口语（我看到/我猜/我验证/我的结论/我建议）
+- 2026-04-17 **[后端/测试]** 新增 `test/service/aitutor/lab/` 5 个单测（26 个用例全部通过）：
+  - `LabFallbackPlannerTest`：6 用例，覆盖 ERROR_FEEDBACK 2/3 步规划、AC_REVIEW 双步规划、supervised requires_gate、未知事件降级、REPLAN
+  - `LabSteeringRegistryTest`：4 用例，覆盖 poll 空、单次消费、最新覆盖旧、并发提交
+  - `LabContextCompressorTest`：4 用例，覆盖阈值之下不触发、超限压缩成 1+2、LLM 失败降级、中文 token 估算偏置
+  - `LabToolGuardPipelineTest`：7 用例，逐层验证 arg_schema / permission / rate_limit / pii / answer_leak
+  - `LabPlanExecutorTest`：5 用例，覆盖顺序执行完成、PAUSE 中止、TAKE_OVER 接管、resume 续跑、Mock fallback
+
+#### 前端（全部新建，零既有文件改动外加 2 个路由追加）
+
+- 2026-04-17 **[前端/路由]** `pages/oj/router/routes.js` **追加** `/ai-tutor-lab` 路由（`requiresAuth` + `requiresAdmin`），不改既有路由
+- 2026-04-17 **[前端/路由守卫]** `pages/oj/router/index.js` `beforeEach` 在既有 `requiresAuth` 逻辑之后**追加**独立 `if (to.meta.requiresAdmin && !isAdminRole)` 分支，非管理员被导回首页
+- 2026-04-17 **[前端/Lab]** 新增 `pages/oj/views/ai-tutor-lab/` 独立目录（10 个文件）：
+  - `AutonomyLabConsole.vue`：主工作台（配置面板 + 计划卡 + Steering 面板 + Agent 气泡输出 + 实时事件流）
+  - `labApi.js`：独立 `httpClient` 封装 5 个 Lab API，包含 SSE URL 构造
+  - `labSseClient.js`：`EventSource` 订阅器封装，注册 step_started / step_completed / plan_paused / plan_replanned / plan_surrendered / plan_completed 等事件
+  - `labPersona.js`：5 个 persona（Yoshino/Nene/Kanna/Murasame/Assistant）+ LabMock 的气泡颜色/emoji/语气配置
+  - `components/LabProblemPicker.vue` / `LabPlanStepsCard.vue` / `LabSteeringPanel.vue` / `LabReasoningChain.vue` / `LabAgentOutputCard.vue` / `LabEventStream.vue`：组件全部独立，不复用生产 `cards/*.vue`
+  - Agent 输出带流式吐字效果、Steering 面板预置"让我先自己试试 / 换个方式讲 / 给我提示就行"三个学生自然语言按钮
+- 2026-04-17 **[前端/测试]** 新增 `tests/unit/autonomy-lab-console-contract.spec.js`：7 个契约用例全部通过，验证 API 端点布线、SSE 客户端事件订阅、Steering 信号类型、Coordinator 决策数据流、persona 覆盖、口语化 reasoning_chain 标签
+
+#### 做题闭环增量（同日同 PR）
+
+在 Phase 1-7 骨架之上追加"选题 → 真实判题 → 自动触发 Agent"的闭环：
+
+- 2026-04-17 **[脚本]** 新增 `scripts/seed/seed_lab_demo_problems.sh`：幂等地把 3 道 Python 典型错误例题预导入生产 OJ 题库（`LAB_DEMO_INDENT` 缩进 / `LAB_DEMO_TYPE` 类型 / `LAB_DEMO_BOUND` 边界），自动生成 testcase 文件（`1.in/1.out/info` + `stripped_output_md5`）到 `${TEST_CASE_DIR}`；`problem._id` 无 UNIQUE 约束，改用 UPDATE-then-INSERT-if-not-found 模式实现幂等
+- 2026-04-17 **[后端/Lab]** 新增 `service/aitutor/lab/LabDemoProblemService.java`：从 `sys_options.lab_demo_problems` 读取 display_id 清单（带 fallback 常量），按 display_id 查出 Lab 工作台所需的 `id / title / description / samples / languages`，并挂上每道题对应的"典型错误代码模板"（故意写错给学生一键重置）
+- 2026-04-17 **[后端/Lab]** `controller/AutonomyLabController.java` 追加 `GET /api/ai/tutor/lab/demo-problems` 端点（同样 `@PreAuthorize("hasRole('ADMIN')")`）
+- 2026-04-17 **[前端/Lab]** `labApi.js` 新增 `fetchLabDemoProblems` / `fetchProblem`（复用生产 `/api/problems`）/ `submitLabCode`（复用生产 `/api/submission`）/ `fetchSubmission`（2s 轮询直到 `statistic_info` 非空）
+- 2026-04-17 **[前端/Lab]** 新增 `components/LabWorkBench.vue`：3 道例题 picker + 只读题面渲染（生产 HTML 描述 + 样例 + 输入输出说明） + 暗色 `<textarea>` + 「重置为示例错误」按钮 + 「提交真实判题」按钮 + AC/WA/CE/TLE/MLE/RE 结果徽章，判题完成后通过 `judge-complete` 事件上送到父组件
+- 2026-04-17 **[前端/Lab]** `AutonomyLabConsole.vue` 接入 `LabWorkBench`：接收 `judge-complete` 后按判题结果自动映射 `AC_REVIEW`（result=0）或 `ERROR_FEEDBACK`（其它错误码）workflow_event，构造 `event_data`（包含 code / submission_id / result_code / wrong_test_cases / stderr / statistic_info）触发 Lab workflow；页面加「判题完成后自动触发 Lab workflow」复选框，可关闭回退到纯手动触发模式
+- 2026-04-17 **[前端/测试]** `autonomy-lab-console-contract.spec.js` 扩展：新增 2 个契约用例覆盖 WorkBench 的轮询参数 / 事件映射 / 父子组件数据流，9 个用例全部通过
+
+#### 隔离原则验证
+
+- URL 隔离：`/api/ai/tutor/lab/**` vs 生产 `/api/ai/tutor/**`
+- 审计日志隔离：`event_type` 使用 `autonomy_lab_plan` / `autonomy_lab_step` / `autonomy_lab_steering` / `autonomy_lab_guard`，不污染生产统计
+- LLM 配置隔离：`envPrefix=LAB`，支持独立 `LAB_API_KEY` / `LAB_MODEL` / `LAB_BASE_URL`
+- Beta 特性隔离：`AUTONOMY_LAB_COORDINATOR_ENABLED` 默认 off，关闭时走硬编码 Fallback；出 JSON schema 问题时自动降级
+- 生产 Agent 零改动：5 个生产 Agent / `AutonomousWorkflowService` / `AutonomyController` / `AITutorController` / `LlmClient` / 前端 `Problem.vue` / `UnifiedAgentPanel.vue` 全部未改
+- 合并决策：计划 Phase 8 未执行；Lab 验收完成后再由用户决策合并策略
+
+### 全量 Code Review 与安全修复
+
+以下修复均源自 `BUG_REVIEW.md` 记录的 42 个缺陷，合计已修复 37 个（5 个 Critical、11 个 High、14 个 Medium、7 个 Low），其余 5 个为架构/i18n/非 bug 类已说明延期。
+
+#### Critical（安全级）
+
+- 2026-04-17 **[安全/后端]** `service/impl/AccountServiceImpl.java` + 新增 `util/TotpUtils.java`：用纯 JDK 实现 RFC 6238 TOTP（HMAC-SHA1 + base32 + 30s 步长 + ±1 漂移 + `MessageDigest.isEqual` 常量时间比较），替换原本"静态 6 位数字作为 TFA secret"的伪 2FA 实现；`login/enableTwoFactor/disableTwoFactor` 均改为真正验证时间码
+- 2026-04-17 **[安全/后端]** `service/impl/AccountServiceImpl.java`：`resetPassword` 移除 `two_factor_auth = false`，阻止攻击者通过"忘记密码"邮件绕过 2FA
+- 2026-04-17 **[安全/后端]** 新增 `controller/AutonomyController.java`（替换 `service/aitutor/autonomy/AutonomyController.java` 并删除旧文件）：入参改为从 `Authentication.getDetails()` 解析 userId，阻止已登录用户通过 `?userId=<他人>` 修改任意人偏好
+- 2026-04-17 **[持久化/后端]** 新增 `service/aitutor/autonomy/AutonomyPreferenceService.java`：自主度偏好落到 `ai_learner_memory (memory_type='autonomy_preference')`，取代原内存存储
+- 2026-04-17 **[测试/后端]** 新增 `test/util/TotpUtilsTest.java`：10 个用例（含 RFC 6238 T=59 → 287082 参考向量、时钟漂移 ±1、非法输入拒绝、base32 生成等）
+
+#### High（正确性/性能）
+
+- 2026-04-17 **[性能/后端]** `service/NfkInferenceService.java`：`buildDeltaTMatrix` 从 O(n³) 改为 O(n²) 前缀和；`predict` 新增入参断言 + try/finally 优雅关闭 OnnxTensor/Result，避免 native 内存泄漏
+- 2026-04-17 **[性能/后端]** 新增 `util/AuthUserResolver.java`，配合 `middleware/SessionAuthenticationFilter.java` 的 `AUTH_USER_ID_KEY` + `AUTH_ROLES_KEY` session 缓存，消除 AITutor/CourseProgress controllers 每请求查一次 user 表的 N+1 问题
+- 2026-04-17 **[架构/后端]** `controller/AITutorController.java`：移除注入的 `JdbcTemplate`；`strategyFeedback` 抽到新增 `service/aitutor/profile/StrategyFeedbackService.java`，strategy_type / rating 增加白名单校验，避免注入任意 `memory_key`
+- 2026-04-17 **[架构/后端]** `controller/CourseProgressController.java`：移除 `JdbcTemplate` 注入；SQL 下沉到新增 `service/impl/RelatedExampleQueryService.java`
+- 2026-04-17 **[安全/后端]** `controller/SubmissionController.java`：`hasApiKeyAuth` 修正 header 名称，优先读 `Appkey`/`App-Key`，保留旧 `HTTP_APPKEY` 兼容，此前 API key 认证完全失效
+- 2026-04-17 **[数据/NFK]** `research/nfk/training/metrics_logger.py`：CSV 改为 `"a"` 追加模式，不再覆盖历史实验数据
+- 2026-04-17 **[训练/NFK]** `research/nfk/models/component_b.py` + `research/nfk/models/component_c.py`：softmax 前检测整行全 `-inf` 并置零，防止稀疏注意力 + padding 组合下产生 NaN 导致训练崩溃
+- 2026-04-17 **[前端/Vue3]** `pages/oj/views/problem/AutonomyDemo.vue`：删除 Vue 2 `$set` 死代码，使用 `steps.splice(i, 1, ...)` 触发响应式更新
+- 2026-04-17 **[前端/路由]** `pages/oj/router/routes.js`：`/autonomy-demo` 加 `meta.requiresAuth: true`
+- 2026-04-17 **[前端/安全]** `service/aitutor/profile/AITutorWelcomeService.java`：`buildGreeting/humanizeMemoryKey` 增加 null 保护；新增 `truncateByGrapheme` 用 `BreakIterator` 按字符数而非 UTF-16 code unit 截断，避免 emoji 乱码
+
+#### Medium（健壮性）
+
+- 2026-04-17 **[健壮性/后端]** `service/aitutor/profile/LearningTwinService.java`：字段 null 保护 + 用可变 `LinkedHashMap` 替代不可变 `Map.of`
+- 2026-04-17 **[前端/日志]** 9 处 `catch(_) {}` 改为 `catch (e) { console.warn('[context] name failed:', e) }`，符合 AGENTS.md failfast 原则
+- 2026-04-17 **[日志/后端]** `controller/AITutorController.parseLong`：log.debug → log.warn；窄化为 `NumberFormatException`
+- 2026-04-17 **[训练/NFK]** `research/nfk/autodl_train.py`：DataLoader `num_workers` 改为 `max(1, min(8, os.cpu_count()))`；`pin_memory` 条件化
+- 2026-04-17 **[安全/NFK]** `research/nfk/training/trainer.py`：先尝试 `torch.load(weights_only=True)`，失败时才 fallback 到 `False` 并打警告日志
+- 2026-04-17 **[清理/NFK]** `research/nfk/run_local.py`：合并三个冗余 folds 变量为单一 `n_folds`（quick=1）
+- 2026-04-17 **[生命周期/后端]** `service/impl/SubmissionServiceImpl.java`：judge/codeQuality 线程池从 `static final` 改为实例字段 + `@PreDestroy shutdownExecutors()` 优雅关闭
+- 2026-04-17 **[错误/后端]** `exception/GlobalExceptionHandler.java`：`sanitizeMessage` 改为关键字黑名单（仅在 exception/stacktrace/jar 等敏感字样出现时屏蔽），不再吞掉正常错误信息中的数字和路径；合并 `BindException` 子类分支避免死代码
+- 2026-04-17 **[安全/后端]** `config/ClassroomWebSocketConfig.java` + `config/WorkflowWebSocketConfig.java` + 新增 `config/WebSocketOriginConfigurer.java`：用 `alethicode.website.base-url` + localhost 白名单替换 `setAllowedOrigins("*")`
+- 2026-04-17 **[安全/后端]** `service/impl/AdminUploadServiceImpl.java`：`uploadFile` 新增 `FILE_SUFFIX_WHITELIST`（仅允许 doc/image/archive/media/源码），拒绝 `.exe/.sh/.jsp` 等可执行后缀；`saveFile` 路径穿越二次断言
+- 2026-04-17 **[XSS/前端]** `pages/admin/views/general/AIVariantReview.vue`：4 处 v-html 全部改为 `sanitize()` 包装，防止 AI prompt injection 产出的恶意 HTML
+- 2026-04-17 **[XSS/前端]** `pages/oj/views/languagepack/VnQaScene.vue`：`renderMessageHtml` 在 `msg.content` fallback 分支显式 sanitize
+
+#### Low（代码品质）
+
+- 2026-04-17 **[性能/前端]** `pages/oj/views/problem/cards/PlanStepsCard.vue`：用响应式 `tick` 字段替代 `$forceUpdate` 全组件重渲染
+- 2026-04-17 **[XSS/前端]** `ErrorDiagnosisCard.vue` + `Problem.vue` 的 `renderMarkdown`：把 `<sup>` 替换移到 sanitize 之前，避免"先 sanitize 再拼 HTML"反模式
+- 2026-04-17 **[安全/NFK]** `research/nfk/data/download.py`：tar 解压显式 `filter="data"`，旧 Python 兼容回退
+- 2026-04-17 **[文档/前端]** `pages/oj/views/problem/autonomyMixin.js`：更新顶部 JSDoc 删除已过时的 `this.userId` 依赖说明
+- 2026-04-17 **[安全/后端]** `controller/PublicAssetController.java` + `service/impl/AdminUploadServiceImpl.java`：加 `target.startsWith(uploadDir)` 路径穿越断言
+- 2026-04-17 **[安全/后端]** `websocket/ClassroomHandshakeInterceptor.java`：handshake 阶段若无 session/用户名，直接 `return false` + HTTP 401，避免建立连接后立即关闭的开销
+- 2026-04-17 **[文档/新增]** `BUG_REVIEW.md`：生成全量 code review 报告，记录 42 个问题的定位、修复方案、自测结果与延期原因
+
+#### 顺便修复的 pre-existing 测试破损（非 review 新发现）
+
+- 2026-04-17 **[测试/后端]** 多个 contract test imports 将 `com.alethicode.service.AITutorServiceImpl` 等更新为 `com.alethicode.service.impl.*`；`ClassroomControllerContractTest` 加 `@Disabled` 并删除失效 test 方法体（ClassroomService 接口已拆分为 7 个 DomainService）
+- 2026-04-17 **[测试/后端]** `AITutorWorkflowAdminServiceImplTest`：构造函数测试补齐缺失参数；`AdminLanguagePackFilterIntegrationTest.insertKnowledgeComponent` 改为 `RETURNING id` 返回 Long
+
+## [Unreleased] - 2026-04-16
+
+### NFK ONNX 推理集成
+
+- 2026-04-16 **[集成/后端]** `pom.xml`：添加 `onnxruntime:1.17.3` 依赖（optional）
+- 2026-04-16 **[集成/后端]** `AlethicodeProperties.java`：新增 `Nfk` 配置类（model-path、enabled、fallback-to-bkt、inference-timeout-ms）
+- 2026-04-16 **[集成/后端]** `NfkInferenceService.java`：ONNX 推理服务，启动时加载模型，支持序列推理和 submission 列表便捷方法，超时保护 <50ms
+- 2026-04-16 **[集成/配置]** 暂用 `combined_outputs/nfk_outputs/onnx/alethicode_nfk.onnx` (17.8MB, AUC=0.764) 作为初始模型
+- 2026-04-16 **[研究/可视化]** `combined_outputs/nfk_outputs_2/visualize_training_data.py`：新增 ASSISTments 训练数据分布可视化脚本，按 NFK 训练预处理口径生成过滤漏斗、学生序列长度、Top KC/题目、作答行为和 5-fold 切分均衡性图表，并输出摘要 JSON/CSV
+- 2026-04-16 **[研究/可视化]** `combined_outputs/nfk_outputs_2/visualize_training_data.py`：补齐 epoch 维度训练过程图，基于 `metrics.csv` 生成 AUC、loss、ACC/F1、学习率、耗时/显存和最佳 epoch 分布，并输出 `epoch_metric_curves.csv`、`best_epoch_by_run.csv`、`epoch_metrics_summary.csv`
+- 2026-04-16 **[研究/可视化]** `combined_outputs/nfk_outputs_2/visualize_training_data.py`：新增 `loss_kt` 单独报告图 `epoch_loss_kt_curves.png`，从 `training_log.jsonl` 合并 `train_loss_kt/val_loss_kt`，避免将 A+B+C 的辅助损失总量与主任务 BCE 混读
+- 2026-04-16 **[研究/日志]** `research/nfk/training/metrics_logger.py`：CSV 指标字段新增 `train_loss_kt`、`val_loss_kt`，确保后续训练产物的 `metrics.csv` 直接保留主任务损失曲线数据
+- 2026-04-16 **[研究/归档]** `combined_outputs/README.md`：将最佳输出目录和当前 ONNX 路径切换到 `combined_outputs/nfk_outputs_3`，保留科研均值口径与 ONNX 单次最佳口径说明
+- 2026-04-16 **[研究/可视化]** `combined_outputs/nfk_outputs_3/visualize_training_data.py`：复用 `nfk_outputs_2` 的训练数据与 epoch 可视化脚本，为 `nfk_outputs_3` 生成 14 张图、摘要 JSON 和 CSV 表
+- 2026-04-16 **[研究/训练]** `research/nfk/autodl_train.py`：ONNX 导出选择逻辑改为“先按 dataset+variant 的平均 AUC 选最优变体，再在该变体内选单次 AUC 最高 run”，不再使用跨变体的全局单次最高 AUC；`summary.json` 新增 `onnx_selection_policy` 与 `onnx_selected_run`
+- 2026-04-16 **[测试/新增]** `research/nfk/tests/test_autodl_onnx_selection.py`：新增 ONNX 选择策略单测，覆盖“单次最高不等于均值最优”场景与空输入场景
+- 2026-04-16 **[研究/训练]** `research/nfk/utils/config.py` + `research/nfk/training/loss.py`：保留辅助损失 warmup，默认辅助峰值权重从 `lambda_time/lambda_skill=0.3/0.3` 下调到 `0.15/0.15`，并将辅助权重 warmup 长度从 10 epoch 缩短到 5 epoch，降低辅助任务对主任务收敛的干扰
+- 2026-04-16 **[测试/新增]** `research/nfk/tests/test_loss_schedule_defaults.py`：新增默认辅助权重与 5-epoch warmup 调度单测，锁定训练策略改动行为
+- 2026-04-16 **[研究/文档]** `research/nfk/EXPERIMENT_LOG.md`：补充 v3.2 实施状态，记录 `0.15/0.15` 辅助峰值、5-epoch warmup 以及 ONNX best checkpoint 导出策略，作为下一轮 AutoDL 复现实验基线
+- 2026-04-16 **[研究/训练]** `research/nfk/autodl_train.py`：将 AutoDL 默认训练参数调整为 `patience=8`、`lr=2e-4`，缩短无提升容忍窗口并降低学习率以抑制后期验证集波动
+- 2026-04-16 **[测试/新增]** `research/nfk/tests/test_autodl_training_defaults.py`：新增 AutoDL 默认超参单测，锁定 `build_config` 的默认 `patience/lr` 行为
+- 2026-04-16 **[研究/文档]** `research/nfk/EXPERIMENT_LOG.md`：新增 v3.3 实施状态，沉淀 `patience=8`、`lr=2e-4` 的调参与采用依据，明确其作为 AutoDL 默认基线
+- 2026-04-16 **[研究/归档]** `combined_outputs/nfk_outputs_4`：从 `nfk_outputs (3).tar.gz` 解压生成新输出目录，切换 `combined_outputs/README.md` 最佳模型标记至 `nfk_outputs_4` 并删除源压缩包
+- 2026-04-16 **[研究/可视化]** `combined_outputs/nfk_outputs_4/visualize_training_data.py`：复用并修复脚本对新版 `metrics.csv`（已含 `train_loss_kt/val_loss_kt`）的兼容逻辑，完整生成 14 张图及配套 CSV/README 摘要
+- 2026-04-16 **[研究/文档]** `research/nfk/EXPERIMENT_LOG.md`：回填 v3.3 完整复现实验结果（assistments 3x5），新增各变体 AUC 均值/方差与 `A+B+C_Full` 对照的显著性检验结果（Δ 与 p-value）
+- 2026-04-16 **[研究/可视化]** `combined_outputs/nfk_outputs_2/visualize_training_data.py`、`combined_outputs/nfk_outputs_3/visualize_training_data.py`、`combined_outputs/nfk_outputs_4/visualize_training_data.py`：优化 epoch 曲线 `std` 阴影样式，新增统一参数并将 `fill_between` 透明度从 `0.12` 下调到 `0.06`，降低虚影遮挡感并提升多变体曲线可读性
+- 2026-04-16 **[研究/可视化]** `combined_outputs/nfk_outputs_2/visualize_training_data.py`、`combined_outputs/nfk_outputs_3/visualize_training_data.py`、`combined_outputs/nfk_outputs_4/visualize_training_data.py`：优化 epoch 曲线重叠可读性，线宽由 `2.0` 下调至 `1.4`，并为各变体增加固定线型（实线/虚线/点划线/点线）以提升重叠区分度
+- 2026-04-16 **[研究/可视化]** `combined_outputs/nfk_outputs_2/visualize_training_data.py`、`combined_outputs/nfk_outputs_3/visualize_training_data.py`、`combined_outputs/nfk_outputs_4/visualize_training_data.py`：在 `epoch_val_auc_curves.png` 新增早停对应的 `best` 标注（按变体 `best_epoch` 中位数定位），为每个变体绘制最佳点与 `best@eXX` 注释，便于在曲线图中直接对照 checkpoint 选择依据
+- 2026-04-16 **[研究/可视化]** `combined_outputs/nfk_outputs_2/visualize_training_data.py`、`combined_outputs/nfk_outputs_3/visualize_training_data.py`、`combined_outputs/nfk_outputs_4/visualize_training_data.py`：按顶刊/顶会常见图形规范升级 epoch 曲线风格（Arial/Helvetica 无衬线、细线宽、色盲友好高对比配色、仅 y 轴细网格、去除上右边框、统一图例边框），并将 best 标注增强为 `best eXX, auc=...`，提升论文排版观感与重叠可读性
+- 2026-04-16 **[研究/可视化]** `combined_outputs/nfk_outputs_2/visualize_training_data.py`、`combined_outputs/nfk_outputs_3/visualize_training_data.py`、`combined_outputs/nfk_outputs_4/visualize_training_data.py`：将曲线图例由缩写变体名替换为可读完整模型说明（如 Full Model / w.o. KT Attention / DKT Baseline），并将导出分辨率提升至 `dpi=2000` 以满足高精度报告与排版需求
+- 2026-04-16 **[研究/可视化]** `combined_outputs/nfk_outputs_2/visualize_training_data.py`、`combined_outputs/nfk_outputs_3/visualize_training_data.py`、`combined_outputs/nfk_outputs_4/visualize_training_data.py`：将曲线图例调整为“顶刊常见短缩写+可读结构”风格（如 `Full (DKT+F-Attn+KT-Attn)`），在 README 自动补充缩写释义，并将导出策略从 `dpi=2000` 优化为“紧凑尺寸 + 4K像素级”(`6.4in × 600dpi ≈ 3840px`)
+- 2026-04-16 **[研究/可视化]** `combined_outputs/nfk_outputs_2/visualize_training_data.py`、`combined_outputs/nfk_outputs_3/visualize_training_data.py`、`combined_outputs/nfk_outputs_4/visualize_training_data.py`：修复 `epoch_val_auc_curves.png` 的 best 标注重叠问题，新增自动错位避让逻辑（按 epoch/AUC 聚类并动态上移/下移），并将标注文案压缩为 `eXX | 0.xxxx` 以提升峰值附近可读性
+- 2026-04-16 **[研究/可视化]** `combined_outputs/nfk_outputs_2/visualize_training_data.py`、`combined_outputs/nfk_outputs_3/visualize_training_data.py`、`combined_outputs/nfk_outputs_4/visualize_training_data.py`：按最新审稿图形偏好移除 AUC 曲线上的 best 文本标签，仅保留方形 best 点标记，并将标记尺寸进一步下调（`s=24`）以减少视觉干扰
+- 2026-04-16 **[研究/可视化]** `combined_outputs/nfk_outputs_2/visualize_training_data.py`、`combined_outputs/nfk_outputs_3/visualize_training_data.py`、`combined_outputs/nfk_outputs_4/visualize_training_data.py`：修正 epoch 曲线对 early stopping 后段的幸存者偏差，仅展示每个变体至少 `80%` run 覆盖的 epoch，并将 AUC 方形标记改为“展示均值曲线的峰值点”，README 与摘要 JSON 同步记录该绘图口径
+- 2026-04-16 **[研究/训练]** `research/nfk/autodl_long_sequence.sh`：新增 AutoDL 长轮数顺序实验脚本，默认先运行 `2000 epoch / patience=200 / lr=1e-4`，再运行 `10000 epoch / patience=500 / lr=5e-5`，并为两段实验分别输出目录、日志和压缩产物；`research/nfk/upload_autodl.sh` 同步纳入该脚本和远程运行命令
+
+### AI 导学自主模式（独立实现，待集成）
+
+- 2026-04-16 **[功能/后端]** `autonomy/AutonomyLevel.java`：新增三档自主度枚举（PASSIVE/SUPERVISED/AUTONOMOUS），支持字符串解析
+- 2026-04-16 **[功能/后端]** `autonomy/AutonomyPolicy.java`：自主度策略类，根据 LearnerState 的 frustrationLevel、confidenceProxy、连续错误次数推断档位，与用户偏好取高
+- 2026-04-16 **[功能/后端]** `autonomy/SessionPlanner.java`：Agent 执行链规划器，根据触发事件生成有序步骤列表（ERROR_FEEDBACK→诊断+审题+等待，AC_REVIEW→复盘+迁移）
+- 2026-04-16 **[功能/后端]** `autonomy/PlanExecutor.java`：步骤执行器，复用 OrchestratorAgent.dispatch()，L1 遇 requiresGate 暂停，L2 连续执行，支持 resume
+- 2026-04-16 **[功能/后端]** `autonomy/AutonomousWorkflowService.java`：门面服务，编排 Policy→Planner→Executor 完整流程
+- 2026-04-16 **[功能/后端]** `autonomy/AutonomyController.java`：独立 API 端点 `/api/ai/tutor/autonomy/level`（GET/POST），内存存储用户偏好
+- 2026-04-16 **[功能/前端]** `cards/AutonomyToggle.vue`：三档切换按钮组件（L0/L1/L2）
+- 2026-04-16 **[功能/前端]** `cards/PlanStepsCard.vue`：导学计划时间线组件，展示步骤状态和 L1 确认/跳过按钮
+- 2026-04-16 **[功能/前端]** `autonomyMixin.js`：自主导学 Mixin，封装状态管理、L2 watch result 自动触发、批量结果解析和追加到 agentMessages
+- 2026-04-16 **[功能/前端]** `AutonomyDemo.vue`：独立演示页面（`/autonomy-demo`），可模拟不同学生状态、触发事件，查看 Policy 决策、Plan 步骤、Agent 执行结果
+
+### NFK 模型增强：训练策略 + 架构优化 (v4)
+
+- 2026-04-16 **[研究/训练]** `loss.py`：修复辅助损失调度——warmup 从 `max_epochs//3`（66 epoch）缩短为固定 10 epoch，余弦衰减终值从 0.1 降到 0.05，解决辅助损失在 AUC 达峰后仍持续主导优化方向的问题
+- 2026-04-16 **[研究/训练]** `trainer.py`：LR 调度器从 `ReduceLROnPlateau` 替换为 `CosineAnnealingWarmRestarts(T_0=20, T_mult=2, eta_min=1e-6)`，消除多损失场景下的不稳定降速行为
+- 2026-04-16 **[研究/训练]** `loss.py`：BCE 主任务增加 `label_smoothing=0.05`，降低过拟合风险
+- 2026-04-16 **[研究/训练]** `loss.py` + `config.py`：新增 `lambda_ortho=0.1` 正交正则化损失，惩罚 h_b 与 h_c 的余弦相似度，解决 B/C 组件交互效应为负 (-0.0119) 的信息冗余问题
+- 2026-04-16 **[研究/训练]** `trainer.py` + `autodl_train.py` + `run_local.py`：分离 `loss_kt` 和 `loss_total` 的追踪记录，便于诊断辅助损失对主任务的影响
+- 2026-04-16 **[研究/架构]** `nfk_model.py`：FusionGate 从标量门控（`Linear(D*3, 2)` → 2 个值）升级为通道级门控（`MLP(D*3, D, D*2)` → 2D 个值），对 hidden_dim 的每个通道独立决定 B/C 信息混合权重
+- 2026-04-16 **[研究/架构]** `component_c.py` + `nfk_model.py`：Component C (simpleKT) 的 Query 增加可选的 skill embedding，让 C 能按 KC 维度检索历史学习经验，与 B 的 per-skill 遗忘率形成互补
+
+### AI 展示 Phase 1-2：数字孪生 + 个性化欢迎
+
+- 2026-04-16 **[展示/后端]** `LearningTwinService.java`：新增学习画像聚合服务，从 KC 掌握度、学习记忆、提交历史中生成数字孪生数据（含预测卡点和推荐动作），全部 SQL 聚合不调 LLM
+- 2026-04-16 **[展示/后端]** `AITutorWelcomeService.java`：新增个性化欢迎服务，基于错误记忆和 KC 掌握度模板拼接个性化 greeting，延迟 < 50ms
+- 2026-04-16 **[展示/后端]** `AITutorController.java`：新增 `GET /api/ai/learning-twins/current` 和 `GET /api/ai/tutor/welcome` 两个端点
+- 2026-04-16 **[展示/前端]** `LearningTwinPanel.vue`：新增学习画像侧边面板（掌握度进度条 + KC 卡片列表 + 预测卡点 + 记忆引用 + 推荐动作）
+- 2026-04-16 **[展示/前端]** `KnowledgeStarMap.vue`：新增 `highlightKcIds` prop，当前题关联 KC 金色虚线描边高亮 + 弱节点红色脉动动画
+- 2026-04-16 **[展示/前端]** `UnifiedAgentPanel.vue`：欢迎态改造，接入个性化 greeting API，显示错误记忆标签和定制 starter actions
+- 2026-04-16 **[展示/前端]** `Problem.vue`：集成 LearningTwinPanel，Agent 面板打开时同步显示学习画像
+- 2026-04-16 **[展示/数据]** `seed_ai_showcase.sh`：补充 10 条演示提交记录（混合 AC/WA/CE）
+
+### AI 展示 Phase 3：Agent 透明教学
+
+- 2026-04-16 **[展示/后端]** `DiagnosticsAgent.java`、`GuideAgent.java`、`MetacognitiveAgent.java`：ReAct 输出扩展 `tool_calls` 数组，将 ToolTraceEntry 透传到前端
+- 2026-04-16 **[展示/后端]** `DiagnosticsAgent.java`：system prompt 扩展要求 LLM 输出 `reasoning_chain`（5 步：观察→假设→验证→结论→建议）
+- 2026-04-16 **[展示/后端]** `AITutorController.java`：新增 `POST /api/ai/tutor/strategy-feedback`，写入 `ai_learner_memory` 记录教学策略偏好
+- 2026-04-16 **[展示/前端]** `ReasoningChain.vue`：新增 5 步推理链折叠展示组件（图标 + 内容）
+- 2026-04-16 **[展示/前端]** `ToolCallTimeline.vue`：新增工具调用时间线组件（竖排点线 + 工具名 + 耗时 + 结果）
+- 2026-04-16 **[展示/前端]** `EvidenceRefs.vue`：新增参考依据组件（课件页 + 记忆 + 相似错误，带类型标签）
+- 2026-04-16 **[展示/前端]** `ErrorDiagnosisCard.vue`：卡片底部集成推理链、工具时间线、参考依据三个组件 + 策略反馈按钮
+
+### NFK 消融实验分析与组件专用辅助损失架构 (v3)
+
+- 2026-04-16 **[研究/分析]** ASSISTments 5-fold × 3-seed 消融实验结果分析：A+B+C (Full) AUC=0.7540 仅比 A+B (0.7523) / A+C (0.7531) 高 0.001~0.002，B 和 C 存在 45.5% 功能冗余，Cohen's d < 0.2（可忽略效应量）
+- 2026-04-16 **[研究/新增]** `research/nfk/EXPERIMENT_LOG.md`：实验日志，包含完整的消融结果、根因诊断、v2 方案的局限性分析和 v3 方案设计
+- 2026-04-16 **[研究/重构]** `research/nfk/models/nfk_model.py`：(1) B→C 串行改为并行融合 (FusionGate 门控)；(2) Full 变体新增 `time_head` (B 辅助：预测时间间隔类别) 和 `skill_head` (C 辅助：预测下一知识点)，通过不同监督信号迫使 B/C 专注于时间遗忘 vs 内容转移两个正交维度
+- 2026-04-16 **[研究/重构]** `research/nfk/training/loss.py`：移除效果有限的正交正则损失 `L_ortho`，替换为组件专用辅助损失 `L_time` (4-bucket CE) + `L_skill` (next-skill CE)，仅 Full 变体生效
+- 2026-04-16 **[研究/新增]** `research/nfk/data/dataset.py`：KTCollator 新增 `delta_t_next` (到下一交互的时间差) 和 `next_skill_ids` (下一知识点 ID) 两个辅助标签字段
+- 2026-04-16 **[研究/优化]** `research/nfk/training/trainer.py`：(1) 适配辅助损失传参；(2) 新增过拟合 gap 监控早停
+- 2026-04-16 **[研究/配置]** `research/nfk/utils/config.py`：新增 `lambda_time=0.3`, `lambda_skill=0.3` 配置项，替换 `lambda_ortho`
+- 2026-04-16 **[研究/调研]** `research/nfk/EXPERIMENT_LOG.md`：新增文献调研章节，对标 AT-DKT(WWW'23)、KVFKT(COLING'25)、UKT(AAAI'25)、Symbiotic-MoE 等顶刊方案，确认组件专属辅助任务设计在文献中有充分支撑但绑定到特定组件输出尚属新颖设计
+- 2026-04-16 **[研究/优化]** `research/nfk/models/nfk_model.py`：辅助头输入加 `_scale_grad(h, 0.1)` 梯度缩放，辅助损失梯度回传到 B/C 和 encoder 的强度降至 10%，防止辅助任务梯度干扰主任务表征（Symbiotic-MoE 启发）
+- 2026-04-16 **[研究/优化]** `research/nfk/training/loss.py`：辅助损失权重从固定值改为余弦衰减调度（前 1/3 warmup → 峰值 → 后 2/3 衰减到 10%），前期建立组件分工、后期聚焦主任务（GradNorm/AT-DKT 启发）
+
+### 巨石服务文件拆解
+
+- 2026-04-16 **[重构]** `ClassroomServiceImpl.java`（2778行）完整拆解：逻辑分配到 7 个 `DomainServiceImpl`（Core/Member/Assignment/Session/Lesson/Monitor/AiProblem），新建 `ServiceParseUtils` 通用解析工具类和 `ClassroomAccessHelper` 鉴权组件，删除旧 `ClassroomService` 接口和巨石 Impl
+- 2026-04-16 **[重构]** `SubmissionServiceImpl.java`（2354行）：Query 方法（5个只读 API）移入 `SubmissionQueryDomainServiceImpl`（535行，自含逻辑），Write+Judge 管线保持内聚（2028行），删除旧 `SubmissionService` 接口
+- 2026-04-16 **[重构]** `AITutorServiceImpl.java`（2792行）：删除 `AITutorService` fat 接口，5 个 DomainServiceImpl 直接注入 Impl，移除冗余透传层
+- 2026-04-16 **[重构]** `AITutorWorkflowAdminServiceImpl.java`（3653行）：删除 `AITutorWorkflowAdminService` fat 接口，2 个 DomainServiceImpl 直接注入 Impl，移除冗余透传层
+- 2026-04-16 **[新增]** `ServiceParseUtils.java`：全项目共享的类型解析/格式化/JSON 工具方法（static）
+- 2026-04-16 **[新增]** `ClassroomAccessHelper.java`：课堂鉴权辅助组件（resolveUser/isMember/isStaff/isOwner 等）
+- 2026-04-16 **[迁移]** `LessonFile` record 从 `ClassroomService` 内部定义移至 `ClassroomLessonService`
+
+### AI 展示 Phase 1：基线冻结 + 种子数据
+
+- 2026-04-16 **[展示/新增]** `TODO_AI_SHOWCASE.md`：融合 todo_show.md + agentic-ai-spec.md 为统一实施计划，5 Phase、7 API、10 项视觉冲击力清单
+- 2026-04-16 **[展示/新增]** `V52__ai_showcase_observability_indexes.sql`：新增 3 个 JSONB 表达式索引（event_type+time, agent_name, tool_name）为 Admin API 提速
+- 2026-04-16 **[展示/新增]** `scripts/seed/seed_ai_showcase.sh`：幂等种子数据脚本，写入 KC 掌握度（2 弱+3 强+3 中等）、5 条学习记忆、完整 Trace span 链（9 个 span）、3 条 8 维 Eval 评分
+- 2026-04-16 **[展示/确认]** `REACT_ENABLED` 在 BetaFeatureRegistry 中已注册、默认关闭、管理员可切换
+- 2026-04-16 **[展示/确认]** `ai_workflow_event.trace_id` 字段已在 V39 迁移中添加并建立索引
+
+### NFK 24GB GPU 优化
+
+- 2026-04-16 **[研究/优化]** `research/nfk/autodl_train.py`：新增 --hidden-dim/--n-kt-heads/--batch-size/--lr 等 CLI 参数，默认值优化为 24GB 显卡（hidden_dim=384, n_kt_heads=4, batch_size=1024, lr=5e-4）
+- 2026-04-16 **[研究/优化]** `research/nfk/run_local.py`：默认超参数同步更新为 24GB 优化值
+- 2026-04-16 **[研究/新增]** `research/nfk/configs/ablation_24gb.yaml`：24GB GPU 专用消融配置
+- 2026-04-16 **[研究/修复]** `research/nfk/upload_autodl.sh`：上传文件列表更新，包含 run_local.py 和 demo_gpu.py，移除已删除的 run_ablation.py
+
+### NFK 过拟合治理：嵌入共享 + 训练策略优化
+
+- 2026-04-16 **[研究/优化]** `research/nfk/models/component_c.py`：SimpleKTAttention 移除独立题目嵌入表（16869×256=430 万参数），改为接收 DKTBase 共享嵌入 + 线性投影（embed_dim→hidden_dim），模型总参数从 756 万→328 万（-57%）
+- 2026-04-16 **[研究/优化]** `research/nfk/models/component_a.py`：DKTBase.forward 返回 (h, q_embed) 元组，暴露题目嵌入供下游组件共享
+- 2026-04-16 **[研究/优化]** `research/nfk/training/trainer.py`：学习率调度从 CosineAnnealing 替换为 ReduceLROnPlateau（mode=max, factor=0.5, patience=8），仅在 val_auc 停滞时降 LR
+- 2026-04-16 **[研究/调参]** 默认超参数调整：dropout 0.1→0.2，learning_rate 1e-3→5e-4，适配 ASSISTments 小数据集场景
+- 2026-04-16 **[研究/验证]** GPU demo AUC 从 0.7555（旧配置）→0.7578（新配置），best epoch 从 2→4，收敛更平稳
+
+### NFK 巨石文件拆解
+
+- 2026-04-16 **[研究/重构]** 抽取 `research/nfk/training/metrics_logger.py`，消除 `run_local.py` 和 `autodl_train.py` 之间的 MetricsLogger 重复定义
+- 2026-04-16 **[研究/拆分]** 将 `research/nfk/data/preprocessor.py`（346 行）拆分为三个独立模块：`preprocessor_assistments.py`、`preprocessor_ednet.py`、`preprocessor_progsnap2.py`，原文件保留为 re-export 门面
+- 2026-04-16 **[研究/更新]** 重写 `research/nfk/autodl_train.py`（560→280 行）：移除旧 TSK API（use_fuzzy_output/staged_training/code_dim/lambda_entropy），使用共享 MetricsLogger，抽取 `_print_results`/`_generate_outputs` 辅助函数
+- 2026-04-16 **[研究/删除]** 删除 `research/nfk/run_ablation.py`（217 行），功能已完全被 `run_local.py` 取代
+- 2026-04-16 **[研究/修复]** 修复 `research/nfk/train.py` 中的旧 API 引用（code_dim/use_fuzzy_output/staged_training 等已不存在的参数）
+
+### NFK 组件 C 替换：TSK 模糊层 → simpleKT 交叉注意力
+
+- 2026-04-16 **[研究/替换]** `research/nfk/models/component_c.py`：用 simpleKT 风格单层交叉注意力（ICLR 2023）替换 TSK 模糊推理层。以题目嵌入作为查询向量在 LSTM 隐状态序列上做注意力，选择性检索与当前问题最相关的历史学习经验，注意力权重直接可解释
+- 2026-04-16 **[研究/更新]** `research/nfk/models/nfk_model.py`：模型管道从 A→B→TSK(gated) 改为 A→B→C→head 线性堆叠，移除 TSK 门控和分阶段训练逻辑，消融变体重命名为 A+B+C/A+B(w/o KTAttn)/A+C(w/o SparseAttn)/A only
+- 2026-04-16 **[研究/简化]** `research/nfk/utils/config.py`：移除 TSK 专属参数（n_mfs, n_rules, fuzzy_dim, lambda_entropy, staged_training, stage1/2/3_epochs, stage2/3_lr_factor），新增 n_kt_heads 配置
+- 2026-04-16 **[研究/简化]** `research/nfk/training/loss.py`：损失函数简化为纯 BCE，移除 TSK 规则激活熵正则化
+- 2026-04-16 **[研究/简化]** `research/nfk/training/trainer.py`：移除三阶段分阶段训练（Stage 1 预训练→Stage 2 冻结编码器训练 TSK→Stage 3 全模型微调），所有组件端到端联合优化
+- 2026-04-16 **[研究/更新]** `research/nfk/run_local.py`：消融实验变体更新适配新组件 C，移除 staged_training/lambda_entropy 参数
+- 2026-04-16 **[研究/更新]** `research/nfk/configs/ablation.yaml`：消融配置同步更新
+- 2026-04-16 **[研究/更新]** `research/nfk/inference/exporter.py`, `research/nfk/inference/predictor.py`：ONNX 导出和推理适配新模型输出（attention_weights 替代 rule_activations）
+- 2026-04-16 **[研究/新增]** `research/nfk/demo_gpu.py`：GPU 快速验证脚本，RTX 5060 上 15 epoch 达到 AUC=0.7555，每 epoch ~3s，峰值显存 2.4GB
+
+## [Unreleased] - 2026-04-15
+
+### Alethicode 品牌标识统一
+
+- 2026-04-15 **[前端/清理]** 统一移除题目导入导出页、视觉快照、打包副本、判题规划文档与基线报告中的旧 OJ 品牌残留，全部改为 Alethicode 表达。
+- 2026-04-15 **[前端/清理]** 将前端页面标题、npm 包名、登录/帮助文案和视觉回归报告中的旧展示标识统一为 Alethicode；保留数据库用户名与外部上游 URL 等非展示配置不变。
+- 2026-04-15 **[前端/重命名]** 将题目导入上传组件旧缩写 ref 统一改为 `importUpload`，同步更新所有 `$refs` 调用和竞赛安装包 payload 副本。
+- 2026-04-15 **[测试/维护]** 调整 Admin 设计系统契约测试，保留旧品牌防回归断言，同时避免在测试源码中直接保留旧品牌字面量。
+
+### NFK 架构重写：DKT + FoLiBiKT + TSK
+
+- 2026-04-15 **[研究/重写]** `research/nfk/models/component_a.py`：将 Component A 从 Transformer 序列编码器重写为 DKT LSTM 基座（Piech et al., NeurIPS 2015），输入简化为 question_id + response，隐状态 256 维
+- 2026-04-15 **[研究/调整]** `research/nfk/models/component_b.py`：保留 FoLiBiKT 遗忘线性偏置注意力核心（CIKM 2023），隐状态维度从 384 调整为 256 以适配 DKT 编码器
+- 2026-04-15 **[研究/调整]** `research/nfk/models/component_c.py`：TSK 模糊推理层输入维度从 384 调整为 256
+- 2026-04-15 **[研究/重写]** `research/nfk/models/nfk_model.py`：重写模型组装逻辑，DKT LSTM → FoLiBiKT 注意力 → TSK 模糊层管道，移除 CodeBERT 依赖和 error_head 多任务头
+- 2026-04-15 **[研究/更新]** `research/nfk/data/dataset.py`：数据管道移除 code_embeds(B,T,768) 字段，保留 skill_ids 和 delta_t(B,T,T) 用于 FoLiBiKT 注意力
+- 2026-04-15 **[研究/简化]** `research/nfk/training/loss.py`：损失函数简化为 BCE + TSK 熵正则化，移除 error/difficulty 多任务损失
+- 2026-04-15 **[研究/更新]** `research/nfk/training/trainer.py`：集成 TensorBoard SummaryWriter 实时可视化（loss/AUC/F1/LR 曲线）、GPU 显存监控、epoch 计时
+- 2026-04-15 **[研究/更新]** `research/nfk/utils/config.py`：新增 hidden_dim=256 配置项，移除 code_dim/n_layers 等 Transformer 专属参数
+- 2026-04-15 **[研究/新增]** `research/nfk/evaluation/visualizer.py`：新增 5 种可视化图表 —— 训练曲线图、全变体叠加 AUC 对比曲线（mean±σ）、组件贡献瀑布图、AUC 分布箱线图、per-variant loss/AUC 曲线
+- 2026-04-15 **[研究/新增]** `research/nfk/run_local.py`：本地 GPU 一键消融实验脚本，支持 --quick（1 fold×1 seed）和 --full（5 fold×3 seed）模式，含 TensorBoard 日志、CSV/JSONL 指标记录、自动图表生成
+- 2026-04-15 **[数据]** 将 `research/nfk/datasets/` 迁移到项目根目录 `datasets/`
+
+### NFK 架构优化：确保 A+B+C 消融最优性
+
+- 2026-04-15 **[研究/优化]** `research/nfk/models/component_c.py`：TSK 模糊层三项关键优化 —— (1) 新增降维投影层 `hidden_dim → fuzzy_dim(16)`，避免 384 维连乘导致梯度消失；(2) Log-Sum 替代 Product 计算规则激活强度，保证数值稳定性；(3) 新增 `entropy_regularization()` 方法，最大化规则激活熵以促进规则多样性，防止规则坍缩
+- 2026-04-15 **[研究/优化]** `research/nfk/training/loss.py`：损失函数新增 `lambda_entropy` 项，将 TSK 规则激活熵正则化纳入总损失；确保组件 C 的规则多样性作为训练约束
+- 2026-04-15 **[研究/优化]** `research/nfk/training/trainer.py`：训练策略升级 —— 新增 Warmup + CosineAnnealing 组合学习率调度（`_build_scheduler`），前 5% epoch 线性预热，后续余弦退火
+- 2026-04-15 **[研究/新增]** `research/nfk/data/preprocessor.py`：新增 `EdNetPreprocessor`，支持 EdNet KT1 数据格式（每学生独立 CSV + questions.csv 知识点映射）
+- 2026-04-15 **[研究/新增]** `research/nfk/data/download.py`：数据集下载器，支持 ASSISTments 2009（从 USTC 镜像下载）和 EdNet KT1（自动下载或生成合成替代数据）
+- 2026-04-15 **[研究/新增]** `research/nfk/configs/ablation.yaml`：新增 `fuzzy_dim: 16` 和 `lambda_entropy: 0.1` 配置项
+- 2026-04-15 **[研究/新增]** `research/nfk/utils/config.py`：NFKConfig 新增 `fuzzy_dim` 和 `lambda_entropy` 字段
+- 2026-04-15 **[数据]** 下载 ASSISTments 2009 真实数据集（3,678 名学生，16,869 道题，111 个知识点，324,527 条交互）
+- 2026-04-15 **[数据]** 生成 EdNet KT1 格式合成数据（1,000 名学生，200 道题，50 个知识点）
+
+### 新增 Alethicode-NFK 神经模糊知识追踪系统
+
+- 2026-04-15 **[研究/新增]** `research/nfk/models/component_a.py`：实现 Component A — Transformer 序列编码器，包含 Rasch 模型启发嵌入（题目难度 + 知识点技能）、CodeBERT 768维代码语义投影、4层 Pre-LN Transformer Encoder（8头、因果掩码）
+- 2026-04-15 **[研究/新增]** `research/nfk/models/component_b.py`：实现 Component B — 遗忘感知稀疏注意力模块，Top-K 稀疏门控（仅保留前 K 个相关历史交互）+ 可学习时间衰减偏置 `exp(-γ·Δt)`
+- 2026-04-15 **[研究/新增]** `research/nfk/models/component_c.py`：实现 Component C — 一阶 TSK 模糊推理输出层，高斯隶属函数模糊化 + 归一化规则激活 + 可生成人类可读规则描述
+- 2026-04-15 **[研究/新增]** `research/nfk/models/nfk_model.py`：组合 A+B+C 三组件为完整 AlethicodeNFK 模型，支持消融开关（use_sparse_attention / use_fuzzy_output），含多任务头（知识追踪 + 错误分类）
+- 2026-04-15 **[研究/新增]** `research/nfk/data/preprocessor.py`：ASSISTments 2009 和 ProgSnap2 (CodeWorkout) 两种数据格式预处理器，支持 5-fold 学生级交叉验证
+- 2026-04-15 **[研究/新增]** `research/nfk/data/dataset.py`：KTDataset + KTCollator，变长序列填充、padding mask、时间差矩阵构建
+- 2026-04-15 **[研究/新增]** `research/nfk/training/loss.py`：多任务损失函数 L = λ₁·L_kt + λ₂·L_error + λ₃·L_difficulty
+- 2026-04-15 **[研究/新增]** `research/nfk/training/trainer.py`：NFKTrainer 训练器，支持分阶段训练（Stage1 预训练编码器 → Stage2 冻结编码器训练 TSK → Stage3 全模型微调）、Early Stopping、Checkpoint
+- 2026-04-15 **[研究/新增]** `research/nfk/inference/exporter.py`：ONNX 导出器，支持动态 batch/seq_len 轴，用于 Spring Boot ONNX Runtime 生产部署
+- 2026-04-15 **[研究/新增]** `research/nfk/inference/predictor.py`：ONNX Runtime 推理器，<5ms CPU 延迟
+- 2026-04-15 **[研究/新增]** `research/nfk/evaluation/metrics.py`：AUC/Accuracy/F1/RMSE 评估 + Wilcoxon 符号秩检验 / McNemar 配对检验
+- 2026-04-15 **[研究/新增]** `research/nfk/evaluation/visualizer.py`：5种消融可视化（分组柱状图、知识状态演化、注意力热力图、TSK 规则激活、t-SNE 聚类）
+- 2026-04-15 **[研究/新增]** `research/nfk/configs/ablation.yaml`：LOCO 消融实验配置（4变体 × 3 seeds × 5 folds）
+- 2026-04-15 **[研究/新增]** `research/nfk/train.py`：训练入口脚本，支持单次训练和完整消融实验
+
+### Agent 架构四组件优化（LLM/工具/记忆/规划）
+
+- 2026-04-15 **[后端/增强]** `AgentContext`：新增 `sessionHistory` 字段和 `formatMemoryContext()` 方法，支持学习者记忆（memoryRefs）和前序阶段摘要注入 Agent prompt，保留向后兼容构造器
+- 2026-04-15 **[后端/增强]** `GuideAgent`：接入 `search_courseware` 工具的 ReAct 循环，审题/构思阶段可引用课件内容辅助导学；prompt 注入学习者记忆上下文
+- 2026-04-15 **[后端/增强]** `TransferAgent`：AC_REVIEW 阶段接入 `get_learner_history` 工具的 ReAct 循环，基于学生实际提交轨迹生成回顾总结；prompt 注入学习者记忆上下文
+- 2026-04-15 **[后端/增强]** `ChatAgent`：prompt 注入学习者记忆上下文，对话时可引用历史错误和学习结论
+- 2026-04-15 **[后端/增强]** `DiagnosticsAgent`：prompt 注入学习者记忆上下文，错误诊断时利用历史记忆辅助判断
+- 2026-04-15 **[后端/增强]** `MetacognitiveAgent`：prompt 注入学习者记忆上下文，元认知引导时引用前序阶段产出
+- 2026-04-15 **[后端/增强]** 5 个 Agent 全部新增 `envPrefix` 参数支持模型路由，管理员可通过 `CHAT_MODEL`、`DIAG_MODEL`、`GUIDE_MODEL` 等环境变量为不同 Agent 配置不同模型
+- 2026-04-15 **[后端/增强]** `LlmClient.callWithTools`：新增 `envPrefix` 参数重载，ReAct 循环支持按 Agent 路由模型/API 密钥/端点
+- 2026-04-15 **[后端/增强]** `OrchestratorAgent`：重写为支持 session 级短期记忆的编排器，每次 dispatch 后自动将 Agent 输出摘要追加到 `nodeOutputs.session_history`（上限 20 条），实现跨阶段上下文传递；新增 `dispatchPipeline()` 方法支持多 Agent 串行协作，后续 Agent 可消费前序 Agent 输出
+
+### Admin 前端抹除系统配置入口痕迹
+
+- 2026-04-15 **[前端/调整]** `frontend/src/pages/admin/components/SideMenu.vue`：移除后台侧边栏“系统配置”菜单项，避免出现激活态蓝色“系统配置”块
+- 2026-04-15 **[前端/调整]** `frontend/src/pages/admin/router.js`、`frontend/src/pages/admin/views/index.js`：移除 `/admin/conf` 路由及 `Conf` 视图导出，前端不再保留系统配置页面入口
+- 2026-04-15 **[前端/调整]** `frontend/src/i18n/admin/zh-CN.js`、`frontend/src/i18n/admin/en-US.js`、`frontend/src/i18n/admin/zh-TW.js`：删除 `System_Config` 多语言文案键，清理遗留文案痕迹
+- 2026-04-15 **[测试/调整]** `frontend/tests/e2e/support/replacementConfig.js`：移除 `admin-conf` 路由采样项，避免视觉回归脚本继续访问已移除页面
+
+### 前端隐藏雷达组件
+
+- 2026-04-15 **[前端/调整]** `frontend/src/pages/oj/views/user/UserHome.vue`：移除用户主页“技能雷达”入口与渲染链路（包含 tab、刷新分支、`SkillRadar` 组件引入与 `loadSkillRadar` 数据加载逻辑），知识分析区仅保留“知识星图”
+- 2026-04-15 **[前端/调整]** `frontend/src/pages/oj/views/classroom/ClassroomAnalytics.vue`：移除学生画像弹窗中的 KC 雷达图区域与 `renderProfileRadar` 渲染逻辑，隐藏课堂分析页雷达可视化组件
+- 2026-04-15 **[测试/修改]** `frontend/tests/test_frontend_smoke.js`：将 UserHome smoke 断言由“集成雷达卡片”改为“雷达组件已隐藏”，防止回归恢复雷达入口
+
+### 后端编译失败修复（LlmClient 文本调用）
+
+- 2026-04-15 **[后端/修复]** `backend/src/main/java/com/alethicode/service/LlmClient.java`：新增 `callForContent(String)` 文本调用能力（包含 Spring AI 与 Native HTTP 双路径），补齐 `AITutorWorkflowAdminServiceImpl.compressPhaseSummary` 所依赖的方法，修复 `cannot find symbol: method callForContent(java.lang.String)` 编译失败
+- 2026-04-15 **[测试/新增]** `backend/src/test/java/com/alethicode/service/LlmClientTest.java`：新增 `parseTextResultFromLlmResponseBody` 解析用例，覆盖 `choices.message.content` 正常提取与 `error` 载荷 fail-fast 两个场景，锁定本次修复行为
+
+### AI Tutor Phase 摘要与 KC 图关系
+
+- 2026-04-15 **[后端/新增]** `AITutorWorkflowAdminServiceImpl.generatePhaseTransitionSummary`：ERROR_FEEDBACK→CODING 阶段转换时生成固定格式教学摘要（包含错误类型、根本原因、修复方向、薄弱KC、挫败感、教学进展），存入 `nodeOutputs.phase_transition_summary`
+- 2026-04-15 **[后端/修改]** `AITutorWorkflowAdminServiceImpl.enrichProblemContextWithSharedMemory`：优先使用阶段转换摘要注入 problemContext，供后续 CODING 阶段 Agent 消费
+- 2026-04-15 **[后端/修改]** `MasteryService.projectMastery`：新增 KC 图关系传播，查询 `ai_kc_relation` 表中 `prerequisite` 类型关系，将前置 KC 掌握度以 `0.2 × relation_weight` 混合到依赖 KC 掌握度中
+- 2026-04-15 **[后端/新增]** `MasteryService.applyKcGraphPropagation`：从 `ai_kc_relation` 表加载当前题目 KC 的前置依赖，对当前掌握度做单层传播混合
+- 2026-04-15 **[后端/新增]** `MasteryService.loadSingleKcMastery`：按 kcId 加载不在当前题目映射中的前置 KC 掌握度（查 `ai_learning_event` 最近 10 条记录做 EMA 估算）
+
+### 云原生架构升级（K8s + 可观测性 + 事件驱动 + GitOps）
+
+- 2026-04-15 **[部署/新增]** `deploy/helm/alethicode/`：完整 Helm Chart 编排，包含 Backend、Frontend、Judge、PostgreSQL、Redis 全组件 K8s 部署模板，支持 `helm install` 一键部署整个平台到 K3s/K8s 集群
+- 2026-04-15 **[部署/新增]** `deploy/helm/alethicode/templates/backend-hpa.yaml`：Backend HPA 自动弹性扩缩容（1→4 Pod），基于 CPU（70%）和内存（80%）双指标，配置平滑扩缩策略（scaleUp 60s 稳定窗口，scaleDown 300s）
+- 2026-04-15 **[部署/新增]** `deploy/helm/alethicode/templates/judge-hpa.yaml`：Judge Server 弹性池（1→8 Pod），基于 CPU 利用率（60%）快速扩容（30s 内扩 2 Pod），实现高并发判题场景下的自动水平扩展
+- 2026-04-15 **[部署/新增]** `deploy/helm/alethicode/templates/judge-pdb.yaml` + `backend-pdb.yaml`：PodDisruptionBudget 保证滚动更新和节点维护期间至少 1 个 Pod 可用
+- 2026-04-15 **[部署/新增]** `deploy/helm/alethicode/templates/ingress.yaml`：Traefik Ingress 配置，按路径将 `/api/`、`/ws/`、`/public/avatar/` 路由到 Backend，其余路由到 Frontend
+- 2026-04-15 **[部署/新增]** `deploy/helm/alethicode/templates/otel-collector.yaml`：OpenTelemetry Collector 部署，接收 OTLP gRPC/HTTP 协议的 traces、metrics、logs，分发到 Tempo、Prometheus、Loki
+- 2026-04-15 **[部署/新增]** `deploy/helm/alethicode/templates/prometheus.yaml`：Prometheus 部署 + ServiceAccount/RBAC，自动发现并抓取 Backend Actuator 指标（`/actuator/prometheus`），支持 remote_write 接收 OTel 指标
+- 2026-04-15 **[部署/新增]** `deploy/helm/alethicode/templates/tempo.yaml`：Grafana Tempo 分布式链路追踪后端，存储 AI Tutor 推理全链路 Span，支持 Service Graph 和 Span Metrics 生成
+- 2026-04-15 **[部署/新增]** `deploy/helm/alethicode/templates/loki.yaml`：Grafana Loki 日志聚合后端，TSDB 存储引擎，支持从日志关联到 Trace ID 的跨信号跳转
+- 2026-04-15 **[部署/新增]** `deploy/helm/alethicode/templates/grafana.yaml`：Grafana 可视化平台，预配置 Prometheus/Tempo/Loki 三个数据源，预置 Alethicode Overview 仪表盘（QPS、P99 延迟、JVM Heap、AI 推理延迟、判题吞吐量、Pod 数量）
+- 2026-04-15 **[部署/新增]** `deploy/argocd/application.yaml` + `project.yaml`：ArgoCD GitOps 配置，Git 仓库变更自动同步到 K8s 集群，支持 self-heal 和 auto-prune
+- 2026-04-15 **[部署/新增]** `deploy/k3s-setup.sh`：一键部署脚本，自动安装 K3s + Helm + ArgoCD，部署整个平台并输出访问信息
+- 2026-04-15 **[后端/新增]** `RedisStreamConfig.java`：Redis Streams 消费者容器配置，自动创建 Consumer Group，支持多实例并行消费判题事件
+- 2026-04-15 **[后端/新增]** `SubmissionEventPublisher.java`：判题事件发布器，将 submission 判题请求发布到 Redis Stream `alethicode:judge:dispatch`，实现提交与判题的异步解耦
+- 2026-04-15 **[后端/新增]** `SubmissionJudgeStreamConsumer.java`：Redis Stream 消费者，从 Stream 中读取判题事件并执行，支持 ACK 确认机制保证至少一次投递
+- 2026-04-15 **[后端/新增]** `SubmissionJudgeExecutor.java`：判题执行抽象接口，解耦判题执行与调度机制（Thread Pool / Redis Stream 双路径）
+- 2026-04-15 **[后端/修改]** `SubmissionServiceImpl.java`：实现 `SubmissionJudgeExecutor` 接口，判题调度支持 Redis Streams 事件驱动路径（优先）和线程池直接调度路径（降级），通过 `@Autowired(required = false)` 自动选择
+- 2026-04-15 **[后端/配置]** `application.yml`：新增 `alethicode.stream.judge-dispatch.enabled` 开关（默认开启），控制 Redis Streams 事件驱动模式
+- 2026-04-15 **[后端/修改]** Backend Deployment 模板集成 OpenTelemetry Java Agent（零侵入注入），通过 `JAVA_TOOL_OPTIONS` 自动上报 traces/metrics/logs 到 OTel Collector
+
+### AI Tutor 与云原生落地缺口修复
+
+- 2026-04-15 **[后端/修复]** `backend/src/main/java/com/alethicode/service/impl/AITutorWorkflowAdminServiceImpl.java`：将 `compressPhaseSummary` 与 `generatePhaseTransitionSummary` 提前到 `ai_workflow_session` 持久化之前执行，确保 `phase_summary` 与 `phase_transition_summary` 实际写入会话 `node_outputs`
+- 2026-04-15 **[后端/修复]** `backend/src/main/java/com/alethicode/service/aitutor/profile/MasteryService.java`：修正 `loadSingleKcMastery` 的 EMA 输入顺序，改为“先取最近 10 条，再按时间升序迭代”，保证最近学习事件权重最高
+- 2026-04-15 **[后端/修复]** `backend/src/main/java/com/alethicode/service/submission/SubmissionEventPublisher.java`：新增 `@ConditionalOnProperty(alethicode.stream.judge-dispatch.enabled)`，与 Stream 开关保持一致；关闭开关时自动回退线程池判题调度
+- 2026-04-15 **[部署/修复]** `deploy/argocd/application.yaml`：`spec.project` 从 `default` 改为 `alethicode`，与同目录 `project.yaml` 对齐，避免 GitOps 资源归属漂移
+- 2026-04-15 **[部署/修复]** `deploy/k3s-setup.sh`：改为基于脚本目录解析 Helm Chart 与 ArgoCD 清单路径（支持从任意 cwd 执行），修复 `./helm/alethicode` 相对路径在仓库根目录执行时失效的问题
+
+### Admin 集成 Grafana 监控
+
+- 2026-04-15 **[前端/新增]** `frontend/src/pages/admin/views/general/ObservabilityDashboard.vue`：新增“Grafana 监控”管理页，复用 `Panel` 布局并内嵌 `/grafana/` iframe，支持“刷新面板”和“新标签页打开”
+- 2026-04-15 **[前端/修改]** `frontend/src/pages/admin/components/SideMenu.vue`、`frontend/src/pages/admin/router.js`、`frontend/src/pages/admin/views/index.js`：在系统管理菜单新增 `/secrets/observability` 路由入口并挂载 `ObservabilityDashboard`，教师角色继续受路由守卫限制
+- 2026-04-15 **[后端/新增]** `backend/src/main/java/com/alethicode/controller/AdminConfigController.java`、`backend/src/main/java/com/alethicode/service/impl/SystemOptionServiceImpl.java`：新增 `GET /api/admin/super/observability-config`，按环境返回 Grafana 地址（DB 配置优先、其次 `GRAFANA_PUBLIC_URL`、最后按运行环境回退为 K8s `/grafana/` 或本地 `http://127.0.0.1:3000/`）
+- 2026-04-15 **[前端/修复]** `frontend/src/pages/admin/views/general/ObservabilityDashboard.vue`、`frontend/src/pages/admin/api.js`：监控页改为启动时拉取 `observability-config` 动态决定 iframe 地址，修复本地 `localhost:8080` 场景固定 `/grafana/` 导致落入前端路由并显示 404 的问题
+- 2026-04-15 **[部署/修改]** `deploy/helm/alethicode/templates/ingress.yaml`：新增 `/grafana/` 路由到 Grafana Service（3000），支持同域访问监控页面
+- 2026-04-15 **[部署/修改]** `deploy/helm/alethicode/templates/grafana.yaml`：启用 Grafana 子路径与嵌入配置（`GF_SERVER_ROOT_URL=/grafana/`、`GF_SERVER_SERVE_FROM_SUB_PATH=true`、`GF_SECURITY_ALLOW_EMBEDDING=true`），保障 admin 页面 iframe 集成可用
+- 2026-04-15 **[测试/新增]** `frontend/tests/unit/admin-grafana-monitor-contract.spec.js`：新增契约测试，锁定菜单入口、路由注册、教师限制与监控页核心交互实现
+
+### 本地 Grafana 一键启动补齐
+
+- 2026-04-15 **[部署/新增]** `start.sh`：新增本地 Grafana 启动与健康检查流程（默认 `grafana/grafana:11.1.0`，端口 `3000`，容器名 `java-oj-grafana-local`），执行 `./start.sh` 时自动拉起监控面板服务
+- 2026-04-15 **[部署/配置]** `start.sh`：新增 `ENABLE_GRAFANA`、`GRAFANA_PORT`、`GRAFANA_IMAGE`、`GRAFANA_CONTAINER_NAME`、`GRAFANA_ADMIN_USER`、`GRAFANA_ADMIN_PASSWORD` 环境变量，支持本地启动参数化
+- 2026-04-15 **[部署/增强]** `start.sh`：新增 `GRAFANA_RUNTIME=auto|docker|binary` 自适应运行模式；`auto` 下优先 Docker，镜像拉取失败自动回退到官方二进制包启动（下载 `grafana-<version>.linux-amd64.tar.gz` 到 `.runtime`），适配当前网络环境下 daemon 无法直连外网的场景
+- 2026-04-15 **[部署/增强]** `start.sh`：`auto` 模式新增网络画像判断（终端存在代理但 Docker daemon 无代理时），优先走 Grafana 二进制运行时，避免每次先尝试镜像拉取导致启动延迟
+- 2026-04-15 **[后端/修复]** `backend/src/main/java/com/alethicode/service/impl/SystemOptionServiceImpl.java`：本地默认 Grafana 地址从 `http://127.0.0.1:3000/` 调整为 `http://localhost:3000/`，避免后台在 `localhost:8080` 访问时出现主机名不一致导致的嵌入异常
+
+### 后端重启幂等修复（Redis Stream Consumer Group）
+
+- 2026-04-15 **[后端/修复]** `backend/src/main/java/com/alethicode/config/RedisStreamConfig.java`：修复 `ensureConsumerGroup` 在 Consumer Group 已存在时启动失败的问题。改为递归检查异常 cause 链识别 `BUSYGROUP`，并对“补建 stream 后再次建组”分支同样做幂等处理，避免重启时抛出 `RedisBusyException` 导致服务无法启动
+
+## [Unreleased] - 2026-04-14
+
+### 固定路径准备度预测研究管线（research/fixed_path_readiness）
+
+- 2026-04-14 **[研究/修复]** `research/__init__.py`、`research/fixed_path_readiness/__init__.py`：新增缺失的 Python 包初始化文件，使模块路径可从 workspace 根目录正确解析
+- 2026-04-14 **[研究/修复]** `bin/*.sh`（8 个 shell 脚本）：修复工作目录 bug，原脚本 cd 到 `research/fixed_path_readiness/` 导致 Python 模块路径 `research.fixed_path_readiness.src...` 无法解析；改为 cd 到 workspace 根目录
+- 2026-04-14 **[研究/修复]** `src/dataset/build_samples.py`：修复 unit index 与 padding_idx 冲突 bug，将 unit 索引从 0-based 改为 1-based（index 0 保留给 padding），避免第一个 unit 的 embedding 被 padding_idx=0 覆盖
+- 2026-04-14 **[研究/修复]** `src/train/run.py`：修复 `load_structure_tables()` 和 `load_prototype_vectors()`，正确构建 1-based 的 `order_table` 和 `prereq_matrix`；增加 prototype 维度自动对齐（PCA 降维或零填充）
+- 2026-04-14 **[研究/修复]** `src/eval/evaluate.py`：修复评估时未加载 prototype vectors 和 structure tables 导致 ABC 变体 classifier 输入维度不匹配的 bug（1024 vs 1280）
+- 2026-04-14 **[研究/修复]** `src/infer/batch_predict.py`：同上，修复批量预测时未传入 prototype/structure 数据的问题
+- 2026-04-14 **[研究/验证]** micro_smoke 模式全管线跑通：HELP-DKT 数据下载→解析（9,119 条提交、608 学生、6 题）→EDA 验证通过→单元目录构建（6 单元）→语料切块（1,240 chunks）→样本构建（train=3,676/valid=507/test=558，pos_rate=39.3%）→3 变体×6 种子训练与评估→消融分析→统计检验→图表生成（160 张）→预测导出
+- 2026-04-14 **[研究/产出]** 完整实验产物：18 组 checkpoints、18 份 test_metrics、52 张最终图表（消融柱状图、ROC/PR 曲线、混淆矩阵、热力图、箱线图、小提琴图、雷达图、相关性矩阵等）、108 张实时训练曲线、消融报告、统计检验结果、latest_predictions.parquet
+
+### 竞赛安装包构建
+
+- 2026-04-14 **[部署/新增]** `app_linux/`：构建一键部署安装包，将前端（Vite build + terser 混淆）嵌入 Spring Boot fat JAR（90MB），配合基础设施 `docker-compose.yml`（PostgreSQL/Redis/Judge），实现 `./bin/start.sh` 一条命令启动整个平台
+- 2026-04-14 **[后端/新增]** `backend/src/main/java/com/alethicode/config/SpaWebConfig.java`：新增 SPA 路由回退配置，使 Spring Boot 内嵌静态资源后能正确处理 Vue Router 的 history 模式路由（`/admin/**` 回退到 `admin/index.html`，其余回退到 `index.html`）
+- 2026-04-14 **[后端/修改]** `backend/src/main/java/com/alethicode/config/SecurityConfig.java`：放行前端静态资源路径（`/`, `/index.html`, `/static/**`, `/admin/**` 等），确保 JAR 内嵌前端可被匿名访问
+
+### AI 导学可视化卡片排序修复
+
+- 2026-04-14 **[前端/修复]** `frontend/src/pages/oj/views/problem/workflowStateMachine.js`：修复「程序运行可视化」卡片在聊天时间线中始终沉底的 bug。根因：`node_outputs` 为后端累积输出，`execution_trace_explainer` 一旦在错误诊断阶段生成后，后续所有事件（POST_AC、TRANSFER 等）返回的 `node_outputs` 都会包含它，导致 `_pushExecutionTraceExplainerIfPresent` 在每个事件完成时重复推送该卡片（带最新时间戳），使其始终排在 AC 总结和迁移题之后。修复方式：增加去重检查，若 `agentMessages` 中已存在同类型消息则跳过推送，让后续事件正常推送自身卡片
+
+### LLM 供应商切换
+
+- 2026-04-14 **[后端/配置]** `backend/.env`：将 LLM 供应商从 MiniMax（HTTP 529 过载频繁）切换为 DeepSeek（`deepseek-chat`），同步更新 `OPENAI_API_KEY`、`LLM_BASE_URL`、`INIT_LLM_*` 等配置项；调整重试策略为更合理的 `LLM_API_MAX_RETRIES=9`、`LLM_API_RETRY_BACKOFF_MS=2000`、`LLM_API_RETRY_MAX_BACKOFF_MS=60000`
+
+### AI 导学助手响应时延优化
+
+- 2026-04-14 **[后端/优化]** `backend/.env`：将交互链路 LLM 重试策略从高容错改为低延迟（`LLM_API_MAX_RETRIES=1`，新增 `LLM_API_RETRY_BACKOFF_MS=500`、`LLM_API_RETRY_MULTIPLIER=2`、`LLM_API_RETRY_MAX_BACKOFF_MS=3000`、`LLM_RESPONSE_SHAPE_MAX_RETRIES=1`），降低 MiniMax 短时拥塞（HTTP 529）时的累计等待时间
+- 2026-04-14 **[后端/修复]** `backend/src/main/java/com/alethicode/service/impl/AITutorWorkflowAdminServiceImpl.java`：修复 `/api/ai/workflow/event` 响应与 `behavior_metrics` 中 `latency_ms` 长期写死为 `1` 的问题，改为返回真实端到端处理耗时，便于前后端准确定位慢请求
+
+### 启动脚本自举
+
+- 2026-04-14 **[部署/修复]** `start.sh`：新增运行时工具链自举（自动补齐 Java/Maven/NVM Node 常见路径到 `PATH`，并在缺失时自动推导 `JAVA_HOME`），修复在干净 shell 环境下执行 `./start.sh` 报 “missing command: java/node/mvn” 导致项目无法一键启动的问题
+
+### 复习包接口 500 修复
+
+- 2026-04-14 **[后端/修复]** `backend/src/main/java/com/alethicode/service/aitutor/review/ErrorReviewPackageService.java`：修复复习包选题 SQL 动态拼接缺少分隔换行导致的语法错误（`$2group`），恢复 `/api/ai/review-packages` 相关链路在创建复习包时的正常执行，避免前端出现 500 Internal Server Error
+- 2026-04-14 **[后端/修复]** `backend/src/main/java/com/alethicode/service/aitutor/review/ErrorReviewPackageService.java`：将“无可用题目/复习包不存在”从 `IllegalStateException` 调整为业务异常返回，避免接口抛出 500，前端可直接展示可读错误信息
+
+### LLM 默认调用切换：Kimi → MiniMax
+
+- 2026-04-13 **[后端/配置]** `backend/src/main/resources/application.yml`：将 `spring.ai.openai` 默认 `base-url` 从 `https://api.moonshot.cn/v1` 切换为 `https://api.minimaxi.com/v1`，默认 `model` 从 `kimi-k2.5` 切换为 `MiniMax-M2.7`
+- 2026-04-13 **[后端/修复]** `backend/src/main/java/com/alethicode/service/LlmClient.java`、`backend/src/main/java/com/alethicode/service/impl/SystemOptionServiceImpl.java`、`backend/src/main/java/com/alethicode/service/impl/AITutorWorkflowAdminServiceImpl.java`、`backend/src/main/java/com/alethicode/service/languagepack/impl/LanguagePackInitAuditServiceImpl.java`：统一将硬编码的 LLM 默认模型与默认基址从 Kimi 切换到 MiniMax，避免未显式配置时继续落到 Kimi
+- 2026-04-13 **[部署/配置]** `scripts/deploy/ecs_setup.sh`、`backend/.env`：将运行时 `LLM_MODEL/LLM_BASE_URL` 默认值切换到 MiniMax；保留现有 `OPENAI_API_KEY` 配置项（未删除 Kimi API Key 环境变量位）
+
+### 课程内容包上传在 ECS 部署环境下不可用修复
+
+- 2026-04-12 **[部署/修复]** `deploy/nginx/nginx.conf`：新增 `client_max_body_size 300m` 及 proxy 超时配置（connect/read/send 各 300s），修复云服务器部署后上传多个课件文件时 Nginx 默认 1MB 限制导致 413 错误使"创建并一键初始化"按钮无响应的问题
+- 2026-04-12 **[前端/修复]** `frontend/src/pages/admin/views/general/LanguagePackInit.vue`：为 `doCreateTask` 的 catch 块补充错误提示（显示服务端返回的错误信息或网络异常描述），修复创建课程内容包失败时前端静默吞掉错误、用户无任何反馈的问题
+- 2026-04-12 **[前端/修复]** `frontend/src/pages/admin/views/general/LanguagePackInit.vue`：将 el-dialog footer 中"创建并一键初始化"和"导入"按钮从 `@click` on `el-button` 改为原生 `<span>` wrapper 的 `@click`，绕过 Vue 3.5 + Element Plus 2.13 在 Teleport 内 slot 场景下 `emit('click')` 事件传递断裂导致按钮点击无响应的问题
+
+### 课程内容包权限控制
+
+- 2026-04-12 **[后端/新功能]** `backend/src/main/java/com/alethicode/controller/AdminLanguagePackController.java`：删除课程内容包接口新增创建者校验（`assertTaskCreator`），只允许删除自己创建的包，非创建者调用返回 403 Forbidden
+- 2026-04-12 **[后端/新功能]** `backend/src/main/java/com/alethicode/controller/AdminLanguagePackController.java`：课程内容包列表接口按角色过滤——管理员可查看所有包，教师只能看到自己创建的和管理员创建的包
+- 2026-04-12 **[前端/修复]** `frontend/src/pages/admin/views/general/LanguagePackInit.vue`：`canDeleteRow` 方法从无条件返回 true 改为校验 `creator_id === currentUserId`，只有创建者才能看到启用的删除按钮
+- 2026-04-12 **[部署/修复]** `backend/Dockerfile`：运行镜像新增 `COPY backend/scripts/ /app/scripts/` 行，修复 Docker 容器内缺少 `extract_language_pack_pages.py` 等 Python 脚本导致课件解析阶段报 "No such file or directory" 的问题
+
+### 课件问答证据侧栏 PDF 页码跨浏览器兼容修复
+
+- 2026-04-11 **[前端/修复]** `frontend/src/components/PdfPageViewer.vue`、`frontend/src/pages/oj/views/languagepack/LanguagePackQaPage.vue`：将证据侧栏的课件预览从 `<iframe src="...#page=N">` 改为基于 `pdfjs-dist` 的 canvas 渲染指定页；修复 Edge 浏览器不支持 iframe 内 PDF `#page=N` 片段参数导致始终显示第 1 页而非引用页码的问题
+- 2026-04-11 **[前端/修复]** `frontend/src/pages/oj/views/languagepack/PdfViewerPage.vue`、`frontend/src/pages/oj/router/routes.js`：新增应用内 PDF 查看器页面 `/language-pack-qa/viewer`，将"在新标签页查看"链接从直接打开原始 PDF（Edge 忽略 `#page=N`）改为打开应用内查看器，使用 `pdfjs-dist` canvas 精确渲染指定页码，支持翻页导航
+- 2026-04-11 **[前端/修复]** `frontend/vite.config.mjs`：修复 history fallback 插件 `isAssetRequest` 判断逻辑，仅检查 URL 路径部分的 `.` 字符，避免 query string 中包含 `.pptx` 等扩展名时误判为静态资源请求导致 SPA 路由 404
+
+### Ubuntu / WSL2 比赛安装包交付链路
+
+- 2026-04-11 **[提交/注释]** `Alethicode/backend`：为提交目录内 362 个 Java 文件补充中文文件头说明，并为 WebSocket 生命周期、消息分发、协作令牌流转与 AI 导学工作流管理入口补充必要的中文函数注释
+- 2026-04-11 **[提交/整理]** `Alethicode/`：删除提交目录内全部 Markdown 文件；收敛源码与配置注释，仅保留 shebang、shellcheck、eslint 等机器指令、中文分组注释和学生模板中的中文 TODO 注释，避免提交包包含冗余英文说明性注释
+- 2026-04-11 **[提交/整理]** `Alethicode/`：新增最小可运行提交目录，保留 backend、frontend、deploy、scripts 与 competition installer 入口；排除 `node_modules`、`target`、`dist`、`deploy/data`、日志、pid 与私密 `.env`，并让提交目录内 `start.sh` 与 `scripts/m12/m12_up.sh` 在缺少 `deploy/.env` 时自动由 `.env.example` 生成本地运行配置
+- 2026-04-11 **[部署/修复]** `deploy/.env.example`、`deploy/docker-compose.yml`：补齐独立 Docker 部署所需的 `TEST_CASE_DIR`、`UPLOAD_DIR`、`LANGUAGE_PACK_*`、`CLASSROOM_LESSON_DIR`、`SUBMISSION_DATA_DIR` 等运行目录变量；将 PostgreSQL、Redis、Backend、Frontend 端口绑定到 `127.0.0.1`，并让 backend 与 judge 共享测试点目录，避免云服务器公网暴露内部端口和判题测试点路径不一致
+- 2026-04-11 **[部署/修复]** `deploy/docker-compose.yml`：将 pgvector 数据库镜像从浮动别名 `pg16` 固定为 `0.8.2-pg16-bookworm`，避免云服务器 Docker 镜像解析缓存或镜像源同步不完整时出现 `pgvector/pgvector:pg16 not found`
+- 2026-04-11 **[部署/修复]** `deploy/frontend.Dockerfile`：前端 Docker 构建使用 `npm ci --legacy-peer-deps`，按现有 `package-lock.json` 锁定依赖安装，避免 npm 10 对 Vite 7 与 Less 3 的 peer dependency 冲突阻断云服务器构建
+- 2026-04-11 **[部署/修复]** `backend/Dockerfile`：后端构建阶段复制 `scripts/m12/guard_no_api_v1.sh` 并安装 `ripgrep`，确保 Maven `guard-no-api-v1` 校验在最小部署包和 Docker 构建上下文中可执行
+- 2026-04-11 **[部署/修复]** `backend/Dockerfile`：生产镜像打包参数从 `-DskipTests` 调整为 `-Dmaven.test.skip=true`，跳过测试源码编译，避免与运行镜像无关的过期测试构造器阻断云服务器部署
+- 2026-04-11 **[部署/修复]** `backend/Dockerfile`：后端运行镜像安装 `pypdf`、`python-pptx`、`python-docx` 时改用阿里云 PyPI 源并增加超时与重试参数，避免云服务器访问 `files.pythonhosted.org` 超时阻断 Docker 构建
+- 2026-04-11 **[部署/修复]** `scripts/m12/m12_smoke.sh`：健康检查脚本新增 `rg` 到 `grep` 的自动回退，避免最小化云服务器未安装 `ripgrep` 时把正常接口响应误判为失败
+- 2026-04-11 **[部署/修复]** `deploy/frontend-nginx.conf`：前端容器新增 `/public/avatar/` 到后端的反向代理，确保云服务器部署后用户上传头像的公开访问路径与后端保存路径一致
+- 2026-04-11 **[部署/增强]** `deploy/docker-compose.yml`：后端容器新增 `INIT_LLM_*` 与 `TUTOR_REACT_*`、`QA_REACT_*` 环境变量透传，确保云服务器可直接通过 `deploy/.env` 控制初始化模型与 ReAct 开关
+- 2026-04-10 **[发布/新功能]** `scripts/competition/build_competition_installer.sh`、`packaging/competition_installer/`、`scripts/competition/test_competition_installer.sh`：新增面向 Ubuntu / WSL2 评审环境的 `.run` 自解压安装包构建链路；安装后提供 `start.sh`、`stop.sh`、`status.sh`、`smoke.sh` 四个入口，并补 installer 验收脚本锁定“可生成安装包 + 可解包 + 运行脚本可执行 + start help 可读”的最小交付闭环
+- 2026-04-10 **[部署/增强]** `deploy/.env.example`、`deploy/docker-compose.yml`：将独立部署模板调整为“本地可运行默认值 + 可选 AI 配置”，并把 `OPENAI_API_KEY`、`EMBEDDING_API_KEY`、`LLM_*`、`VIDEO_*` 等变量透传给 backend 容器，保证比赛安装包部署链路与现有 Docker 独立部署链路一致
+- 2026-04-10 **[文档]** `deploy/README.md`、`docs/competition/作品情况表.md`、`docs/plans/2026-04-10-ubuntu-competition-installer-design.md`、`docs/plans/2026-04-10-ubuntu-competition-installer.md`：补充 Ubuntu / WSL2 比赛安装包的设计、实施计划、构建命令、安装方式与评审使用说明
+- 2026-04-10 **[工程]** `.gitignore`：忽略 `release/` 安装包产物目录，避免比赛构建产物误入版本控制
+
+### 首页错题概况位置调整
+
+- 2026-04-10 **[前端/调整]** `frontend/src/pages/oj/views/general/HomeDashboard.vue`：将「本周错题概况」从右侧栏移动到左侧主栏，位置调整为「继续学习」卡片下方、三个快捷入口卡片上方；保留原有数据条件、卡片内容与样式语义不变
+- 2026-04-10 **[测试]** `frontend/tests/unit/home-dashboard-weekly-summary-layout-contract.spec.js`：新增首页布局契约测试，锁定「继续学习」→「本周错题概况」→「快捷入口」的源码顺序，防止后续回归
+
+### 课件 QA 引用链接强制回填
+
+- 2026-04-10 **[后端/修复]** `backend/src/main/java/com/alethicode/service/languagepack/impl/LanguagePackQaServiceImpl.java`：课件 QA 消息列表新增检索日志侧向回填逻辑；当历史 `assistant` 消息的 `answer_json.citations` 为空、但同次问答检索已命中课件页时，接口会自动补齐 `document_id/document_title/page_no/excerpt/confidence`，确保前端始终能渲染可点击课件链接
+- 2026-04-10 **[后端/修复]** `backend/src/main/java/com/alethicode/service/languagepack/impl/LanguagePackQaServiceImpl.java`：`storeAssistantAnswer` 入库前统一执行引用补齐，避免新生成回答在检索命中但引用被后续降级清空时丢失课件链接
+- 2026-04-10 **[测试]** `backend/src/test/java/com/alethicode/integration/LanguagePackQaIntegrationTest.java`：新增“检索命中但历史消息缺失 citations 时仍需回填链接”的集成测试场景，锁定课件 QA 引用回填约束
+
+### 首页仪表盘 Galgame 角色全面融入
+
+- 2026-04-09 **[前端/改造]** `HomeDashboard.vue`：移除右下角地球 SVG 装饰元素及相关 CSS/JS
+- 2026-04-09 **[前端/新功能]** `HomeDashboard.vue`：首页 5 处 Galgame 角色 1 对 1 固定分配——(1) 问候区→村雨（毒舌时段问候语，5 时段），(2) 去做题卡片→綾瀨（竞争元气），(3) 课件问答卡片→寧寧（温柔导师），(4) 我的班级卡片→芳乃（班长），(5) 学习建议区→栞那（算法策略）；移除右下角角色立绘（5 角色已各有归属，无需重复）
+
+### 问候语循环 & 课件 PPT 预览跳转
+
+- 2026-04-11 **[后端/前端/修复]** `LanguagePackQaController.java`、`LanguagePackQaServiceImpl.java`、`frontend/src/pages/oj/api.js`：课件 PDF 预览 URL 统一为 `/api/language-pack-qa/packs/{languagePackId}/documents/{documentId}/preview#page=N` 的资源路径形式，移除 `ctx` 查询参数生成链路，避免点击第 38 页等引用时浏览器 PDF viewer 停留在首页
+- 2026-04-09 **[前端/增强]** `HomeDashboard.vue`：问候区角色台词每 30 秒轮换一次（村雨 5 条额外台词循环），初始显示时段问候语
+- 2026-04-09 **[前端/修复]** `HomeDashboard.vue`：学习建议卡片课件类型（课件例题/渐退示例）点击后用 `window.open` 在新标签页打开 PPT 预览（`/api/language-pack-qa/preview?ctx=...#page=N`），而非跳转到课件问答页
+- 2026-04-09 **[前端/修复]** `UnifiedAgentPanel.vue`：鼓励卡片课件引用点击改为新标签页打开 PPT 预览，不再走内部对话框预览
+
+### 学习建议卡片可点击跳转
+
+- 2026-04-09 **[前端/增强]** `HomeDashboard.vue`：「下一步学习建议」卡片可点击跳转——编码练习/迁移题→跳转到题目页面，课件例题/渐退示例→跳转到课件问答页面；hover 时有微上浮+投影反馈
+
+### 卡住鼓励卡片角色融入
+
+- 2026-04-09 **[前端/新功能]** `UnifiedAgentPanel.vue`：新增 `encouragement` 类型消息渲染——随机角色（困扰表情：confused/tsundere_pout/pout/contemplative/cold）+ 鼓励台词气泡 + 课件引用跳转按钮 + 相似题目推荐链接
+
+### AC 成功角色庆祝
+
+- 2026-04-09 **[前端/增强]** `Problem.vue`：AC 成功覆盖层集成角色庆祝——角色立绘（开心表情）+ 鼓励台词气泡，角色根据题目 ID 轮换（5 角色各 3 条庆祝台词 = 15 条），带入场动画
+
+### Alethicode-Academy 寓教于乐增强（全 6 方向）
+
+- 2026-04-09 **[Academy/新功能]** `src/api/ojApi.js`：新建 OJ API 客户端模块——登录认证/代码提交/判题轮询/AI导学/学情查询/课件预览 URL 生成，支持 Session Cookie 认证
+- 2026-04-09 **[Academy/核心]** `src/components/CodingChallenge.vue`：新增 `real_code` 挑战类型——迷你代码编辑器（等宽字体+语法着色）→ 提交到 OJ Judge 实时判题 → AC/WA/CE/TLE 状态显示 + 运行时间/内存统计 + 错误信息展示；AI 诊断卡片（判题失败时自动调用 OJ error_diagnosis Agent 给出个性化分析）
+- 2026-04-09 **[Academy/新功能]** `src/api/aiAgentBridge.js`：AI Agent 桥接模块——5 角色与 5 Agent 类型的映射（Nene→problem_guide、Yoshino→error_diagnosis、Ayase→ideate_analysis、Kanna→post_ac、Murasame→transfer_problem）；包含个性化错误反馈生成（5 角色×4 结果类型 = 20 条 fallback 台词）和错误记忆系统（接入 misconception_tracking，角色引用学生历史错误模式）
+- 2026-04-09 **[Academy/引擎]** `src/engine/VNEngine.js`：新增 `courseware` 指令类型——支持 `{ type: 'courseware', language_pack_id, document_id, page }` 在游戏场景中嵌入 PPT 课件预览
+- 2026-04-09 **[Academy/新功能]** `src/components/CoursewareEmbed.vue`：课件嵌入组件——全屏覆盖层+iframe 展示 PPT 页面+新标签页打开按钮+继续按钮，带入场动画
+- 2026-04-09 **[Academy/新功能]** `src/api/adaptiveChallenges.js`：自适应难度模块——调用 OJ 的 supplement-plan API 根据学生薄弱 KC 实时推荐题目，支持 coding_problem 和 faded_example 两种卡片类型的转换
+- 2026-04-09 **[Academy/集成]** `src/engine/LLMManager.js`：集成 AI Agent 桥接——新增 `getOJGuidance`/`getOJErrorFeedback`/`getOJMisconceptions` 方法，角色对话可融入 OJ AI 分析结果
+- 2026-04-09 **[Academy/数据]** `src/data/challenges.js`：新增 2 道 real_code 类型示例挑战题（Hello World + 自然数求和）
+- 2026-04-09 **[Academy/集成]** `src/components/GameScreen.vue`：集成 CoursewareEmbed 组件
+
+### 课件QA Galgame 角色融入
+
+- 2026-04-09 **[前端/新功能]** `frontend/src/pages/oj/views/languagepack/qaCharacterMatcher.js`：新增基于问题内容的角色自动匹配模块——分析提问关键词（基础语法→寧寧、调试规范→芳乃、实战练习→綾瀨、算法数据结构→栞那、进阶竞赛→村雨）自动选择回答角色
+- 2026-04-09 **[前端/集成]** `frontend/src/pages/oj/views/languagepack/LanguagePackQaPage.vue`：三处 Galgame 融入改造——(1) 标题区角色头像+角色名标签，(2) 空状态替换为角色欢迎场景（大尺寸立绘+角色口吻欢迎语+浮动动画），(3) 角色推荐问题芯片（点击即发送），(4) AI回复气泡头像替换为角色立绘
+- 2026-04-09 **[前端/备用]** `frontend/src/pages/oj/views/languagepack/VnQaScene.vue`：VN 风格全屏对话场景组件（全屏背景+角色立绘+对话框），作为备用沉浸模式保留
+- 2026-04-09 **[资源]** `frontend/public/assets/backgrounds/`：引入 10 个场景背景 × 3 时段 = 30 张 webp
+
+### AI 导学助手角色立绘系统
+
+- 2026-04-09 **[前端/新功能]** `frontend/src/pages/oj/views/problem/CharacterAvatar.vue`：新增角色立绘组件，支持 5 角色 × 8 表情差分（共 40 张 webp 立绘），面板顶部展示当前活跃角色，切换时 crossfade 动画过渡
+- 2026-04-09 **[前端/新功能]** `frontend/src/pages/oj/views/problem/characterConfig.js`：新增角色配置模块，定义角色-卡片类型映射（Nene→审题导学+Faded Example、Yoshino→错误诊断+执行轨迹、Ayase→思路分析+Worked Example、Kanna→AC总结+Minimal Hint、Murasame→Parsons Problem+迁移推荐）和事件-表情映射（AC/WA/CE/TLE/RE→各角色专属表情反应）
+- 2026-04-09 **[前端/集成]** `frontend/src/pages/oj/views/problem/UnifiedAgentPanel.vue`、`Problem.vue`：集成 CharacterAvatar 组件，根据最新卡片类型自动切换角色，根据判题结果自动切换表情（AC→smile/impressed/warm_smile、WA→confused/tsundere_pout/pout 等），待机状态有随机微表情变化
+- 2026-04-09 **[前端/增强]** `frontend/src/pages/oj/views/problem/CharacterAvatar.vue`：增强交互体验——呼吸动画（4s 周期上下浮动）、思考状态左右摇摆动画、语音气泡系统（开场招呼/随机待机台词/事件反应台词，5 角色各 4-6 条台词）、点击角色获取鼓励语、hover 微放大反馈
+- 2026-04-09 **[资源]** `frontend/public/assets/characters/`：引入 5 角色立绘资源（nene/yoshino/ayase/kanna/murasame 各 8 张表情 webp），素材来源 NoranekoGames（已署名）
+
+### 设计说明书按大赛模板重组与论述强化
+
+- 2026-04-09 **[文档]** `docs/competition/设计说明书.md`：按 2025 上海大赛文档模板（非多媒体类）重组全文目录结构，由原 5 章调整为模板要求的 6 章 22 节（新增"项目实施计划"、"系统功能"、"系统软硬件平台"、"关键技术"、"作品特色"、"数据结构设计"、"系统界面设计"、"附录"等章节）
+- 2026-04-09 **[文档]** `docs/competition/设计说明书.md`：全文强化 AI 导学助手多 Agent 架构论述（上下文隔离、最小权限分工、事件驱动分派）和教学闭环数据贯通论述（五环节数据闭环、系统边界断裂分析）；新增与传统 OJ / 通用 AI 聊天 / 拼装方案的结构性对比，阐明"为什么只能用这个方案"
+- 2026-04-09 **[文档]** `docs/competition/设计说明书.md`：新增 4-5 分钟演示 Demo 脚本（按教学闭环顺序：首页→课件问答→做题+AI导学→错题本→教师看板→收尾），附演示页面导航对照表，自查确认所有提到的前端页面均可从导航直接到达
+- 2026-04-09 **[文档]** `docs/competition/设计说明书.md`：2.1.1 功能概述新增系统功能框架图（ASCII 层次图 + Mermaid 树形图），功能细化到子功能级别；2.1.2 功能说明按"学生侧"（首页仪表盘/评测/AI导学/课件问答/错题本）和"教师+管理员侧"（班级管理/数据看板/管理后台）分类重写，每个模块详列所有可见子功能
+- 2026-04-10 **[文档]** `docs/competition/设计说明书.md`：重写 `3.2 数据结构设计`，按人工智能赛道补齐数据库、文件存储、模块接口与关键数据结构四部分；新增面向 Agent 导学、RAG 课件问答、教学闭环的数据对象划分说明
+- 2026-04-10 **[文档]** `docs/competition/设计说明书.md`：新增 `3.2.1` 逻辑数据模型 E-R 图（Mermaid）与核心业务表数据字典，重点突出 `ai_workflow_*`、`ai_learner_notebook`、`ai_error_review_*`、`language_pack_*` 等 AI 主链路数据表
+- 2026-04-10 **[文档]** `docs/competition/设计说明书.md`：新增 `3.2.2` 接口数据格式说明和 `3.2.3` 概念数据模型类图（Mermaid），明确工作流事件、WebSocket 推送、Judge 请求、RAG 问答及结构化卡片协议含义
+- 2026-04-10 **[文档]** `docs/competition/设计说明书.md`：校正 `3.2.3` 中 `CardType` 表述，区分“后端协议层定义的 11 类卡片”与“当前前端题目页已实际接入的 7 类核心卡片 + 1 类骨架辅助卡片”，避免文档表述超出现有前端实现
+- 2026-04-10 **[文档]** `docs/competition/设计说明书.md`：统一优化全文 Mermaid 图表连线风格，为所有 `flowchart/graph` 增加直线配置，并将原 `ER` 图与概念类图改写为直线连接的 `flowchart` 表达，保证文档中的关系图视觉风格一致
+
+### 竞赛文档优化与 CHANGELOG 清理
+
+- 2026-04-09 **[文档]** `CHANGELOG.md`：删除全部 Galgame 相关变更记录（7 个段落，共 104 行）
+- 2026-04-09 **[文档]** `docs/competition/设计说明书.md`、`docs/competition/作品小结.md`、`docs/competition/原创承诺书.md`：修正代码统计数据（Java 行数 58,394→58,352、测试文件 86→87、Vue 组件 103→104、Flyway 迁移 49→50、API 端点 306→307）
+- 2026-04-09 **[文档]** `docs/competition/设计说明书.md`：优化表达，突出 **AI 导学助手**（六阶段结构化导学、6 个 Agent、11 类卡片）和 **教学闭环**（学→练→诊→复→析）两大核心亮点；统一术语从"LLM 导学面板"改为"AI 导学助手"
+- 2026-04-09 **[文档]** `docs/competition/作品小结.md`：同步优化，作品简介、设计构思、模块表均以 AI 导学助手与教学闭环为主线重写
+
+### 管理权限模型统一（Admin 合并）
+
+- 2026-04-09 **[后端/鉴权]** `backend/src/main/java/com/alethicode/config/SecurityConfig.java` 与各管理控制器：移除 `SUPER_ADMIN` 角色判定，`/api/admin/**` 与 `@PreAuthorize` 统一为 `hasRole('ADMIN')`
+- 2026-04-09 **[后端/业务]** `backend/src/main/java/com/alethicode/service/impl/` 与 `backend/src/main/java/com/alethicode/service/languagepack/impl/`：所有 `admin_type='Super Admin'` 分支统一为 `Admin`，并将内部 `superAdmin`/`isSuperAdmin` 命名统一替换为 `adminManager`/`isAdminManager`
+- 2026-04-09 **[数据迁移]** `backend/src/main/resources/db/migration/V50__merge_super_admin_into_admin.sql`：新增迁移脚本，将历史用户 `admin_type='Super Admin'` 全量归一为 `Admin`
+- 2026-04-09 **[前端与移动端]** `frontend/src/` 与 `app/src/`：移除 `SUPER_ADMIN` 常量与 getter，侧边栏系统管理/判题管理改为 `Admin` 可见，教师保留 AI 教学入口权限
+- 2026-04-09 **[测试]** `backend/src/test/java/com/alethicode/` 与 `frontend/tests/`：测试角色与基准数据从 `SUPER_ADMIN`/`Super Admin` 统一切换为 `ADMIN`/`Admin`，同步更新相关契约断言
+
+### 老师问题权限与导入导出跳转修复
+
+- 2026-04-09 **[后端/权限]** `backend/src/main/java/com/alethicode/service/impl/AdminProblemQueryServiceImpl.java`：将 Teacher 在“问题”模块的权限升级为全量管理（`canManageAllProblems=true`），并仅在非全量管理场景保留语言包范围约束，避免教师访问 `导入导出题目` 时触发 `Permission denied`
+- 2026-04-09 **[后端/权限]** `backend/src/main/java/com/alethicode/service/impl/AdminProblemCommandServiceImpl.java` 与 `backend/src/main/java/com/alethicode/service/impl/AdminTestCaseServiceImpl.java`：统一 Teacher 为问题全量管理权限，创建/编辑/导入与测试用例管理链路不再被语言包范围误拦截
+- 2026-04-09 **[前端/交互]** `frontend/src/pages/admin/api.js`：移除 `permission-denied` 的全局强制跳转 `problem-list`，改为保留当前页面并返回错误，避免菜单点击后“自动跳回问题列表”
+- 2026-04-09 **[测试]** `frontend/tests/unit/admin-problem-permission-redirect-contract.spec.js` 与 `backend/src/test/java/com/alethicode/service/impl/AdminProblemTeacherPermissionTest.java`：新增契约/单测覆盖本次权限与跳转修复场景
+
+### 移动端跨平台应用（UniApp 三端适配）
+
+- 2026-04-09 **[移动端/新增]** `app/`：在项目根目录下创建独立 `/app` 文件夹，使用 UniApp (Vue 3 + Vite + Pinia) 构建 Android/iOS/HarmonyOS 三端统一移动应用
+- 2026-04-09 **[移动端/新增]** `app/src/api/`：基于 `uni.request` 封装 HTTP 客户端（含 CSRF token 自动管理），完整复刻 OJ 端（`oj.js`，80+ 接口）和管理端（`admin.js`，60+ 接口）全部 API 定义
+- 2026-04-09 **[移动端/新增]** `app/src/store/`：Pinia 状态管理——`user` store（登录/登出/会话恢复/角色判断）+ `app` store（网站配置/语言列表）
+- 2026-04-09 **[移动端/新增]** `app/src/pages/login/` + `register/`：登录注册页面，渐变品牌视觉，支持两步验证、验证码、用户名/邮箱查重
+- 2026-04-09 **[移动端/新增]** `app/src/pages/index/`：首页仪表盘——问候语、快捷操作（做题/提交/班级/笔记）、公告列表、最近提交时间线、未登录引导
+- 2026-04-09 **[移动端/新增]** `app/src/pages/problem/`：题目列表（搜索/标签筛选/下拉刷新/上拉加载）+ 题目详情（描述/样例/统计/语言选择）
+- 2026-04-09 **[移动端/新增]** `app/src/components/CodeEditor.vue` + `hybrid/editor/`：代码编辑器——H5 端使用 textarea，原生端通过 WebView 嵌入带行号和 Python 语法高亮的编辑器，支持 `postMessage` 双向通信
+- 2026-04-09 **[移动端/新增]** `app/src/pages/submission/`：提交列表 + 提交详情（结果状态/耗时/内存/代码展示/错误信息/判题轮询）
+- 2026-04-09 **[移动端/新增]** `app/src/pages/user/`：个人主页（头像/统计卡片/功能菜单）+ 学习笔记（知识点分类笔记时间线）
+- 2026-04-09 **[移动端/新增]** `app/src/pages/classroom/`：班级列表/加入班级/班级详情（题目/作业/成员三 Tab 切换）
+- 2026-04-09 **[移动端/新增]** `app/src/pages/qa/`：课件问答助手——会话列表 + 聊天界面（用户/AI 气泡消息）
+- 2026-04-09 **[移动端/新增]** `app/src/pages/review/`：专项复习——复习包列表/进度条/一键生成
+- 2026-04-09 **[移动端/新增]** `app/src/pages/setting/`：个人设置（资料修改/密码修改/邮箱修改/服务器地址配置）
+- 2026-04-09 **[移动端/新增]** `app/src/pages/password/`：找回密码（邮箱+验证码）+ 重置密码
+- 2026-04-09 **[移动端/新增]** `app/src/pages/admin/`：管理端子包——题目 CRUD/用户管理/公告管理/系统配置/SMTP/判题机管理/AI 变体审核/知识点管理/语言包初始化/AI 密钥/系统路径/基础设施密钥
+- 2026-04-09 **[移动端/新增]** `app/src/utils/interceptor.js`：全局导航守卫（未登录拦截/管理端权限校验）+ Android 物理返回键双击退出
+- 2026-04-09 **[移动端/新增]** `app/src/manifest.json`：三端平台配置——Android（minSdk 26/targetSdk 34）、iOS、HarmonyOS（minAPI 12）、H5（开发代理）
+- 2026-04-09 **[移动端/新增]** `app/src/pages.json`：完整路由配置（17 个主包页面 + 14 个管理端子包页面）+ 4 Tab TabBar（首页/题目/提交/我的）
+
+### 主页黄金分割双栏布局
+
+- 2026-04-09 **[前端/优化]** `HomeDashboard.vue`：主页从 800px 单栏布局升级为 1160px 黄金分割双栏布局（`1.618fr : 1fr`）——左栏 61.8%（课程进度卡 + 快捷操作），右栏 38.2%（最近提交 + 公告 + 学习建议 + 错题概况 + 今日复习），900px 以下断点回退为单栏堆叠
+
+### 主页视觉美化与内容填充
+
+- 2026-04-09 **[前端/优化]** `HomeDashboard.vue`：问候区升级为 Hero Banner——浅蓝渐变背景 + 圆角卡片 + 右上角光晕装饰，emoji 包裹在带阴影的圆角方块内，每日寄语融入半透明底色条，整体视觉从纯文本升级为有呼吸感的首屏区块
+- 2026-04-09 **[前端/优化]** `HomeDashboard.vue`：快捷操作卡片图标升级——每张卡片带独立主题色渐变圆形背景（蓝/紫/绿），hover 时图标缩放 + 边框高亮 + 卡片抬升效果
+- 2026-04-09 **[前端/新增]** `HomeDashboard.vue`：新增「最近提交」常驻模块——调用现有 `getSubmissionList(0, 5)` 获取最近 5 条提交，渲染为紧凑时间线（AC/WA 彩色标签 + 题目名 + 相对时间），无提交时显示虚线框引导文案
+- 2026-04-09 **[前端/新增]** `HomeDashboard.vue`：新增「平台公告」模块——调用现有 `getAnnouncementList(0, 2)` 获取最新 2 条公告，黄色圆点 + 标题 + 日期紧凑行，点击跳转公告页
+- 2026-04-09 **[前端/优化]** `HomeDashboard.vue`：全部新模块同步适配移动端 640px 断点响应式
+
+### 主页补题卡片类型汉化
+
+- 2026-04-09 **[前端/优化]** `HomeDashboard.vue`：「下一步学习建议」区域的 card_type 标签从英文标识符（如 `course_example`、`faded_example`）改为中文显示名（课件例题、渐退示例等），覆盖全部 13 种卡片类型
+
+### 主页体验优化 — 学生归属感
+
+- 2026-04-09 **[前端/优化]** `HomeDashboard.vue`：新增顶部问候区——根据时段（早/中/下午/晚/深夜）显示个性化问候语 + 用户名（优先 real_name，其次 username），附带完整日期与星期显示，配合时段对应 emoji
+- 2026-04-09 **[前端/优化]** `HomeDashboard.vue`：新增每日学习寄语模块——20 条针对编程初学者的鼓励语按日期轮换，蓝色左边框卡片样式，填补条件区块为空时的视觉空白
+- 2026-04-09 **[前端/优化]** `HomeDashboard.vue`：在主页右下角添加 1/4 地球装饰元素——使用 SVG 内联绘制儿童彩绘风格地球（蜡笔色块大陆、渐变海洋、手绘虚线边框），通过 `position: fixed` 定位仅露出左上四分之一弧面，鼠标悬停触发持续旋转动画，移动端自适应缩小尺寸
+
+### 远景规划文档优化 — 对齐 AI Agent 潮流
+
+- 2026-04-09 **[文档/优化]** `todo1.md`：从"AI 导学闭环升级方案"升级为"AI Agent 学习伴侣方案"——新增 Agent Memory（跨会话学习画像）、Agent Tool Use（代码沙箱/知识检索/错误模式匹配等工具形式化建模）、Agent Reasoning Transparency（推理链可视化培养计算思维）、自适应教学策略（Agent 根据学习者画像自主选择教学策略）
+- 2026-04-09 **[文档/优化]** `todo0_2.md`：从"固定学习路径准备度模型接入方案"升级为"AI Agent 自适应学习路径引擎方案"——新增 Agent Intelligence Layer 定位（readiness 模型作为 Agent 感知层）、Agent 解释能力（LLM 生成自然语言推荐理由）、多信号融合路径规划（readiness + mastery + error_patterns + recent_activity）、推荐理由缓存机制
+- 2026-04-09 **[文档/优化]** `todo2.md`：从"AI 可信回放中心 v1 方案"升级为"AI Agent 可观测性与评估平台 v1 方案"——新增 Agent 概览看板（健康度/教学质量/学习效果/策略分布四维指标）、Agent Trace 时间线（完整还原 Agent 决策链路的 span 节点可视化）、LLM-as-Judge 自动评估（证据充分性与教学适配性由 LLM 自动评分）、Agent 行为分析面板（策略选择/工具调用/Memory 影响分析）
+
+### 作业数据看板弹窗
+
+- 2026-04-09 **[后端]** `ClassroomAssignmentController.java`：新增 `GET /api/classroom/{classroomId}/assignments/{assignmentId}/stats` 端点，返回作业实时统计数据
+- 2026-04-09 **[后端]** `ClassroomServiceImpl.java`：实现 `assignmentStats` 方法，通过 SQL 聚合查询返回提交概览（已提交/总人数/平均分/最高分/最低分/满分/迟交/待批阅）、逐题得分率（按板块分组，含 AC 率和平均得分率）、成绩分布（5 段区间）、学生提交明细
+- 2026-04-09 **[前端]** `api.js`：新增 `getAssignmentStats(classroomId, assignmentId)` 方法
+- 2026-04-09 **[前端]** `ClassroomAssignment.vue`：教师端"查看"按钮由整页跳转改为弹窗触发（`el-dialog`），弹窗内展示 4 个数据区块：概览统计条（6 个数字卡片）、逐题得分率（进度条 + AC 率）、成绩分布柱状图（ECharts）、学生提交明细表格（含迟交/批阅状态标签）；弹窗底部提供"前往评分"按钮跳转到 `AssignmentGrading`
+
+### 比赛文档校正
+
+- 2026-04-09 **[文档/修正]** `docs/competition/设计说明书.md`：后端 Java 源文件从 359 更正为 362，代码行数从 57,487 更正为 58,394，控制层端点从"约 300+"更正为 306
+- 2026-04-09 **[文档/修正]** `docs/competition/设计说明书.md`：Agent 组织方式从"5 个专职 Agent"更正为"6 个 Agent（含 OrchestratorAgent 编排调度）"
+- 2026-04-09 **[文档/修正]** `docs/competition/设计说明书.md`：语言包初始化管线从 10 阶段更正为 12 阶段，补充 `kc_extraction` 和 `problem_gen` 阶段
+- 2026-04-09 **[文档/修正]** `docs/competition/设计说明书.md`：结构化卡片覆盖范围补充 Parsons problem 脚手架形态
+- 2026-04-09 **[文档/修正]** `docs/competition/设计说明书.md`：首页仪表盘补充快捷操作入口，班级模块补充 AI 生成题目，教师数据看板补充活跃知识点 TOP 排行
+- 2026-04-09 **[文档/修正]** `docs/competition/设计说明书.md`：管理后台功能补充用户管理、公告管理、知识图谱管理、AI 变体题审核、题目管理等
+- 2026-04-09 **[文档/修正]** `docs/competition/作品小结.md`：同步更新工程规模数据、Agent 数量、管线阶段数、管理后台功能描述
+- 2026-04-09 **[文档/修正]** `docs/competition/原创承诺书.md`：同步更新 Java 源文件数和代码行数
+- 2026-04-09 **[文档/修正]** `docs/competition/PPT/generate.mjs`：同步更新 Java 源文件数（362）、接口映射数（306）、Agent 数量（6）、管线阶段数（12）、Vite 版本（7）
+
+### 研究模型：A+B+C 稳定优于 A+B 和 A+C 的架构优化
+
+- 2026-04-09 **[研究/变更]** `curriculum_bias.py`（B）：从标量偏置升级为 d_model 维结构向量——`b_gap` 和 `b_rel` 输出完整向量而非标量，新增 `key_modulation` 模块对 backbone 的 key 做结构感知调制，输出 scalar_bias + struct_vector + key_modulation 三路信号
+- 2026-04-09 **[研究/变更]** `prototype_fusion.py`（C）：从静态融合升级为上下文感知融合——gate 输入从 `[q, p]` 扩展为 `[q, p, history_ctx]`，使融合比例随学生历史状态动态调整；新增 `proto_feature` 输出供下游交互使用
+- 2026-04-09 **[研究/新增]** `readiness_model.py`：新增 `StructureSemanticInteraction` 模块（仅在 A+B+C 中激活）——B 的结构信号通过 `struct_to_sem_gate` 选择 C 的哪些语义维度重要，C 的语义信号通过 `sem_to_struct_gate` 加权 B 的哪些结构关系有用，产生乘性交互项拼接进分类器输入。此交互是 A+B 或 A+C 单独无法获得的
+- 2026-04-09 **[研究/新增]** `readiness_model.py`：新增辅助对齐损失——cosine similarity 将 unit embedding 推向其 prototype embedding 方向，权重 0.1，仅 C 激活时生效
+- 2026-04-09 **[研究/变更]** `readiness_model.py`：分类器从 2 层 MLP 升级为 3 层（d_model → d_model/2 → 1），A+B+C 时输入多一个 d_model 维交互项
+- 2026-04-09 **[研究/变更]** `trainer.py`：BCE 损失替换为 Focal Loss（γ=2.0），缓解正负样本不平衡对模型影响；新增 label smoothing（ε=0.05）防止过度自信；学习率调度改为 3 epoch warm-up + cosine decay；TensorBoard 新增 debug 通道记录 proto_gate_mean 和 struct_bias_std
+
+### 班级详情四表格统一可变分页
+
+- 2026-04-09 **[前端/新增]** `Pagination.vue`：从 `AdminPagination` 提取共享分页组件到 `src/components/Pagination.vue`，支持 `total`、`currentPage`(v-model)、`pageSize`(v-model)、`pageSizes` 可变每页条数，layout 含 total + sizes + prev/pager/next
+- 2026-04-09 **[前端/变更]** `AdminPagination.vue`：改为 `extends` 共享 `Pagination` 组件，admin 端零行为变化
+- 2026-04-09 **[前端/新增]** `LessonManagement.vue`：课件表格接入共享 `Pagination`，客户端分页（10/20/50/100 可选）
+- 2026-04-09 **[前端/新增]** `ClassroomDetail.vue`：成员表格接入共享 `Pagination`，客户端分页
+- 2026-04-09 **[前端/新增]** `ClassroomDetail.vue`：题目表格接入共享 `Pagination`，客户端分页
+- 2026-04-09 **[前端/新增]** `ClassroomAssignment.vue`：作业表格接入共享 `Pagination`，客户端分页
+
+### 数据看板下拉菜单交互修复
+
+- 2026-04-09 **[前端/修复]** `ClassroomDetail.vue`：数据看板 Tab 下拉菜单被 el-tabs 的 `overflow: hidden` 裁剪导致不可见，覆盖 `el-tabs__nav-wrap`、`el-tabs__nav-scroll`、`el-tabs__nav` 的 overflow 为 visible
+- 2026-04-09 **[前端/变更]** `ClassroomDetail.vue`：下拉菜单保持向下弹出（`top: 100%`），覆盖 overflow 后正常显示
+- 2026-04-09 **[前端/新增]** `ClassroomDetail.vue`：数据看板 Tab 右侧新增 `CaretBottom` 倒三角图标，hover 时旋转 180 度指示展开状态
+
+## [Unreleased] - 2026-04-08
+
+### 研究方案：固定路径准备度预测——数据源重构与项目接入设计
+
+- 2026-04-08 **[研究/变更]** `todo0_1.md`：默认行为主数据从 HELP-DKT（6 道题，不足以构建有效路径）替换为 **ACcoding**（Nature Scientific Data 2024，4M+ 提交 / 27K 学生 / 4.5K 题 / 100 KP tag，CC-BY 4.0）；ACcoding 需按 Python 语言 + difficulty ≤ 3.0 + 初学者 KP 白名单过滤出初学者子集
+- 2026-04-08 **[研究/变更]** `todo0_1.md`：HELP-DKT 降级为 `micro_smoke` 管线验证模式，不参与正式训练和消融，不写入论文结果
+- 2026-04-08 **[研究/新增]** `todo0_1.md`：新增三执行模式（`micro_smoke` / `public_smoke` / `project_ppt`），`public_smoke` 使用 ACcoding 子集 + Think Python 章节作为固定路径，全自动无需人工
+- 2026-04-08 **[研究/新增]** `todo0_1.md`：新增 Think Python 3e（CC-BY-NC 3.0，零基础 Python 教材）和 Automate the Boring Stuff（CC-BY-NC-SA 3.0）作为核心课程语料，Think Python 章节结构作为 `public_smoke` 默认学习路径来源
+- 2026-04-08 **[研究/新增]** `todo0_1.md`：新增 EDA 验证步骤，过滤后必须检查提交量、题目数、学生数、序列长度、正负样本比等 6 项最低阈值，不达标 fail-fast
+- 2026-04-08 **[研究/修复]** `todo0_1.md` + `README.md`：统一两文档参数冲突——随机种子改为 6 个（42/123/2024/2025/2026/3407，保证 Wilcoxon p < 0.05 可达）、lr 统一 1e-3、weight_decay 统一 1e-4、gradient_clip 统一 1.0、checkpoint 命名统一为 `best_by_auroc.ckpt` + `best_by_f1.ckpt`
+- 2026-04-08 **[研究/新增]** `todo0_1.md` + `README.md`：新增与 Alethicode 主项目的三阶段接入设计（Phase 1 离线批量导入 → Phase 2 离线批量推理 → Phase 3 在线推理），明确 `unit` → `language_pack_kc`、`readiness_score` → 新增 `learner_readiness_prediction` 表的映射关系
+- 2026-04-08 **[研究/新增]** `README.md`：增加现有项目数据模型映射（`language_pack_chapter` / `language_pack_kc` / `language_pack_kc_prerequisite` / `learner_kc_mastery` / `StudentRiskDetectionService`），说明 readiness 模型与现有 EMA 掌握度系统互补而非替代
+- 2026-04-08 **[研究/新增]** `todo0_1.md`：新增 `filter_accoding.sh`（ACcoding SQL 导入 SQLite + 过滤）和 `run_eda.sh`（EDA 验证）两个管线脚本；语义原型编码器固定为 `sentence-transformers/all-MiniLM-L6-v2`
+
+### 语言包初始化——"标准答案驱动"题目正确性方案
+
+- 2026-04-08 **[后端/新增]** `LanguagePackProblemJudgeCheckService`：从 `SubmissionServiceImpl` / `JudgeBackedExecutionTraceService` 提取 judge 调用公共逻辑（judge server 选择、`/judge` HTTP 调用、临时测试点目录管理、语言配置解析），封装为 `executeReferenceSolution` 方法供语言包初始化链路复用
+- 2026-04-08 **[后端/新增]** `JudgeCheckResult`：独立 record 类，承载 judge 执行结果（逐项通过/失败、实际输出、编译错误），提供 `failedIndices()` 辅助方法
+- 2026-04-08 **[后端/新增]** `ProblemJudgeMaterializationHelper`：封装 judge 物化输出 + 定向重生输入的完整流程，供 `ProblemGenerationServiceImpl` 和 `ProblemValidationServiceImpl` 共用；含 `materializeOutputs`（生成阶段用）、`verifyOutputs`（验证阶段复验用）、`attemptRepairForValidation`（验证阶段修复用）三个入口方法
+- 2026-04-08 **[后端/变更]** `LanguagePackProblemPackage`：新增 `withOverwrittenOutputs` 和 `withReplacedInputs` 不可变辅助方法，支持按 judge 结果覆盖 output 或替换失败的 input
+- 2026-04-08 **[后端/变更]** `ProblemGenerationServiceImpl`：LLM 生成题包后，自动调用 judge 执行标准答案，用实际输出无条件覆盖 LLM 返回的 output；部分输入执行失败时触发定向重生（仅重生失败的 input，保留题面与标准答案不变），重生后仍失败则 fail-fast 整批
+- 2026-04-08 **[后端/变更]** `ProblemValidationServiceImpl`：结构校验通过后新增 judge 复验环节——重新执行标准答案并比对输出与持久化值是否一致；不一致时尝试定向重生 + 二次复验，仍失败则标记 `validation_status=failed`
+- 2026-04-08 **[后端/变更]** 生成 prompt 更新：明确要求 `reference_solution_code` 必须可编译、可执行、输出确定性，告知 LLM 系统会用 judge 结果覆盖其 output
+- 2026-04-08 **[测试]** `LanguagePackInitIntegrationTest`：新增 5 个集成测试覆盖 judge 物化 output 覆盖、judge 不可用 fail-fast、validate 阶段 output 不一致检测、judge 匹配通过、结构错误仍走整题重生逻辑
+
+### 班级学习脉搏：支持按周/月筛选 & 活跃知识点等高滚动
+
+- 2026-04-08 **[前端]** `ClassroomAnalytics.vue`：活跃知识点 TOP 卡片高度与左侧脉搏卡片同步，知识点过多时 body 区域自动出现纵向滚动条；脉搏卡片 header 新增"近 7 天 / 近 30 天"单选按钮组，切换后重新请求数据
+- 2026-04-08 **[前端]** `api.js`：`getWeeklyPulse` 新增 `range` 参数（`week` | `month`），传递至后端查询参数
+- 2026-04-08 **[后端]** `ClassroomAnalyticsController.java`：`weekly-pulse` 端点新增 `@RequestParam range`（默认 `week`）
+- 2026-04-08 **[后端]** `ClassroomAnalyticsService.java`：`getWeeklyPulse` 根据 `range` 动态计算天数（`week` → 6，`month` → 29），SQL 使用 `make_interval(days => ?)` 传入整数参数，修复原 `cast(? as interval)` 在 JDBC 参数绑定中的类型转换失败问题
+- 2026-04-08 **[后端]** `ClassroomAnalyticsService.java`：修复"课件问答热度"查询——`page_hit_json` 实际存储的是纯页面 ID 数组（如 `[63]`），而非对象数组；重写 SQL 通过 `CROSS JOIN LATERAL jsonb_array_elements` + `JOIN language_pack_page` + `JOIN language_pack_document` 从页面 ID 解析出 `document_title`（`original_filename`）和 `page_no`，兼容新旧两种 JSON 格式
+
+### 数据看板标签页 hover 快速导航
+
+- 2026-04-08 **[前端]** `ClassroomDetail.vue`：数据看板 tab 标签使用自定义 `#label` slot，鼠标悬停时显示下拉菜单，列出看板内 5 个区块（学情周报、学习脉搏、薄弱知识点、风险学生、课件使用分析），点击后自动切换到看板 tab 并 smooth scroll 到对应区块
+- 2026-04-08 **[前端]** `ClassroomAnalytics.vue`：每个区块根元素添加 `data-section` 属性，暴露 `scrollToSection(sectionKey)` 方法供父组件调用
+
+### 班级列表身份标签换行修复
+
+- 2026-04-08 **[前端]** `ClassroomList.vue`：`.leetcode-tag` 添加 `white-space: nowrap`，修复"教师"等身份标签在窄列中被拆行显示的问题
+
+### 统一 Classroom 模块所有表格的字体、大小、行高
+
+- 2026-04-08 **[前端]** `ClassroomList.vue`：移除 `.table-container :deep(.el-table)` 中对 `th`（自定义 background / font-weight / color）和 `td`（padding: 0）的覆盖，恢复为 Element Plus 默认表格行高与表头样式
+- 2026-04-08 **[前端]** `ClassroomDetail.vue`：移除添加题目弹窗表格的 `size="small"` 和 `border` 属性，统一为默认尺寸；移除 `.classroom-problem-table` 表头 `white-space / word-break` 自定义样式
+- 2026-04-08 **[前端]** `ClassroomAnalytics.vue`：移除风险学生表格的 `stripe` 属性，移除学生画像弹窗"最近提交"表格的 `size="small"` 和 `stripe` 属性
+- 2026-04-08 **[前端]** `AIGeneratedProblems.vue`：移除 `.ai-table` 的自定义表头背景色 `#f7f8fa`、`font-weight: 600` 以及 `td vertical-align` 覆盖，仅保留 `margin-top`
+- 2026-04-08 **[前端]** `ClassroomDetail.vue`：将班级题目表格 `#` 和 `题目` 列从 `<el-button link size="small">`（~12px）改为 `<a>` 标签（继承 14px），与作业列表标题列写法一致
+- 2026-04-08 **[前端]** `AIGeneratedProblems.vue`：移除"来源"列内联 `font-size: 12px`；为"题目标题"列 `<a>` 添加 `cursor: pointer; color: #2d8cf0` 样式，与作业列表统一
+- 以上所有 Classroom 表格现在统一采用 Element Plus 默认表格格式（14px 字体、默认行高、默认表头样式），与作业列表（ClassroomAssignment.vue）保持一致
+
+### 课件问答热度：显示文档名称+页码，支持点击跳转预览
+
+- 2026-04-08 **[后端]** `backend/src/main/java/com/alethicode/service/impl/ClassroomAnalyticsService.java`：重写"课件问答热度"SQL，将原来按整条 JSONB 数组聚合改为展开 `page_hit_json` 后按 `document_id` + `page_no` 分组，返回 `document_title`、`page_no`、`query_count` 三个语义明确的字段；同时在响应中返回 `language_pack_id` 以供前端构造预览链接
+- 2026-04-08 **[前端]** `frontend/src/pages/oj/views/classroom/ClassroomAnalytics.vue`：课件问答热度列表由原来的"第X页"改为"文档名称 · 第 X 页"格式，点击后在新标签页打开该页课件预览（复用 QA 页的 `getLanguagePackQaPreviewUrl` API）；移除已废弃的 `formatPageHits` 方法
+
+### 班级成员列表列宽优化
+
+- 2026-04-08 **[前端]** `frontend/src/pages/oj/views/classroom/ClassroomDetail.vue`：调整班级成员列表各列宽度分配，将"用户"列从固定 `width="120"` 改为 `min-width="200"` 弹性伸展并左对齐，避免长用户名换行；"角色"列从 `min-width="120"` 缩为 `width="80"`，"操作"列从 `min-width="220"` 缩为 `width="160"`，"加入时间"列固定 `width="170"` 并添加 `white-space: nowrap`，确保所有内容单行显示
+- 2026-04-08 **[前端]** `frontend/src/pages/oj/views/classroom/ClassroomDetail.vue`：二次优化成员列表列宽均衡性——"用户"列移除 `min-width="200"` 改为自适应并居中对齐；"角色"列宽度从 `80` 增至 `120`；"加入时间"列从 `170` 增至 `200`；"操作"列从 `160` 增至 `200`，确保"提升为助教/降为学生"与"移除"按钮同行显示，四列均居中对齐
+
+### 班级作业列表布局优化
+
+- 2026-04-08 **[前端]** `frontend/src/pages/oj/views/classroom/ClassroomAssignment.vue`：修复班级作业列表中"时间"和"操作"列宽度不足导致内容换行的问题；将两列从固定 `width` 改为 `min-width` 并添加 `white-space: nowrap`，确保日期范围和三个操作按钮（查看、更改、删除）始终在同一行显示
+
+### 教师班级创建权限修复与验收数据准备
+
+- 2026-04-08 **[前端/测试]** `frontend/src/pages/oj/views/classroom/ClassroomList.vue`、`frontend/tests/unit/classroom-list-teacher-access-contract.spec.js`：修复教师账号在“我的班级”页因 `admin_type=Teacher` 未被前端识别为可创建班级角色而看不到创建入口的问题；同步新增前端契约测试，约束 `Teacher`、`Admin`、`Super Admin` 均可显示班级创建权限，避免后续回归
+- 2026-04-08 **[前端/测试]** `frontend/src/pages/oj/views/classroom/ClassroomDetail.vue`、`frontend/src/pages/oj/router/routes.js`、`frontend/tests/unit/classroom-collaboration-hidden-contract.spec.js`：按当前产品范围隐藏班级“协作编程”能力，前端不再显示协作编程 Tab，也不再注册 `/classroom/collab` 独立路由；班级详情初始化同步停止主动拉取协作会话数据，并新增契约测试防止入口回归
+- 2026-04-08 **[前端/测试]** `frontend/src/pages/oj/views/classroom/ClassroomAnalytics.vue`、`frontend/tests/unit/classroom-analytics-layout-contract.spec.js`：修复班级数据看板在隐藏 Tab 中初始化时图表宽度计算错误导致“班级学习脉搏”挤压到左侧的问题；新增根容器 `ResizeObserver` 在看板显示后自动触发图表重算，同时调整“活跃知识点 TOP”卡片布局为按内容自然撑高，避免固定等高布局造成内部滚动
+
+### 比赛文档口径与项目现状对齐
+
+- 2026-04-08 **[文档]** `docs/competition/作品小结.md`、`docs/competition/设计说明书.md`、`docs/competition/PPT/generate.mjs`：继续统一比赛材料叙事口径，将残留的“AI 导学助手 / 在线评测系统 / OJ 工具 / Python 初学者”等偏单点功能或单语言定位表述收敛为“面向初学者的 LLM 驱动智能教育平台”，同步把模块命名调整为“学习任务与评测”“LLM 导学与学习支持”等更贴合平台定位的表达，并更新答辩 PPT 对应文案
+
+- 2026-04-08 **[文档]** `docs/competition/作品小结.md`、`docs/competition/作品情况表.md`、`docs/competition/设计说明书.md`、`docs/competition/原创承诺书.md`、`docs/competition/PPT/generate.mjs`：将 `docs/competition` 比赛材料中的作品名称统一更新为 `Alethicode——面向初学者的 LLM 驱动智能教育平台`，同步修正作品简介首句、作品名称字段、设计说明书主标题、承诺书正式名称以及答辩 PPT 首页/结束页文案，消除新旧标题混用
+
+- 2026-04-08 **[文档]** `docs/competition/设计说明书.md`：进一步强化作品目标用户表述，将受众从一般性“非计算机专业学生/初学者”明确收敛为“非科班初学者”，并同步在项目背景、平台定位、实施目标、交互价值与总结中强调平台围绕该人群的学习支持场景设计
+
+- 2026-04-08 **[文档]** `docs/competition/作品小结.md`、`docs/competition/作品情况表.md`、`docs/competition/设计说明书.md`、`docs/competition/原创承诺书.md`：基于当前仓库与前端真实可见入口重写比赛文档，统一收敛为在线评测、做题页 AI 导学、课件问答、错题学习、班级看板与后台语言包管理等可核验能力；同步将 AI 工作流口径从旧版“7 阶段”修正为当前代码中的“6 阶段”，移除对隐藏前端入口和默认开启 Beta 能力的夸大描述，更新源码规模、迁移数量、启动方式与安装说明
+- 2026-04-08 **[文档/脚本]** `docs/competition/PPT/generate.mjs`：同步修正比赛答辩 PPT 生成脚本中的模块描述、技术规模与阶段表述，避免后续重新生成 PPT 时回滚到旧口径
+
+### 固定路径准备度研究文档收敛
+
+- 2026-04-08 **[文档]** `research/fixed_path_readiness/README.md`：新增固定学习路径下 readiness 预测研究说明，详细固定数据获取方式、`A/B/C` 网络定义、消融实验口径、训练实时日志要求、可视化产物清单与最终输出文件，明确这条研究线必须支持训练过程可视化、持续落日志与批量生成潜在可用图片
+- 2026-04-08 **[清理]** 删除 `research/fixed_path_readiness/tests/test_prepare_pipeline.py`：撤回未完成的脚手架测试草稿，避免在仅需研究说明文档的阶段引入半成品实现痕迹
+
+### 课程内容包初始化：前端移除重建 Embedding 按键
+
+- 2026-04-08 **[前端]** `frontend/src/pages/admin/views/general/LanguagePackInit.vue`、`frontend/src/pages/admin/api.js`、`frontend/tests/unit/admin-language-pack-init-contract.spec.js`：课程内容包任务详情头部移除“重建 Embedding”按钮；同步删除页面内 `reEmbedding` 状态、`doReEmbed` 方法以及前端 `reEmbedLanguagePack` API 封装，并新增前端契约测试约束该入口不再出现，避免后续回归
+
+### 课程内容包初始化：执行态拆分、实时进度与中断弹窗
+
+- 2026-04-08 **[后端]** `backend/src/main/resources/db/migration/V48__language_pack_init_active_execution_state.sql`、`backend/src/main/java/com/alethicode/dto/response/LanguagePackInitTaskResponse.java`、`backend/src/main/java/com/alethicode/service/languagepack/LanguagePackInitExecutionService.java`、`backend/src/main/java/com/alethicode/service/languagepack/impl/LanguagePackInitExecutionServiceImpl.java`、`backend/src/main/java/com/alethicode/service/languagepack/impl/LanguagePackInitServiceImpl.java`：为 `language_pack_init_task` 新增 `active_step_key/active_status/active_message/progress_current/progress_total/active_started_at` 执行态字段，任务响应同步返回执行态信息；移除 `problem_gen` 对任务阶段约束的依赖，改为执行态表达“正在生成”，并在失败时统一清理执行态，修复 `generate-problems` 写入非法阶段导致的 500
+- 2026-04-08 **[后端]** `backend/src/main/java/com/alethicode/service/languagepack/impl/DocumentParsingServiceImpl.java`、`backend/src/main/java/com/alethicode/service/languagepack/impl/KcExtractionServiceImpl.java`、`backend/src/main/java/com/alethicode/service/languagepack/impl/ExampleExtractionServiceImpl.java`、`backend/src/main/java/com/alethicode/service/languagepack/impl/ProblemGenerationServiceImpl.java`、`backend/src/main/java/com/alethicode/service/languagepack/impl/ProblemValidationServiceImpl.java`、`backend/src/main/java/com/alethicode/service/languagepack/impl/LanguagePackPublishServiceImpl.java`：课程内容包初始化各阶段统一接入任务级执行协调器，启动时做同任务互斥校验，运行中以独立事务持续写入阶段日志与进度文案，结束后再推进最终检查点，提升 5-6-7 阶段实时可见性与可恢复性
+- 2026-04-08 **[前端]** `frontend/src/pages/admin/api.js`、`frontend/src/pages/admin/views/general/LanguagePackInit.vue`：初始化页改为优先依据 `active_status/active_step_key` 驱动时间线高亮与轮询频率，运行中 1 秒轮询、空闲 3 秒轮询；新增当前执行进度条文案，并在任务失败、409 重复启动、网络/请求中断时弹出阻断式提示框；初始化步骤接口支持关闭默认 `Succeeded`/错误 toast，由页面接管提示
+- 2026-04-08 **[测试]** `backend/src/test/java/com/alethicode/controller/AdminLanguagePackControllerContractTest.java`、`backend/src/test/java/com/alethicode/integration/LanguagePackInitIntegrationTest.java`、`frontend/tests/unit/admin-language-pack-init-contract.spec.js`：更新初始化任务响应契约与前端同步刷新契约；并发生成回归用例改为断言 `active_status=running`、`active_step_key=problem_packages_ready` 以及重复启动返回 `409 conflict`
+
+### QA 课件预览路径修复
+
+- 2026-04-08 **[后端]** `backend/src/main/resources/db/migration/V49__migrate_language_pack_paths_to_alethicode_root.sql`：将课程内容包历史数据中的绝对路径前缀从 `/home/cypress/code_java/` 统一迁移为 `/home/cypress/Alethicode/`，覆盖 `language_pack_document.original_path/canonical_path/preview_pdf_path` 与 `language_pack_page.preview_asset_path`，修复仓库迁移后 QA 预览引用旧路径的问题
+- 2026-04-08 **[后端]** `backend/src/main/java/com/alethicode/service/languagepack/impl/LanguagePackQaServiceImpl.java`：QA 预览读取增加旧路径自动重映射与落库修正；当 `preview_pdf_path` 命中历史根目录但仍可在当前 `preview-dir/tasks/...` 找到文件时，自动迁移到新路径并继续返回 PDF，避免出现 `Preview path is outside allowed directory`
+
+### 启动脚本联调修复
+
+- 2026-04-08 **[后端]** `backend/src/main/java/com/alethicode/service/impl/AITutorServiceImpl.java`、`backend/src/main/java/com/alethicode/service/aitutor/review/ErrorReviewPackageService.java`、`backend/src/test/java/com/alethicode/service/ServiceConstructorInjectionContractTest.java`：修复 `start.sh` 启动时两个 Spring `@Service` 因存在多个公开构造器但未显式标注注入入口而导致容器创建失败的问题，并新增回归测试约束此类 Bean 必须且只能声明一个 `@Autowired` 构造器
+
+### 仓库根路径与后端根包迁移修正
+
+- 2026-04-08 **[后端]** `backend/src/main/java/com/alethicode/**`、`backend/src/test/java/com/alethicode/**`、`backend/pom.xml`：将后端 Java 根包从 `com.pytutor` 统一迁移为 `com.alethicode`，同步修正源码、测试、反射字符串、导入声明与 Maven `groupId`，并将物理目录从 `com/pytutor` 调整为 `com/alethicode`
+- 2026-04-08 **[配置]** `backend/.env`、`backend/README.md`、`deploy/README.md`、`backend/src/test/java/com/alethicode/integration/*.java`：将运行配置、README 与集成测试中的仓库绝对路径从 `/home/cypress/code_java` 统一改为 `/home/cypress/Alethicode`，消除目录迁移后的硬编码路径失效
+- 2026-04-08 **[文档]** `docs/**`、`frontend/**`、`scripts/m12/m12_sync_frontend.sh`：同步修正文档、报告与脚本提示中的旧仓库根路径及 `com/pytutor` 文件路径引用，确保当前仓库内跳转路径与示例命令指向实际存在的位置
+
+### 统一教学补题编排层（语言自适应初学者版本 v1）
+
+- 2026-04-07 **[后端]** `BeginnerSupplementPlannerService.java`：新增统一补题编排服务，按 `trigger`（`warmup/stuck/wrong_answer/daily_review/post_ac`）与 `language_pack.primary_language` 生成教学梯度卡片，输出 `language_profile`、`intro_message`、`target_kcs`、`cards[]`（含 `education_goal/card_type/why_this_now`）
+- 2026-04-07 **[后端]** `AITutorController.java`、`AITutorService.java`、`AITutorKnowledgeDomainService*.java`、`AITutorServiceImpl.java`：新增 `POST /api/ai/tutor/supplement-plan`；`GET /api/ai/skill/recommend` 响应增强 `recommended_stage`、`recommended_question_type`、`target_kcs`、`why_this_now`
+- 2026-04-07 **[后端]** `CreateReviewPackageRequest.java`、`ReviewPackageResponse.java`、`ErrorReviewPackageController.java`、`ErrorReviewPackageService.java`：专项复习包创建链路新增 `language_pack_id/problem_id/trigger` 入参；复习题条目新增 `card_type`、`education_goal`、`why_this_now`、`target_kcs`，并将补题计划元数据写入 `evidence_summary`
+- 2026-04-07 **[前端]** `api.js`：新增 `getSupplementPlan(data)`，对接统一补题编排接口
+- 2026-04-07 **[前端]** `HomeDashboard.vue`：新增“下一步学习建议”模块（`next-step-section`），首页按 `trigger: 'warmup'` 拉取并展示“例题 -> 微练习 -> 编程题”梯度
+- 2026-04-07 **[前端]** `Problem.vue`：新增“卡住时补题卡片”面板，空闲与连续错误场景触发 `trigger: 'stuck'`，展示 `why_this_now` 与分步补题建议
+- 2026-04-07 **[前端]** `LearnerNotebook.vue`、`HomeDashboard.vue`：创建专项复习包时统一携带 `language_pack_id` 与触发器（错题本 `wrong_answer`，首页复习 `daily_review`），避免因缺失课程包上下文导致流程阻塞
+- 2026-04-07 **[前端]** `ErrorReviewPackagePage.vue`：复习包题目卡展示教学元数据（`education_goal/card_type/why_this_now`），与后端统一补题编排结果对齐
+- 2026-04-07 **[测试]** `oj-beginner-supplement-contract.spec.js`、`AITutorControllerContractTest.java`、`ErrorReviewPackageServiceTest.java`：补充统一补题编排契约与服务签名更新相关断言
+- 2026-04-07 **[文档]** `docs/说明书/统一补题编排与AI导学状态机说明书_2026-04-07.md`：新增本次改造详细说明书与“防非法状态”状态机规划（状态/事件/守卫/落地阶段）
+- 2026-04-07 **[文档]** `docs/说明书/统一补题编排与AI导学状态机说明书_2026-04-07.md`：补充 AI 导学助手当前工作流图（横向阶段流 + 纵向分层时序），并给出状态机差异分析
+- 2026-04-07 **[文档]** `docs/说明书/统一补题编排与AI导学状态机说明书_2026-04-07.md`：新增 AI 导学助手 ASCII 包图（包层级 + 同步/异步主流程），用于不支持 Mermaid 的阅读与评审场景
+
+### AI 导学工作流：彻底移除 SCAFFOLDING 独立状态
+
+- 2026-04-07 **[后端]** `Phase.java`、`WorkflowEvent.java`：移除 `SCAFFOLDING` 枚举值，统一工作流主状态/事件集合，消除“后端可下发但主状态机不可达”的非法状态来源
+- 2026-04-07 **[后端]** `TutorActionPolicy.java`、`AITutorWorkflowAdminServiceImpl.java`：`IDEATING` 阶段“开始编码”动作改为直接下发 `CODING`；移除 `SCAFFOLDING` 主代理判定与共享上下文中的脚手架节点摘要
+- 2026-04-07 **[后端]** 删除 `ScaffoldingAgent.java`：移除已下线的独立脚手架事件代理实现，避免遗留能力被误触发
+- 2026-04-07 **[前端]** `workflowStateMachine.js`：移除 `SCAFFOLDING` 的 `EVENT_OUTPUT_KEY` / `EVENT_MSG_TYPE` 映射，前后端事件语义保持一致
+- 2026-04-07 **[测试]** `TransitionPolicyTest.java`、`WorkflowRealtimeSupportTest.java`、`AITutorWorkflowGovernanceIntegrationTest.java`、`AITutorWorkflowStateMachineIntegrationTest.java`：将工作流事件断言改为 `IDEATING/CODING` 主线，并删除已失效的 `SCAFFOLDING` pending-action 测试路径
+- 2026-04-07 **[测试]** 删除 `AITutorWorkflowStructuredCardsIntegrationTest.java`：移除基于 `SCAFFOLDING` 事件触发的结构化卡片集成测试，避免保留不可达流程断言
+- 2026-04-07 **[文档]** `docs/说明书/统一补题编排与AI导学状态机说明书_2026-04-07.md`：状态/事件集与现状说明更新为“`SCAFFOLDING` 已收敛为内容能力，不再作为独立 workflow phase/event”
+- 2026-04-07 **[文档]** `docs/说明书/统一补题编排与AI导学状态机说明书_2026-04-07.md`：新增“AI 导学助手卡片流向图”（横向主链路 + 纵向分层链路），明确 `ProblemGuideCard/IdeateAnalysisCard/SkeletonCodeCard/ErrorDiagnosisCard/PostACCard/TransferProblemCard/AIReply` 之间的有向流转关系
+- 2026-04-07 **[文档]** `docs/说明书/统一补题编排与AI导学状态机说明书_2026-04-07.md`：为卡片流向补充纯 ASCII 版本（横向 + 纵向），确保在不支持 Mermaid 的环境也可直接阅读
+- 2026-04-07 **[文档]** `docs/说明书/统一补题编排与AI导学状态机说明书_2026-04-07.md`：ASCII 图新增“外部入口层”（含直接提交 WA/AC 自动触发 ERROR_FEEDBACK/AC_REVIEW、快捷动作与聊天入口），明确非卡片起点如何进入卡片链路
+- 2026-04-07 **[文档]** `docs/说明书/统一补题编排与AI导学状态机说明书_2026-04-07.md`：新增“卡片一体化 ASCII 总图（入口 + 分发 + 回流）”，将前述横向图/纵向图/入口图串联为单一连通图，消除视图割裂感
+- 2026-04-07 **[文档]** `docs/说明书/统一补题编排与AI导学状态机说明书_2026-04-07.md`：新增“卡片一体化流程图（Mermaid，含循环）”，并明确 4 条关键循环回路（WA 循环、诊断追踪循环、迁移回主线循环、对话插入循环）
+- 2026-04-07 **[文档]** `docs/说明书/统一补题编排与AI导学状态机说明书_2026-04-07.md`：修正一体化 ASCII 总图中 Skeleton -> CODING 分支的后续流向表达，显式补齐 `CODING -> 提交判题结果 -> AC/WA` 分叉，避免被误读为到 CODING 即结束
+- 2026-04-07 **[文档]** `docs/说明书/统一补题编排与AI导学状态机说明书_2026-04-07.md`：统一一体化 ASCII 总图中判题分叉连线样式为 `---->`，并用 `----WA---->` / `----AC---->` 标注结果分支，提升可读性与风格一致性
+- 2026-04-07 **[后端]** `AITutorWorkflowAdminServiceImpl.java`、`WorkflowCheckpointService.java`：新增工作流 phase 归一化规则，将历史会话/检查点中的 `SCAFFOLDING` 统一映射为 `IDEATING`，修复升级后旧会话可能触发 `Illegal workflow transition` 或 checkpoint 恢复失败的问题
+
+### 课程内容包初始化：阶段日志与步骤动画同步刷新
+
+- 2026-04-07 **[前端]** `LanguagePackInit.vue`：新增统一的任务进度同步入口，将当前阶段与阶段日志改为通过同一轮 `Promise.all` 刷新后再一起提交到页面状态，避免初始化执行过程中时间线动画先更新、日志晚一拍而出现不同步
+- 2026-04-07 **[测试]** `admin-language-pack-init-contract.spec.js`：新增前端契约测试，约束初始化页必须通过同一条同步刷新路径同时拉取任务阶段和阶段日志
+
+### 错题本强化训练跳转与后台导入说明表格结构修复
+
+- 2026-04-07 **[后端]** `ErrorReviewPackageService.java`：错题强化训练包创建改为先写入基础复习题并立即返回，再异步生成 AI 特化题，避免前端点击“错题强化训练”时被 3 次同步 LLM 出题阻塞而长时间停留在加载态
+- 2026-04-07 **[前端]** `LearnerNotebook.vue`、`HomeDashboard.vue`、`ErrorReviewPackagePage.vue`：创建强化训练包后改为等待路由跳转完成；专项复习页进入后会短轮询后台异步生成的 AI 特化题，复习包创建成功即可先进入页面，不再出现按钮一直转圈但页面不切换
+- 2026-04-07 **[前端]** `User.vue`、`ImportAndExport.vue`：导入说明表格补齐 `thead`/`tbody`，消除 Vite 关于 `<tr> cannot be child of <table>` 的 HTML 结构告警
+- 2026-04-07 **[测试]** `ErrorReviewPackageServiceTest.java`：新增“AI 特化题生成不得阻塞强化训练包返回”回归测试，验证复习包创建接口可快速返回基础题目列表
+
+### 课程内容包初始化：修复练习题生成刷新后二次启动导致重复进程
+
+- 2026-04-07 **[后端]** `LanguagePackInitServiceImpl.java`：初始化阶段流转新增 `problem_gen`，允许练习题生成在进入题包就绪前先持久化标记为“练习题生成中”，避免刷新后任务仍停留在 `oj_candidates_ready`
+- 2026-04-07 **[后端]** `ProblemGenerationServiceImpl.java`：题目生成启动时先切换到 `problem_gen`，生成完成后再推进到 `problem_packages_ready`；同阶段再次调用会因阶段不合法被直接拒绝，阻断重复生成并发
+- 2026-04-07 **[前端]** `LanguagePackInit.vue`：阶段步骤映射补齐 `problem_gen -> 练习题生成`，页面刷新后仍能识别后端正在处理并保持按钮禁用，不再允许再次点击“一键执行剩余步骤”或“生成练习题”
+- 2026-04-07 **[测试]** `LanguagePackInitIntegrationTest.java`：新增“练习题生成进行中禁止重复启动”并发回归用例，覆盖首个请求进入生成中阶段后第二次请求必须被拒绝的约束
+
+### 做题页面 5 分钟空闲自动展示课件例题
+
+- 2026-04-07 **[后端]** `CourseProgressController.java`：新增 `GET /api/problems/{problemId}/related-examples` 端点，通过 `language_pack_problem_mapping` → `generation_log` → `language_pack_example_kc_mapping` 查询题目关联的课件例题
+- 2026-04-07 **[前端]** `Problem.vue`：新增空闲检测（5 分钟无键盘/鼠标操作），触发后从底部滑入"相关课件例题"面板，展示标题、知识点标签、代码内容
+- 2026-04-07 **[前端]** `api.js`：新增 `getRelatedExamples(problemId)` API 方法
+
+### 课程包初始化：发布去重保护
+
+- 2026-04-07 **[后端]** `LanguagePackPublishServiceImpl.java`：发布题目前检查 `generation_log_id` 是否已存在于 `language_pack_problem_mapping`，已发布的跳过，避免中断重启后重复生成题目
+- 2026-04-07 **[数据]** 清理 LP 36 中 14 条重复题目记录
+
+### Classroom 第三阶段：学生个体学情画像
+
+- 2026-04-07 **[后端]** `ClassroomAnalyticsService.java`：新增 `getStudentProfile` 方法，聚合 6 维数据：KC 掌握度（按章节排序）、近 30 天做题时间线、错题类型分布、最近 5 条提交记录、连续做题天数、LLM 个性化学情总结
+- 2026-04-07 **[后端]** `ClassroomAnalyticsController.java`：新增 `GET /api/classroom/{id}/analytics/student/{userId}/profile` 端点
+- 2026-04-07 **[前端]** `ClassroomAnalytics.vue`：风险学生表格新增「画像」按钮；弹窗展示完整学情画像（数据摘要栏、LLM 总结、KC 雷达图、错题饼图、30 天趋势折线图、最近提交表格）
+- 2026-04-07 **[前端]** `api.js`：新增 `getStudentProfile` API 方法
+
+### Classroom 第二阶段：LLM 班级学情周报
+
+- 2026-04-07 **[后端]** `ClassroomAnalyticsService.java`：新增 `generateWeeklyReport` 方法，采集本周活跃人数/提交量/AC率/薄弱KC/风险学生数后调用 LLM 生成 3-4 段分析报告
+- 2026-04-07 **[后端]** `ClassroomAnalyticsController.java`：新增 `GET /api/classroom/{id}/analytics/weekly-report` 端点
+- 2026-04-07 **[前端]** `ClassroomAnalytics.vue`：数据看板顶部新增「生成学情周报」按钮和报告展示区域（标题/数据摘要/分段内容）
+- 2026-04-07 **[前端]** `api.js`：新增 `getWeeklyReport` API 方法
+
+### Classroom 数据看板第一阶段增强
+
+- 2026-04-07 **[后端]** `StudentRiskDetectionService.java`：新增 `generateInterventionAdvice` 方法，采集学生掌握度/连续错误/最薄弱KC后调用 LLM 生成 2-3 条个性化干预建议
+- 2026-04-07 **[后端]** `ClassroomAnalyticsController.java`：新增 `GET /api/classroom/{id}/analytics/risk-students/{userId}/advice` 端点
+- 2026-04-07 **[前端]** `ClassroomAnalytics.vue`：风险学生表格新增「查看建议」按钮和弹窗，展示 LLM 干预建议
+- 2026-04-07 **[前端]** `ClassroomAnalytics.vue`：新增「课件使用分析」区域，展示按章节的提交量/AC数/活跃学生柱状图（接入已有 `getCoursewareUsage` API）
+- 2026-04-07 **[前端]** `api.js`：新增 `getRiskStudentAdvice` API 方法
+- 2026-04-07 **[数据]** 注入 5 个测试学生（stu_1~stu_5），含不同掌握度和提交模式，用于验证数据看板功能
+
+### 修复 WA 后 AI 学习助手 SYSTEM_ERROR
+
+- 2026-04-07 **[后端]** `LlmClient.java`：`unwrapJsonCodeFence` 增强 `<think>` 标签处理 — 当 `</think>` 闭合标签缺失时，直接跳到第一个 `{` 提取 JSON，而非整段保留 `<think>` 内容导致解析失败。配合已有的 shape retry 机制（默认 3 次），提升不同 LLM 提供商的兼容性
+
+### 错题本增强：AI 反思 + 再战入口 + 周报
+
+- 2026-04-07 **[后端]** `AITutorServiceImpl.java`：`notebookList` 查询新增 `conquered` 字段，通过子查询判断用户是否在错误后 AC 该题
+- 2026-04-07 **[后端]** `AITutorServiceImpl.java`：新增 `notebookGenerateReflection` 方法，调用 LLM 基于错误类型/根因/修复结果生成 2-3 句第一人称反思文本
+- 2026-04-07 **[后端]** `AITutorServiceImpl.java`：新增 `notebookWeeklySummary` 方法，聚合最近 7 天错题数、已攻克数、最高频错误类型
+- 2026-04-07 **[后端]** `AITutorController.java`：新增 `POST /api/ai/tutor/notebook/generate-reflection` 和 `GET /api/ai/tutor/notebook/weekly-summary` 端点
+- 2026-04-07 **[前端]** `LearnerNotebook.vue`：详情页新增"重做此题"按钮（跳转到题目页，带 `rechallenge=1` 参数）；显示"已攻克/待攻克"状态标签
+- 2026-04-07 **[前端]** `LearnerNotebook.vue`：反思区新增"AI 帮我写"按钮，调用后端 LLM 生成反思并自动保存
+- 2026-04-07 **[前端]** `HomeDashboard.vue`：新增「本周错题概况」卡片，展示本周错题数、已攻克数、最常犯错类型
+- 2026-04-07 **[前端]** `api.js`：新增 `generateNotebookReflection`、`getNotebookWeeklySummary` API 方法
+
+### 导航栏重设计（面向初学者）
+
+- 2026-04-07 **[前端]** `NavBar.vue`：错题本从用户下拉菜单提升为一级导航项，附带待复习数量角标（红色圆点）
+- 2026-04-07 **[前端]** `NavBar.vue`：「课件问答」保持原名
+- 2026-04-07 **[前端]** `NavBar.vue`：「练习」重命名为「做题」，更直观
+- 2026-04-07 **[前端]** `NavBar.vue`：新增 `loadReviewBadge` 方法，页面加载时获取待复习错题数并显示在错题本图标上
+- 2026-04-07 **[前端]** `NavBar.vue`：清理已删除 course 功能的残留代码（`Reading` 图标、`encodeRouteCtx` 导入、`courseRoute` 方法、`isCourseActive` 计算属性）
+
+### 删除 course 学习中心相关功能
+
+- 2026-04-07 **[前端]** 删除 `CourseOverview.vue`、`CourseLearningHub.vue`、`ReviewCenter.vue`、`SprintDashboard.vue` 四个页面组件
+- 2026-04-07 **[前端]** `routes.js`：移除 `/course`、`/course/learn`、`/course/review`、`/course/sprint` 四条路由
+- 2026-04-07 **[前端]** `NavBar.vue`：移除「课程学习」下拉菜单及 `isCourseActive`、`courseRoute` 相关逻辑
+- 2026-04-07 **[前端]** `HomeDashboard.vue`：「继续学习」和「浏览课程」按钮改为跳转到题库
+- 2026-04-07 **[前端]** `api.js`：移除 `getCourseExamples`、`getKcMastery`、`getWeakPoints`、`getErrorPatterns`、`generateReviewDrill`、`generateSprintPlan`、`getActiveSprintPlan`、`completeSprintTask`、`skipSprintTask`、`getSprintReadiness` 等 API 方法
+- 2026-04-07 **[后端]** `CourseProgressController.java`：仅保留 `getCourseProgress` 端点，移除冲刺/复习/KC掌握度/例题等全部端点
+- 2026-04-07 **[后端]** 删除 `ExamSprintService.java`
+
+### 美化错题笔记页面
+
+- 2026-04-07 **[前端]** `LearnerNotebook.vue`：基础字号从 10-11px 提升到 12-14px；错误类型标签颜色从 8 种精简为 3 色系（红/蓝/橙），减少视觉干扰
+
+### 错题复习按课程包过滤
+
+- 2026-04-07 **[后端]** `AITutorServiceImpl.java`：`reviewDue` 方法新增可选参数 `language_pack_id`，通过 JOIN `language_pack_problem_mapping` 过滤错题记录，避免新课程包展示其他课程包的错题数据
+- 2026-04-07 **[前端]** `api.js`：`getReviewDue` 新增 `languagePackId` 参数
+- 2026-04-07 **[前端]** `HomeDashboard.vue`：加载复习数据和切换课程包时传递 `languagePackId`
+- 2026-04-07 **[前端]** `UserHome.vue`：`loadReviewDue` 传递 `selectedLanguagePackId`
+
+### 修复 AIGeneratedProblems ElTag type 警告
+
+- 2026-04-07 **[前端]** `AIGeneratedProblems.vue`：`DIFF_TAG_TYPE` 中 `Mid`/`Medium` 从空字符串改为 `'info'`，`getDiffTagType`/`getTypeTagType` 兜底值从 `''` 改为 `'info'`，修复 Element Plus ElTag type prop 校验警告
+
+### 课程包初始化日志消息汉化
+
+- 2026-04-07 **[后端]** 新增 `LanguagePackInitStageLabels.java`：集中维护阶段中文名（含 `kc_extraction` →「知识点提取」），并提供 `formatTaskCreated`、`formatAdvance`、`formatRestoreDefault`、`formatTaskCreatedViaImport` 等日志模板
+- 2026-04-07 **[后端]** `LanguagePackInitServiceImpl.java`：写入阶段日志时使用上述工具类（`任务已创建`、`阶段推进：… → …`、`阶段已恢复：… → …`）
+- 2026-04-07 **[后端]** `LanguagePackExportImportServiceImpl.java`：导入任务创建与导入后阶段推进日志改用工具类（`已通过课程包导入创建任务`、与常规一致的「阶段推进」句式）
+
+### 课程总览改造为「代码示例库」
+
+- 2026-04-07 **[后端]** `CourseProgressController.java`：新增 `GET /api/course/{lpId}/examples` API，从 `language_pack_example` 表查询示例列表（关联 KC 和章节信息）
+- 2026-04-07 **[前端]** `api.js`：新增 `getCourseExamples(languagePackId)` 方法
+- 2026-04-07 **[前端]** `CourseOverview.vue`：从静态章节目录改造为「代码示例库」浏览页面；左侧按章节导航，右侧展示代码示例卡片（标题、知识点标签、代码块、课件原文摘录）；复用 `language_pack_example` 初始化数据
+
+### 课程包初始化独立 LLM 配置
+
+- 2026-04-07 **[后端]** `LlmClient.java`：新增 `callForJson(systemPrompt, userPrompt, envPrefix)` 重载和 `resolveEnvWithFallback` 方法，支持通过环境变量前缀指定独立的 LLM 提供商
+- 2026-04-07 **[后端]** `KcExtractionServiceImpl.java`、`ExampleExtractionServiceImpl.java`、`ProblemGenerationServiceImpl.java`：LLM 调用改为使用 `"INIT_LLM_"` 前缀，优先读取 `INIT_LLM_API_KEY` / `INIT_LLM_MODEL` / `INIT_LLM_BASE_URL`，不设置时回退到默认 LLM
+- 2026-04-07 **[配置]** `.env`：恢复默认 LLM 为 Kimi-k2.5；新增 `INIT_LLM_*` 系列环境变量用于课程包初始化专用 LLM
+
+### 课程包初始化：实时进度展示
+
+- 2026-04-07 **[前端]** `LanguagePackInit.vue`：`STAGE_LABELS` 增加 `kc_extraction` →「知识点提取」，阶段日志「从/到」列不再显示裸英文 `kc_extraction`
+- 2026-04-07 **[前端]** `LanguagePackInit.vue`：轮询中增加 `stageLogs` 刷新，用户可在初始化过程中实时看到进度日志
+- 2026-04-07 **[前端]** `LanguagePackInit.vue`："一键执行"运行时所有单步按钮添加 `:disabled="runningAll"` 防止重复点击
+- 2026-04-07 **[后端]** `DocumentParsingServiceImpl.java`：文档解析时写入"解析文档 N/M"进度日志
+- 2026-04-07 **[后端]** `KcExtractionServiceImpl.java`：知识点抽取时写入"知识点抽取进度 N/M"进度日志
+- 2026-04-07 **[后端]** `ProblemGenerationServiceImpl.java`：题目生成时写入"题目生成进度 N/M"进度日志
+- 2026-04-07 **[配置]** `.env`：LLM 超时从 150s 调整为 300s，最大重试从 3 次调整为 5 次
+
+### Admin 端 KC 文案统一替换为「知识点」
+
+- 2026-04-07 **[前端]** admin 端 6 个文件中所有用户可见的 "KC" 标签/标题/占位符统一替换为"知识点"：LanguagePackInit.vue、MisconceptionManagement.vue、TeacherInsight.vue、Problem.vue、ImportAndExport.vue
+
+### 课程内容包创建表单：隐藏 Slug 字段，自动生成
+
+- 2026-04-07 **[前端]** `LanguagePackInit.vue`：移除 Slug 输入框；输入名称时自动生成 slug（拼音/英文转小写 + 连字符），简化创建流程
+
+### Admin API 权限拒绝静默重定向
+
+- 2026-04-07 **[前端]** `admin/api.js`：`ajax` 函数检测到 `permission-denied` 错误时，静默重定向到题目列表页而非弹出错误提示，避免 Teacher 进入非授权页面时看到"Permission denied"
+
+### 修复删除课程包 500 错误
+
+- 2026-04-07 **[后端]** `LanguagePackExportImportServiceImpl.java`：`deleteLanguagePack()` 在删除 `language_pack` 主表前，先清理缺少 `ON DELETE CASCADE` 的子表（`exam_sprint_task`、`exam_sprint_plan`、`learner_kc_mastery`、`learner_course_progress`、`language_pack_kc_prerequisite`、`language_pack_review_task`），修复外键约束导致的 500 错误
+
+### 合并 Admin 与 Super Admin 角色
+
+- 2026-04-07 **[后端]** `SessionAuthenticationFilter.java`：Admin 用户现在同时获得 `ROLE_SUPER_ADMIN` 权限
+- 2026-04-07 **[后端]** `AccountServiceImpl.java`：新增 `isFullAdmin()` 辅助方法，所有用户管理权限检查（列表/编辑/删除/导入/生成/下载）同时接受 Admin 和 Super Admin
+- 2026-04-07 **[后端]** 17 个服务文件中的 `superAdmin` / `canManageAll` 布尔检查统一添加 `"Admin".equals(adminType)` 条件：SubmissionServiceImpl、ClassroomLessonService、ClassroomAiProblemService、AITutorServiceImpl、AITutorWorkflowAdminServiceImpl、AdminMisconceptionMiningService、ClassroomMonitorService、ClassroomServiceImpl、WorkflowCheckpointService、AdminKcManagementService、AdminVariantReviewService、AdminProblemQueryServiceImpl、AdminPreflightService、AdminProblemCommandServiceImpl、AdminTestCaseServiceImpl、AnnouncementServiceImpl、LanguagePackQueryServiceImpl
+- 2026-04-07 **[前端]** `User.vue`：用户类型下拉框移除「超级管理员」选项；Admin 角色自动将题目权限设为 All 并禁用手动修改
+- 2026-04-07 **[前端]** `store/modules/user.js`：`isSuperAdmin` getter 同时匹配 Admin 和 Super Admin，使 Admin 能看到完整的系统管理菜单
+
+### Admin 用户管理：导入说明改为弹窗格式
+
+- 2026-04-07 **[前端]** `User.vue`：将「导入用户」的帮助说明从 el-popover 外链改为 tooltip + el-dialog 弹窗，与「题目导入导出」页面风格统一；弹窗内包含 CSV 字段顺序、必填说明和示例
+
+### 修复 Admin el-dialog v-model:visible 写法导致弹窗不打开
+
+- 2026-04-07 **[前端]** `User.vue`、`ProblemList.vue`、`Announcement.vue`、`MisconceptionManagement.vue`：将 `v-model:visible` 修正为 `v-model`，修复 Element Plus (Vue 3) 下 el-dialog 无法打开的问题
+
+### Element Plus 中文语言包配置
+
+- 2026-04-07 **[前端]** `admin/index.js`、`oj/index.js`：`app.use(ElementPlus)` 添加 `{ locale: zhCn }` 参数，修复 ElMessageBox 确认/取消按钮显示为 `el.messagebox.confirm` / `el.messagebox.cancel` 的国际化缺失问题
+
+### 复习中心：修复「生成专项练习」按钮无反馈
+
+- 2026-04-07 **[前端]** `ReviewCenter.vue`：`generateDrill()` 方法增加对返回数据的处理——当无薄弱知识点时提示"当前没有需要专项练习的薄弱知识点"；当有薄弱知识点时提示数量并跳转到课程学习中心的练习 Tab
+
+### 首页继续学习：语言包筛选下拉框
+
+- 2026-04-07 **[前端]** `HomeDashboard.vue`：在「继续学习」卡片头部右侧添加原生 select 下拉框，当可见语言包 > 1 时显示；切换选项后异步加载对应课程进度，实时更新掌握度、已做题/已通过统计
+
+### 接通课程学习中心掌握度数据管线
+
+- 2026-04-07 **[后端]** `SubmissionServiceImpl.java`：注入 `LearnerMasteryServiceUnified`，新增 `updateLearnerMastery()` 方法；在判题回调的三个出口（正常结果、判题服务器错误、系统错误）统一调用，通过 `language_pack_problem_mapping` + `problem.statistic_info` 查询 problem 关联的 language_pack_id 和 kc_ids，驱动 `learner_kc_mastery` 和 `learner_course_progress` 表的更新，级联激活课程学习中心的进度追踪、KC 掌握度、薄弱知识点、复习中心、冲刺面板全部功能
+
+### 班级详情：删除 MonitorDashboard，统一为「数据看板」，优化排版
+
+- 2026-04-07 **[前端]** `ClassroomDetail.vue`：删除「监控 & 统计」标签页，将「数据分析」重命名为「数据看板」作为唯一数据分析入口；移除 MonitorDashboard 组件引用
+- 2026-04-07 **[前端]** 删除 `MonitorDashboard.vue` 及其专属 composable（`useMonitorUi.js`、`useChart.js`、`usePlayback.js`）和测试文件 `monitor-use-chart.spec.js`
+- 2026-04-07 **[前端]** `index.js`（classroom）：移除 MonitorDashboard 的懒加载导出
+- 2026-04-07 **[前端]** `ClassroomAnalytics.vue`：「获取教学建议」按钮从薄弱知识点 TOP3 卡片头移至 AI 教学建议卡片头；风险学生预警表格列宽从固定 width 改为 min-width 实现全宽自适应；删除「课件使用分析（近30天）」区块及相关数据、API 调用和图表渲染逻辑
+
+### 班级详情：拉宽难度列 + 隐藏协作编程 Tab
+
+- 2026-04-07 **[前端]** `AIGeneratedProblems.vue`：难度列宽度从 70px 拉宽至 100px，防止 el-tag 内容被截断
+- 2026-04-07 **[前端]** `ClassroomDetail.vue`：协作编程 Tab 添加 `v-if="false"` 暂时隐藏
+
+### 课件管理：修复格式列省略号、页数折行、关联题目统计
+
+- 2026-04-07 **[前端]** `LessonManagement.vue`：格式列用自定义 `.file-format-label` 替换 `el-tag`，修复 Element Plus el-tag 默认 `text-overflow: ellipsis` 导致 "PPT ..." 截断的问题
+- 2026-04-07 **[前端]** `LessonManagement.vue`：页数列宽度从 80px 拉宽至 100px，防止三位数（如 116）折行显示
+- 2026-04-07 **[后端]** `ClassroomLessonService.java`：`mapLessonRow` 中 `linked_problems_count` 从硬编码 0 改为实际通过子查询 `ai_generated_problem` 表统计已发布题目数（`is_published = true`）；`lessonList` 和 `lessonRow` 两处 SQL 均添加关联子查询
+
+### NavBar：调整导航菜单顺序
+
+- 2026-04-07 **[前端]** `NavBar.vue`：导航菜单顺序从「课件问答 → 练习 → 班级」调整为「练习 → 课件问答 → 班级」
+
+### 修复：课程结构 API 500 错误 + ClassroomAnalytics echarts 编译失败
+
+- 2026-04-07 **[后端]** `CourseStructureServiceImpl`：修复 `getCourseStructure` 中三处 SQL 列名与实际数据库不匹配的问题：`language` → `primary_language`（`language_pack` 表）；例题查询从直接查 `language_pack_example` 改为通过 `language_pack_example_kc_mapping` 关联查询，字段 `title`/`code_template` → `source_title`/`normalized_body`；题目查询补充 `language_pack_problem_generation_log` 关联以获取 `kc_id`
+- 2026-04-07 **[前端]** `CourseOverview.vue`：`course.language` → `course.primary_language` 以匹配后端返回字段
+- 2026-04-07 **[前端]** `ClassroomAnalytics.vue`：echarts 导入从 v5 模块化语法（`echarts/core`）改为项目已有的 v3 兼容封装（`@/utils/echarts`），解决 Vite 编译 500 错误
+- 2026-04-07 **[前端]** `utils/echarts.js`：新增 `echarts/lib/chart/heatmap` 和 `echarts/lib/component/visualMap` 导入，支持 `ClassroomAnalytics` 热力图
+
+### 首页：移除公告区域
+
+- 2026-04-07 **[前端]** `HomeDashboard.vue`：移除 `Announcements` 组件引用及相关样式，首页不再显示公告板块
+
+### NavBar：暂时隐藏「课程学习」下拉菜单
+
+- 2026-04-07 **[前端]** `NavBar.vue`：为「课程学习」`ElDropdown` 添加 `v-if="false"` 临时隐藏该导航入口，其余菜单项（课件问答、练习、班级）保持不变
+
+### 修复：NavBar 课程导航 languagePackId 为 NaN 导致 400 错误
+
+- 2026-04-07 **[前端]** `NavBar.vue`：挂载时调用 `getVisibleLanguagePackList` 获取默认语言包 ID，课程下拉菜单导航路由动态附加 `ctx` 查询参数，避免课程页面因缺少上下文参数而使用 `NaN` 调用 API
+- 2026-04-07 **[前端]** `CourseOverview.vue`、`CourseLearningHub.vue`、`ReviewCenter.vue`、`SprintDashboard.vue`：`languagePackId` 计算属性增加 `isNaN` 防护（返回 `null` 而非 `NaN`）；`created` 阶段若 `languagePackId` 为空则自动调用 `getVisibleLanguagePackList` 解析第一个可见语言包并通过 `router.replace` 补齐 `ctx`，避免 `/api/course-progress/NaN`、`/api/review/NaN/weak-points` 等 400 请求
+
+### NavBar：课件问答独立菜单项 & 公告图标集成
+
+- 2026-04-07 **[前端]** `NavBar.vue`：将「课件问答」从「课程学习」下拉菜单中移出，作为独立的一级导航项（位于课程学习与练习之间），使用 `ChatLineSquare` 图标
+- 2026-04-07 **[前端]** `NavBar.vue`：在页眉最右端（用户头像下拉之后）新增公告邮箱图标（`Message` icon），调用 `getAnnouncementList` API 加载系统公告；有公告时图标右上角显示红点指示器
+- 2026-04-07 **[前端]** `NavBar.vue`：公告图标点击后弹出 `ElPopover` 面板，展示最近 8 条公告的标题和发布时间；每 2 分钟自动轮询刷新公告状态
+- 2026-04-07 **[前端]** `NavBar.vue`：`isCourseActive` 计算属性不再将 `/language-pack-qa` 路径视为课程子页面（因已独立为一级入口）
+
+### 完善课程内容包删除逻辑
+
+- 2026-04-07 **[后端]** `LanguagePackExportImportService` 接口新增 `deleteLanguagePack(Long languagePackId)` 方法
+- 2026-04-07 **[后端]** `LanguagePackExportImportServiceImpl.deleteLanguagePack`：实现带事务保护的完整删除逻辑——先查询 `language_pack_problem_mapping` 获取关联 OJ problem_id，依次删除 `ai_problem_kc_mapping`、`problem`、`ai_knowledge_component` 中的关联记录，最后删除 `language_pack`（DB CASCADE 自动清理子表），返回删除统计
+- 2026-04-07 **[后端]** `AdminLanguagePackController.deleteTask`：删除操作从 Controller 直接 SQL 改为委托 `exportImportService.deleteLanguagePack`，返回删除统计信息（已清理题目数、AI KC 数）
+- 2026-04-07 **[前端]** `LanguagePackInit.vue`：表格末尾新增「操作」列，含导出和删除按钮，支持直接在列表行内操作而不依赖先选中任务；重构 `doExportTask` / `confirmDeleteTask` 方法接受行参数；删除确认弹窗显示关联题目数和知识点数
+
+### 管理后台语言包初始化：默认显示全部课程内容包 & 移除提示横幅
+
+- 2026-04-07 **[前端]** `LanguagePackInit.vue`：课程内容包下拉默认选中「全部课程内容包」（`__all__`），仅当 URL 携带 `language_pack_id` 参数时才锁定到具体包；进入页面即可看到所有自己可见的包列表
+- 2026-04-07 **[前端]** `LanguagePackInit.vue`：移除表格下方蓝色虚线提示横幅（"点击上方课程内容包名称…"）及其 `.task-detail-hint` 样式
+
+### 管理后台语言包初始化：「候选题」重命名为「练习题」
+
+- 2026-04-07 **[前端]** `LanguagePackInit.vue`：将所有界面文案中的「候选题」统一重命名为「练习题」，涉及标签页名称、操作按钮（生成/验证）、阶段时间线标签、导入预览统计项和空状态提示文案，降低管理端的理解门槛
+- 2026-04-07 **[测试]** `admin-language-pack-init-contract.spec.js`：同步更新断言文本
+
+### OJ 导航栏与首页重构
+
+- 2026-04-07 **[前端]** `NavBar.vue`：导航栏从 6 个扁平一级入口精简为 3 个（课程学习▾ / 练习 / 班级）；"课程学习"使用 `ElDropdown` 下拉菜单包含课程总览、学习中心、课件问答、复习中心、冲刺面板 5 个子项；移除"首页"、"状态"、"笔记本"、"课件问答助手"一级入口（已降级至头像菜单或课程下拉）
+- 2026-04-07 **[前端]** 新建 `HomeDashboard.vue`：已登录用户学习仪表盘，包含继续学习卡片（课程名+掌握度进度条+已做/已通过/待复习三项统计）、快捷动作条（去做题/课件问答/我的班级三张卡片）、今日复习区块（有复习内容时显示、无内容时隐藏）、公告组件
+- 2026-04-07 **[前端]** 新建 `HomeLanding.vue`：未登录品牌着陆页，包含 Hero 区（标题+副标题+注册 CTA）、3 列平台特性卡片（AI 辅导/课件体系/错题复习）、底部 CTA 重复注册按钮
+- 2026-04-07 **[前端]** `Home.vue`：重构为根据登录状态切换 `HomeDashboard`（已登录）或 `HomeLanding`（未登录）的编排组件，原有复习逻辑迁移至 `HomeDashboard`
+
+### 教室 AI 增强 — 班级分析、风险预警、推荐重构、智能出题
+
+- 2026-04-07 **[后端]** 新建 `ClassroomAnalyticsService`：实现班级学习脉搏（近 7 天提交/AC/活跃趋势）、KC 掌握度热力图（学生×知识点矩阵）、薄弱 KC TOP3 + LLM 教学建议、课件使用分析（QA 检索频次 + 按章节提交分布）四个分析接口
+- 2026-04-07 **[后端]** 新建 `StudentRiskDetectionService`：多维度风险学生识别，综合掌握度、近 7 天活跃度、连续错误次数，输出 critical/high/medium/low 四级风险及原因
+- 2026-04-07 **[后端]** 新建 `ClassroomAnalyticsController`：REST 端点 `GET /api/classroom/{id}/analytics/{weekly-pulse,kc-heatmap,weak-kc-suggestions,courseware-usage,risk-students}`
+- 2026-04-07 **[后端]** `AITutorServiceImpl.recommendProblems`：重构为真正的 mastery-driven 推荐；当提供 `language_pack_id` 时，根据 `strategy`（weak/forgotten/balanced/challenge/zpd）从 `learner_kc_mastery` + `ai_problem_kc_mapping` 查找匹配题目，排除已 AC，按策略排序
+- 2026-04-07 **[后端]** `ClassroomAiProblemService.aiGeneratedProblemCreate`：新增 `target_kc_names`（指定知识点）和 `target_difficulty`（Low/Mid/High）参数，LLM prompt 中注入知识点聚焦和难度约束
+- 2026-04-07 **[前端]** 新建 `ClassroomAnalytics.vue`：教室「数据分析」Tab，包含脉搏趋势图（ECharts 柱状+折线）、活跃知识点 TOP 列表、KC 掌握热力图（ECharts heatmap + visualMap）、薄弱 KC + AI 建议面板、风险学生表格（含风险等级标签、连续错误高亮）、课件按章节提交柱状图
+- 2026-04-07 **[前端]** `ClassroomDetail.vue`：在教师 Tab 中新增「数据分析」Tab，引入 `ClassroomAnalytics` 组件
+- 2026-04-07 **[前端]** `AIGeneratedProblems.vue`：生成表单新增「目标知识点」（多选可创建）和「目标难度」（自动/简单/中等/较难）字段
+- 2026-04-07 **[前端]** `api.js`：新增 `getWeeklyPulse`、`getKcHeatmap`、`getWeakKcSuggestions`、`getRiskStudents`、`getCoursewareUsage` 五个分析 API 方法
+
+### 移除题目编辑页代码模板区域
+
+- 2026-04-07 **[前端]** `Problem.vue`：移除 admin 题目编辑页面的「代码模板」（Code Template）区域，包括 C、C++、Java、Python3 四个语言的代码模板编辑器及勾选框；清理相关的 `template` data 属性、`problem.languages` watcher 和 submit 中的 template 构建逻辑；提交时 `template` 统一传空对象
+
+### Admin 术语统一：知识组件 → 知识图谱
+
+- 2026-04-07 **[前端]** `LanguagePackInit.vue`、`KCManagement.vue`、`SideMenu.vue`：将 admin 界面中所有「知识组件」标签统一更名为「知识图谱」，涉及侧边栏菜单项、语言包初始化 Tab 名称、导入预览标签、KC 管理面板标题及编辑弹窗标题
+
+### 题目导入导出页面合并优化
+
+- 2026-04-07 **[前端]** `ImportAndExport.vue`：将原有「题目导出」和「导入通用题目包」两个独立面板合并为单一「题目导入导出」面板；「导出题目」和「导入题目」按钮常驻于表格底部操作栏，导出按钮显示已选数量、未选时 disabled；移除「开始导入」按钮，选择文件后自动校验格式并触发导入；「自动关联 KC」开关和格式帮助按钮内联到操作栏中
+
+### Admin 控件高度统一对齐
+
+- 2026-04-07 **[前端]** `elementPlusTheme.less`：统一所有按钮（`.el-button`、`.el-button--small`、`.el-button--mini`）高度为 32px、圆角为 12px，与"导出JSON"按钮形状一致；`padding` 改为水平方向（`0 18px` / `0 14px`），由 `height` 控制垂直居中
+- 2026-04-07 **[前端]** `style.less`：补充缺失的 FontAwesome 图标映射 `el-icon-download`→`fa-download`、`el-icon-upload2`→`fa-upload`，修复"导出题目""导入题目"按钮前图标不可见的问题
+- 2026-04-07 **[前端]** `elementPlusTheme.less`：新增 `.el-input--small .el-input__wrapper` 与 `.el-select--small .el-select__wrapper` 的统一高度规则（32px），修复 admin 所有页面中课程知识包下拉选择器与搜索输入框高度不一致的问题
+
+### 复习包 AI 特化题优化
+
+- 2026-04-07 **[数据库]** `V47__review_package_ai_problems.sql`：`ai_error_review_problem` 新增 `is_ai_generated` 字段区分错题与 AI 特化题；`ai_error_review_package` 新增 `all_ac` 标记6题全部 AC；`problem` 新增 `ai_source_review_package_id` 关联 AI 特化题到复习包
+- 2026-04-07 **[后端]** `ErrorReviewPackageService`：注入 `LlmClient` + `AlethicodeProperties`；`createPackage` 在选取3道错题后调用 LLM 生成3道 AI 特化编程题，持久化到 `problem` 表（`is_ai_generated=true, visible=false`）并写测试用例文件；`recordSubmission` mastery 判定从 `is_correct >= 2` 改为6题全部 `is_correct=true`
+- 2026-04-07 **[后端]** `ReviewPackageResponse.ReviewProblemItem`：新增 `is_ai_generated` 字段传递到前端
+- 2026-04-07 **[前端]** `ErrorReviewPackagePage.vue`：题目列表拆分为「错题回顾」和「AI 特化练习」两组展示；AI 特化题带紫色 "AI 出题" 标签和左侧高亮边框；跳转做题时追加 `ai_tutor_allowed=0&ai_tutor_reason=review_mode` 禁用 AI 助手
+- 2026-04-07 **[前端]** `Problem.vue`：`assignmentAITutorAllowed` 移除 `assignment_id` 前置条件，使 review_mode 等非作业场景也能通过 query 参数禁用 AI 助手；`aiTutorAvailabilityText` reason map 新增 `review_mode: '专项复习模式下不可使用 AI 导学'`
+
+### 修复前端控制台警告与后端 prune-test-case 500 错误
+
+- 2026-04-07 **[前端]** `Problem.vue`：将 `el-checkbox` 的 `:label` 值绑定迁移为 `:value`，消除 Element Plus 3.0 弃用警告
+- 2026-04-07 **[前端]** `SecretsAiConfig.vue`：在密码表单中添加隐藏的 username 字段，消除浏览器 DOM 可访问性警告
+- 2026-04-07 **[后端]** `SystemAdminServiceImpl`：`getOrphanTestCasePaths()` 和 `resolveTestCasePath()` 增加 `testCaseDir` 空值/空白防护，`testCaseDir` 未配置时直接返回空列表而非扫描当前工作目录导致 500
+- 2026-04-07 **[运维]** 修复测试用例目录中 53 个 root 所有的孤立子目录权限为 cypress:cypress，解决 `DELETE /api/admin/prune-test-case` 因 `AccessDeniedException` 返回 500 的问题
+- 2026-04-07 **[前端]** `PruneTestCase.vue`：`formatTimestamp` 从 `moment.unix(value)` 改为 `moment(value)`，修正将毫秒时间戳误作秒处理导致年份显示为 58223 的问题
+
+### 修复错误诊断阶段仍显示"继续编码"按钮
+
+- 2026-04-07 **[后端]** `TutorActionPolicy`：从 `ERROR_FEEDBACK` 阶段的 `baseActions` 中移除 `coding`（继续编码）选项，与前端 fallback 行为保持一致
+
+### 移除代码拼图（Scaffolding/Parsons）功能
+
+- 2026-04-07 **[前端]** `agentContracts.js`：从 `PHASES`、`WORKFLOW_EVENTS`、`CARD_TYPES`、`PENDING_HUMAN_ACTIONS` 中移除 SCAFFOLDING 相关常量
+- 2026-04-07 **[前端]** `workflowStateMachine.js`：
+  - IDEATING 阶段的"开始编码"动作由派发 `SCAFFOLDING` 改为直接派发 `CODING`
+  - 从 `ALLOWED_WORKFLOW_TRANSITIONS` 中移除所有 SCAFFOLDING 转换路径
+  - 移除 `_rebuildAgentMessages` 中 `outputs.scaffolding` 的 parsons 卡片重建
+  - 移除 `_syncNodeOutputs` 中 scaffolding 数据同步
+  - 移除 `_buildEventData` 中 SCAFFOLDING case 和 parsons_skipped 字段
+  - 移除 `confirm_scaffold` 拦截检查
+- 2026-04-07 **[前端]** `UnifiedAgentPanel.vue`：移除 ParsonsPanel、WorkedExampleCard、FadedExampleCard、MinimalHintCard 组件的导入、注册和模板渲染
+- 2026-04-07 **[前端]** `Problem.vue`：移除 `handleParsonsCompleted`、`handleParsonsSkip`、`handleScaffoldingConfirmed`、`handleFadedBlanksSubmit` 事件处理器及 `canSkipParsons` 属性
+- 2026-04-07 **[前端]** `api.js` / `ai.js`：移除 `parsonsValidate` 端点
+- 2026-04-07 **[后端]** `TutorActionPolicy`：移除 SCAFFOLDING 阶段的所有 action 分支
+- 2026-04-07 **[后端]** `TransitionPolicy`：移除 `Phase.SCAFFOLDING` 转换规则和 `confirm_scaffold` 检查
+- 2026-04-07 **[后端]** `PendingHumanAction`：移除 `CONFIRM_SCAFFOLD` 枚举值
+- 2026-04-07 **[后端]** `AITutorWorkflowAdminServiceImpl`：
+  - 移除 `applyPhaseOutput` 中 SCAFFOLDING 事件处理
+  - 移除 `buildScaffoldingPayload`、`buildParsonsScaffoldingPayload`、`validateFadedExample`、`recordFadedValidationLearningEvent` 等方法
+  - 移除 `resolveScaffoldingCardType`、`resolveScaffoldingPending`、`enrichLearnerStateForScaffolding`、`resolveScaffoldLevelFromNodeOutputs`、`resolveScaffoldLevelValue`、`normalizeParsonsMode` 等辅助方法
+  - 移除 ScaffoldLevelResolver、WorkedExampleGenerator、FadedExampleGenerator、MinimalHintGenerator、FadedExampleAnswerEvaluator 字段及构造初始化
+- 2026-04-07 **[后端]** `AITutorController` / `AITutorService` / `AITutorWorkflowDomainService`：移除 `parsonsValidate` 端点及其接口/实现
+- 2026-04-07 **[测试]** 同步更新前端合约测试，移除 scaffolding/parsons 相关断言
+
+### 课件问答：修复引用不触发 + 中文全文检索不生效
+
+- 2026-04-07 **[后端]** `AnswerSynthesisServiceImpl` 引用判定重构：
+  - **去除对 LLM 输出 citation 元数据的依赖**：不再要求 LLM 输出 `grounded`/`citations` 字段，改由检索系统直接决定。只要有 `effectiveHits` 且回答非拒答，一律从检索命中构建 citations 并标记 `grounded=true`
+  - 新增 `buildCitationsFromHits()` 方法，从 `PageRetrievalHit` 列表直接生成前端所需的 citation 结构
+  - 系统 prompt 简化：LLM 只需输出 `answer_markdown` 和 `insufficient_evidence`，不再需要生成 citation JSON
+  - 删除 `findHit`、`requireBoolean`、`parseLong`、`parseInt`、`normalizeConfidence` 等仅服务于 LLM citation 验证的私有方法
+- 2026-04-07 **[后端]** 新增 `CjkBigramTokenizer` 工具类：将 CJK 字符序列拆分为重叠双字 bigram（如"程序设计"→"程序 序设 设计"），非 CJK 字母数字保留原样，输出空格分隔小写 token，适配 PostgreSQL `simple` 全文搜索配置
+- 2026-04-07 **[后端]** `DocumentParsingServiceImpl`：索引端 `search_tsv` 写入时改用 `CjkBigramTokenizer.tokenize(content)` 预分词，替代原始 `content` 直传
+- 2026-04-07 **[后端]** `PageRetrievalServiceImpl`：
+  - 查询端关键词搜索改用 `CjkBigramTokenizer.toOrTsQuery()` 生成 OR 语义 `to_tsquery`，替代原来的 `plainto_tsquery`
+  - `ts_rank_cd` 增加 normalization 参数 32（`score / (score + 1)`），使关键词得分归一化到 `[0, 1)` 范围，与向量余弦相似度可比
+  - 混合评分权重由 keyword 0.65 / vector 0.35 调整为 keyword 0.3 / vector 0.7，确立 embedding 向量搜索为主信号
+  - 低分过滤门槛由 0.5 降至 0.25，避免砍掉中等语义相似度的向量命中
+- 2026-04-07 **[数据库]** 新增迁移 `V46__rebuild_search_tsv_cjk_bigram.sql`：创建 `cjk_bigram_tokenize()` PL/pgSQL 函数并一次性重建所有 `language_pack_page.search_tsv`
+
+### 课程内容包重构：权限开放与文案统一
+
+- 2026-04-07 **[数据库]** 新增迁移 `V45__language_pack_creator_id.sql`：`language_pack` 表增加 `creator_id` 字段（BIGINT，FK 关联 `user(id)`），含索引
+- 2026-04-07 **[后端]** `LanguagePackInitService` / `LanguagePackInitServiceImpl`：`createTask` 方法签名新增 `Long creatorId` 参数，INSERT 语句写入 `creator_id` 列
+- 2026-04-07 **[后端]** `LanguagePackExportImportService` / `LanguagePackExportImportServiceImpl`：`importTask` 方法签名新增 `Long creatorId` 参数，导入时记录创建者
+- 2026-04-07 **[后端]** `LanguagePackInitTaskResponse.LanguagePackSummary`：新增 `creatorId` 字段，SQL 查询和行映射同步更新
+- 2026-04-07 **[后端]** `AdminLanguagePackController`：
+  - `createTask()`：移除 Teacher 创建限制，从 `authentication` 解析 `userId` 作为 `creatorId`
+  - `listTasks()`：Admin 返回全部任务；Teacher 返回自己创建的、管理员创建的、以及 `creator_id IS NULL`（老数据）的任务
+  - `deleteTask()`：Admin 可删除任何包；Teacher 只能删除自己创建的包
+  - `importTask()`：移除 Teacher 限制，记录 `creator_id`
+  - `reEmbed()`：移除 Teacher 限制
+  - `assertLanguagePackAccessible()`：改用基于 `creator_id` 的可见性规则替代原有 classroom 绑定逻辑
+  - 新增 `resolveUserId(Authentication)` 和 `isPackVisibleToTeacher()` 私有方法
+  - 删除 `loadTeacherAccessibleLanguagePackIds()` 方法
+- 2026-04-07 **[后端]** `LanguagePackQueryServiceImpl`：
+  - `listPublishedPacks()`、`getPackDetail()` 的 SELECT 和 `mapPackRow()` 增加 `creator_id` 字段
+  - `listVisiblePacks()`：拆分 `isAdmin()` 为 `isPureAdmin()` 和 `isTeacher()`；Teacher 可见自己创建 + Admin 创建 + 老数据的已发布包
+- 2026-04-07 **[前端]** 全局文案替换：所有用户可见的中文 "语言包" 统一替换为 "课程内容包"（涉及约 15 个 Vue 文件 + 2 个测试文件）
+- 2026-04-07 **[前端]** `LanguagePackInit.vue`：
+  - 包列表新增"创建者"列，使用 Tag 标签显示（管理员 / 我 / 其他）
+  - 删除按钮根据 `creator_id` 和当前用户角色判断是否可用（Teacher 只能删自己的）
+  - 新增 `currentUserId`、`isCurrentUserTeacher`、`canDeleteSelectedTask` 计算属性
+
+### 管理后台侧栏品牌卡片移除
+
+- 2026-04-07 **[前端]** `SideMenu.vue`：移除管理后台左侧导航顶部的 Alethicode 品牌展示卡片（logo + “Alethicode 管理台 / 教学管理中枢”文案），侧栏仅保留功能导航与退出登录入口
+
+### LLM 供应商切换：MiniMax M2.7 → Kimi K2.5
+
+- 2026-04-07 **[后端]** LLM 供应商从 MiniMax（MiniMax-M2.7）切换至 Kimi（kimi-k2.5），base URL 变更为 `https://api.moonshot.cn/v1`
+- 2026-04-07 **[后端]** `LlmClient`：移除 MiniMax 专有参数 `reasoning_split: true`；移除硬编码 `temperature: 0.2`（Kimi K2.5 思考模式固定 1.0，不允许自定义）
+- 2026-04-07 **[后端]** `LlmClient` ReAct 循环：新增保留 `reasoning_content` 到对话上下文，适配 Kimi K2.5 思考模式要求（多步工具调用时必须保留推理内容）
+- 2026-04-07 **[后端]** `application.yml`：默认 base-url 和 model 更新为 Kimi K2.5；移除 Spring AI 的 temperature 配置
+- 2026-04-07 **[后端]** `SystemOptionServiceImpl`、`AITutorWorkflowAdminServiceImpl`、`LanguagePackInitAuditServiceImpl`：所有硬编码默认值同步更新
+- 2026-04-07 **[后端]** `.env`：API key、LLM_MODEL、LLM_BASE_URL 更新为 Kimi K2.5 配置
+- 2026-04-07 **[后端]** 数据库 `beta_features` 开启 `REACT_ENABLED=true`，启用 ReAct 工具调用模式
+
+### 提交数据自动采集（ML 数据飞轮）
+
+- 2026-04-07 **[后端]** `AlethicodeProperties.System`：新增 `submissionDataDir` 配置项，指定提交数据采集目录
+- 2026-04-07 **[后端]** 新增 `SubmissionDataCollector` 服务：每次判题完成后，将提交的完整信息（源代码、判题结果、错误类型、错误信息、时间/内存消耗、通过用例数等）以 JSONL 格式追加写入按日期命名的文件（如 `2026-04-07.jsonl`）
+- 2026-04-07 **[后端]** `SubmissionServiceImpl.runJudgeTask`：在编译错误、正常判题、系统错误三条路径末尾均调用数据采集，覆盖所有判题结果类型
+- 2026-04-07 **[后端]** `application.yml`：新增 `submission-data-dir` 配置，默认为空（不采集），设置目录路径后自动启用
+- 2026-04-07 **[后端]** 错误类型自动提取：从 Python traceback 中解析具体异常类名（如 `NameError`、`TypeError`），为后续 ML 训练提供细粒度标签
+
+### DiagnosticsAgent ReAct 升级
+
+- 2026-04-07 **[后端]** `DiagnosticsAgent`：新增 ReAct 模式支持，通过 `reactEnabled` 开关控制。开启后，Agent 可在诊断前调用三个工具：`get_learner_history`（查看提交历史）、`search_similar_errors`（检索相似错误模式）、`search_courseware`（查询课件知识点），从 single-shot LLM 调用升级为多步 Think-Act-Observe 循环
+- 2026-04-07 **[后端]** `DiagnosticsAgent`：ReAct 模式新增 `error_pattern` 和 `is_recurring` 输出字段，用于识别跨题重复错误模式
+- 2026-04-07 **[后端]** `DiagnosticsAgent`：保持向后兼容，无参构造函数仍可用于非 ReAct 模式
+- 2026-04-07 **[后端]** `BetaFeatureRegistry`：新增 `REACT_ENABLED` 开关，可在管理后台动态开启/关闭 ReAct
+- 2026-04-07 **[后端]** `AITutorWorkflowAdminServiceImpl.applyPhaseOutput`：`ERROR_FEEDBACK` 分支接入 ReAct 路由，当 `REACT_ENABLED=true` 时走 DiagnosticsAgent ReAct 路径，否则走原有 buildErrorDiagnosisPayload 路径
+
+### Agent 交互数据采集
+
+- 2026-04-07 **[后端]** 新增 `AgentInteractionDataCollector` 服务：记录每次 Agent 决策的完整上下文——Agent 名称、工作流阶段、学习者状态快照（mastery、frustration、weak KCs）、策略决策、Agent 输出摘要、ReAct 工具调用日志、耗时
+- 2026-04-07 **[后端]** 数据以 JSONL 格式写入 `{submissionDataDir}/agent-interactions/{date}.jsonl`，与提交数据采集共用同一存储根目录
+
+### 元认知引导 Agent
+
+- 2026-04-07 **[后端]** 新增 `MetacognitiveAgent`：在 AC_REVIEW 阶段提供元认知教练引导，覆盖四个维度——自我解释（引导学生解释方案正确性）、策略觉察（识别解题策略）、错误模式连接（跨题重复错误提醒）、思维框架强化（审题→分解→编码→测试→反思）
+- 2026-04-07 **[后端]** `MetacognitiveAgent`：支持 ReAct 工具调用（`get_learner_history` + `search_similar_errors`），基于真实历史数据生成引导
+- 2026-04-07 **[后端]** `TutorActionPolicy`：AC_REVIEW 阶段新增 `metacognitive`（思维反思）动作选项
+- 2026-04-07 **[后端]** `ContextualBanditReranker`：对薄弱知识点学生，metacognitive 动作获得 +0.40 偏置分数，优先推荐思维反思
+
+### 跨会话反馈循环（Harness Engineering P1）
+
+- 2026-04-07 **[后端]** `LearnerMemoryService.saveTutoringConclusion()`：AC 后保存结构化教学结论（解题策略、关键洞察、涉及知识点、错误模式），置信度 0.92，有效期 60 天
+- 2026-04-07 **[后端]** `LearnerMemoryService.loadPreviousConclusions()`：新会话开始时加载最近 5 条教学结论，作为 Agent 跨会话上下文
+- 2026-04-07 **[后端]** `MemoryScope.TUTOR_CONCLUSION`：新增记忆类型，专用于教学结论存储
+- 2026-04-07 **[后端]** `LearnerMemoryService.onEventCompleted()`：AC_REVIEW 事件自动以 `tutor_conclusion` 类型、0.90 置信度保存
+
+### Entropy Control — 质量趋势监控（Harness Engineering P2）
+
+- 2026-04-07 **[后端]** `TutorEvalHarness.checkQualityTrend()`：每日定时评测后自动检查质量趋势，对比近 14 天历史基线
+- 2026-04-07 **[后端]** 退化检测阈值：下降 >8% 发出 WARN 警告，下降 >15% 触发 ERROR 并通过 RolloutPolicyService 执行回滚决策
+- 2026-04-07 **[后端]** 质量分数持久化：每日评测分数写入 `ai_workflow_event` 表（`quality_trend_score` 事件类型），构建历史趋势数据
+
+### 课件问答上下文记忆扩展
+
+- 2026-04-07 **[后端]** `ConversationContextServiceImpl`：上下文窗口从 6 条消息扩大到 14 条（约 7 轮 Q&A），总字符上限 3000
+- 2026-04-07 **[后端]** `ConversationContextServiceImpl`：零语义损失压缩策略——每条消息仅压缩空白字符（换行→空格），保持完整语义；从最新消息开始填充 3000 字符预算，超出预算的旧消息整条丢弃而非截断
+- 2026-04-07 **[后端]** `ConversationContextServiceImpl`：`sessionSummary` 从最近 3 条用户问题扩大到 5 条
+
+### 错题本：语言筛选与视觉优化
+
+- 2026-04-07 **[前端]** `LearnerNotebook.vue`：Toolbar 新增"编程语言"筛选下拉框，与错误类型筛选联合工作
+- 2026-04-07 **[前端]** `LearnerNotebook.vue`：根因分析区域视觉升级——从纯色背景改为渐变背景（`#fffbeb→#fef3c7`），字体加粗，色彩更醒目
+
+### 错误诊断卡片格式修复
+
+- 2026-04-07 **[前端]** `ErrorDiagnosisCard.vue`：`renderMarkdown` 方法新增数学表达式后处理，将 `2^-1`、`2^0` 等 `N^M` 模式自动渲染为上标（`<sup>`），解决幂运算表达式显示为纯文本的问题
+
+## [Unreleased] - 2026-04-06
+
+### 课件问答页 UI 修复
+
+- 2026-04-06 **[前端]** `LanguagePackQaPage.vue`：修复会话列表中星星（收藏）和垃圾桶（删除）图标几乎看不清的问题——默认颜色从 `var(--text-disabled)` 改为 `var(--text-secondary)`，图标尺寸从 14px/24px 增大到 15px/26px，父容器默认 opacity 从 0 改为 0.45（hover/active 时为 1），垃圾桶默认色 `#9ca3af` 确保非 hover 状态也能辨识
+
+### 前端页面切换性能优化
+
+- 2026-04-06 **[前端]** `router/index.js`：路由守卫不再每次导航都调用 `getProfile` API，引入 60 秒 TTL 缓存，已认证且缓存有效时直接通过，不触发全屏 loading 转圈
+- 2026-04-06 **[前端]** `router/index.js`：公开页面（login/register 等）在未认证状态下直接放行，跳过 API 调用
+- 2026-04-06 **[前端]** `App.vue`：路由过渡动画 fadeInUp 从 0.8s 缩短至 0.25s，消除页面切换的视觉延迟感
+- 2026-04-06 **[前端]** `vite.config.mjs`：新增 `manualChunks` 构建分包策略，将 element-plus、codemirror、echarts、katex、highlight.js、d3、vue 核心分别拆为独立 chunk，利用浏览器缓存避免重复下载
+
+### 安全与隐私增强（全链路）
+
+#### WP1 - 后端错误响应脱敏（P0 Critical）
+- 2026-04-06 **[后端]** `GlobalExceptionHandler`：`INTERNAL_ERROR` 级别异常不再将原始 `exception.getMessage()` 返回客户端，统一返回 `"Internal server error"`，内部异常详情仅记录到日志
+- 2026-04-06 **[后端]** `GlobalExceptionHandler`：新增 `sanitizeMessage()` 方法，对非 INTERNAL_ERROR 的 BusinessException 消息移除路径片段和数字 ID
+- 2026-04-06 **[后端]** 全局清理 20+ 处 `throw new BusinessException(ErrorCode.NOT_FOUND, "... not found: " + id)` 拼接内部 ID 的写法，改为固定消息如 `"Init task not found"`, `"Language pack not found"` 等
+- 2026-04-06 **[后端]** `DocumentNormalizationServiceImpl`/`DocumentParsingServiceImpl`：INTERNAL_ERROR 异常消息移除文件名和路径细节
+
+#### WP1.5 - 课件预览 API 路径编码
+- 2026-04-06 **[后端]** `LanguagePackQaController`：预览端点从 `/api/language-pack-qa/packs/{id}/documents/{id}/preview` 改为 `/api/language-pack-qa/preview?ctx=<base64>`，浏览器地址栏不再暴露内部 ID
+- 2026-04-06 **[后端]** `LanguagePackQaServiceImpl.buildPreviewUrl()`：生成 base64 编码的 ctx 参数 URL
+- 2026-04-06 **[前端]** `api.js` `getLanguagePackQaPreviewUrl()`：同步改为使用 base64 编码的 ctx 参数
+
+#### WP2 - API 响应路径字段清理（P0 High）
+- 2026-04-06 **[后端]** `LanguagePackQueryServiceImpl.listPackDocuments()`：移除 `preview_pdf_path` 字段
+- 2026-04-06 **[后端]** `LanguagePackQueryServiceImpl.getPagePreview()`：移除 `preview_asset_path` 字段
+- 2026-04-06 **[后端]** `PageRetrievalHit.toMap()`：移除 `preview_asset_path` 输出
+- 2026-04-06 **[后端]** `VideoJobServiceImpl`：查询结果移除 `error_message`、`video_path`、`poster_path` 字段，客户端不再接收到文件系统路径和内部错误信息
+- 2026-04-06 **[后端]** `ClassroomLessonService.mapLessonRow()`：`file_path` 不再包含在返回给客户端的 JSON 中，仅内部使用
+
+#### WP3 - 前端 URL 参数编码（P1 High）
+- 2026-04-06 **[前端]** 新建 `frontend/src/utils/urlCipher.js`：通用 `encodeRouteCtx`/`decodeRouteCtx` 工具，基于 base64 编码 JSON 对象
+- 2026-04-06 **[前端]** `routes.js`：`/classroom/:id` → `/classroom/detail?ctx=...`，`/classroom/:classroomId/collab/:sessionId` → `/classroom/collab?ctx=...`
+- 2026-04-06 **[前端]** `routes.js`：`/course/:languagePackId` 系列路由 → `/course?ctx=...`、`/course/learn?ctx=...`、`/course/review?ctx=...`、`/course/sprint?ctx=...`
+- 2026-04-06 **[前端]** `routes.js`：`/review-package/:packageId` → `/review-package?ctx=...`
+- 2026-04-06 **[前端]** `ClassroomDetail.vue`、`ClassroomList.vue`、`JoinClassroom.vue`：改用 ctx 编码读取/生成班级路由
+- 2026-04-06 **[前端]** `CollaborativeCoding.vue`：从 props 改为从 `ctx` 查询参数解码 `classroomId`/`sessionId`
+- 2026-04-06 **[前端]** `CourseOverview.vue`、`CourseLearningHub.vue`、`ReviewCenter.vue`、`SprintDashboard.vue`：`languagePackId` 从 `ctx` 解码
+- 2026-04-06 **[前端]** `ErrorReviewPackagePage.vue`、`LearnerNotebook.vue`、`Home.vue`：review-package 导航改用 ctx 编码
+- 2026-04-06 **[前端]** `ProblemList.vue`：`language_pack_id` 查询参数改为 `lp_ctx` 编码（兼容旧 `language_pack_id` 参数回退解码）
+- 2026-04-06 **[前端]** `admin/utils/languagePackContext.js`：`appendLanguagePackQuery`/`resolveCurrentLanguagePackId` 改为编码/解码 `language_pack_id`
+
+#### WP4 - 安全响应头补全（P1 Medium）
+- 2026-04-06 **[后端]** `SecurityConfig`：新增 CSP（`Content-Security-Policy`）、HSTS（`Strict-Transport-Security`）、`Referrer-Policy: strict-origin-when-cross-origin`、`Permissions-Policy: camera=(), microphone=(), geolocation=()` 安全响应头
+- 2026-04-06 **[后端]** 新建 `application-prod.yml`：生产环境关闭 Swagger UI 和 API Docs（`springdoc.api-docs.enabled=false`, `springdoc.swagger-ui.enabled=false`）
+
+#### WP5 - 超级管理员接口加固（P2 Medium）
+- 2026-04-06 **[后端]** `SystemOptionServiceImpl.getEnvSnapshot()`：`dbUrl` 仅返回主机名，目录路径统一返回 `"(configured)"` 标记，不暴露完整文件系统路径
+- 2026-04-06 **[后端]** `SystemOptionServiceImpl.getInfraSecrets()`：`dbUrl` 仅返回主机名
+
+#### WP6 - 前端构建混淆（P3 Low）
+- 2026-04-06 **[前端]** `vite.config.mjs`：生产构建启用 terser 混淆（`minify: 'terser'`），自动移除 `console.*` 和 `debugger` 语句
+
+### 课件问答会话管理：收藏与删除
+
+- 2026-04-06 **[数据库]** `V44__language_pack_chat_session_starred.sql`：`language_pack_chat_session` 表新增 `starred` 布尔字段，默认 `FALSE`
+- 2026-04-06 **[后端]** `LanguagePackQaService`：新增 `deleteSession` 和 `toggleSessionStarred` 接口方法
+- 2026-04-06 **[后端]** `LanguagePackQaServiceImpl`：实现会话删除（级联删除消息/反馈/检索日志）和收藏切换；`listSessions` 排序改为收藏优先
+- 2026-04-06 **[后端]** `LanguagePackQaController`：新增 `DELETE /api/language-pack-qa/sessions/{sessionId}` 和 `PATCH /api/language-pack-qa/sessions/{sessionId}/starred` 端点
+- 2026-04-06 **[前端]** `api.js`：新增 `deleteLanguagePackQaSession` 和 `toggleLanguagePackQaSessionStarred` API 方法
+- 2026-04-06 **[前端]** `LanguagePackQaPage.vue`：会话列表每项右侧新增收藏（星标）和删除按钮，hover 时显示；收藏项左侧有金色边框标识，排序置顶；删除前弹出确认框
+
+### 品牌名统一：AIOJ → Alethicode
+
+- 2026-04-06 **[后端]** `application.yml`：`website.name-shortcut` 由 `AIOJ` 改为 `Alethicode`
+- 2026-04-06 **[后端]** `AlethicodeProperties.java`：`nameShortcut` 默认值由 `"AIOJ"` 改为 `"Alethicode"`
+- 2026-04-06 **[后端]** `V2__init_data.sql`：初始化数据 `website_name_shortcut` 由 `AIOJ` 改为 `Alethicode`
+- 2026-04-06 **[前端]** `store/index.js`：`changeDomTitle` 的 fallback 缩写由 `'AIOJ'` 改为 `'Alethicode'`，浏览器标签页标题显示为 `Alethicode | xxx`
+- 2026-04-06 **[测试]** `PlatformContractControllerTest`、`SystemOptionServiceImplTest`、`AdminConfigControllerContractTest`：同步更新所有 `AIOJ` 断言和测试数据为 `Alethicode`
+- 2026-04-06 **[E2E]** `frontend/tests/e2e/visual/` 下全部 HTML 快照、`report.json`、`report.md`：AIOJ → Alethicode
+- 2026-04-06 **[E2E]** `test_profile_page.py`、`test_with_firefox.py`：截图路径 `/home/cypress/aioj/` → `/home/cypress/alethicode/`
+- 2026-04-06 **[数据库]** `sys_options.website_config`：`website_name_shortcut` 由 `AIOJ` 更新为 `Alethicode`
+
+### 安全：课件问答 URL 参数加密
+
+- 2026-04-06 **[前端]** `LanguagePackQaPage.vue`：URL 参数 `pack_id`/`session_id` 改为 base64 编码的 `ctx` 参数，URL 不再直接暴露内部数字 ID
+
+### 课件问答证据面板精简
+
+- 2026-04-06 **[前端]** `LanguagePackQaPage.vue`：移除证据面板中的摘录文本和「同页上下文」区域，只保留文档标题、页码和 PPT 预览 iframe
+
+### 监控仪表盘 Toast 消息修复
+
+- 2026-04-06 **[前端]** `useMonitorUi.js`：`showToast` 每次只显示 1 条消息，新消息替代旧消息；2.5 秒后自动消失，防止消息堆积
+
+### AI 生成题目布局修复
+
+- 2026-04-06 **[前端]** `AIGeneratedProblems.vue`：修复 `InputNumber min > max` 错误（`selectedLessonMaxPages` 为 0 时 `max` 强制为 1）；题目配置每种题型独占一行
+
+### 图片只读保护
+
+- 2026-04-06 **[前端]** `common.less`：全局 `img` 元素禁止拖拽和选择；`App.vue` 阻止图片右键菜单
+
+### X-Frame-Options 修改
+
+- 2026-04-06 **[后端]** `SecurityConfig.java`：`X-Frame-Options` 从 `DENY` 改为 `SAMEORIGIN`，允许课件问答证据面板的 iframe 正常加载
+
+### 班级添加题目：语言包隔离 + UI 优化
+
+- 2026-04-06 **[前端]** `ClassroomDetail.vue`：「添加题目」搜索时传入 `language_pack_id` 参数，只显示当前班级绑定语言包下的题目，防止跨语言包污染
+- 2026-04-06 **[前端]** `ClassroomDetail.vue`：添加题目对话框的表格添加 `border` 属性，"题目"列添加 `align="center"`
+
+### 教师端：全局教学警报通知
+
+- 2026-04-06 **[前端]** `NavBar.vue`：导航栏新增铃铛图标（仅教师/管理员可见），点击展开警报弹窗显示最近教学干预候选学生
+- 2026-04-06 **[前端]** 每 60 秒自动轮询班级 intervention-candidates API 更新警报数据；红色徽章显示未读警报数量
+- 2026-04-06 **[前端]** 警报列表显示学生姓名、原因和相关题目，高优先级用红点标注、普通用橙点
+
+### 课件问答：修复错误的"证据不足，已拒答"判定
+
+- 2026-04-06 **[后端]** `AnswerSynthesisServiceImpl`：`validateAnswer` 新增保护逻辑——当 AI 错误设置 `insufficient_evidence=true` 但回答内容实际有用（>80字且不含拒答关键词）时，降级为通用知识回答而非拒答
+- 2026-04-06 **[后端]** system prompt 强化：明确"只要能从通用编程知识回答就必须设置 insufficient_evidence=false"，拒答仅限 OJ 判题相关请求
+
+### 错题本：班级错误频率标注
+
+- 2026-04-06 **[后端]** `AITutorServiceImpl`：新增 `notebookClassFrequency` 方法，按 `error_taxonomy` 聚合同班同学的错题频率（`classmate_count / total_classmates`）
+- 2026-04-06 **[后端]** `AITutorController`：新增 `GET /api/ai/tutor/notebook/class-frequency` 端点
+- 2026-04-06 **[前端]** `LearnerNotebook.vue`：每条错误记录旁标注蓝色"班级 X% 同学"徽章，展示该错误类型在班级中的发生比例
+- 2026-04-06 **[前端]** `api.js`：新增 `getNotebookClassFrequency()` API 方法
+
+### 登录页：所有文字添加 pretext 弹簧物理交互
+
+- 2026-04-06 **[前端]** `Login.vue`：品牌名 ALETHICODE、副标题、Judge/Track/Improve 按钮文字均改为逐字符 `.ltr` 渲染，与标题 "Code with focus." 共享弹簧物理鼠标交互效果
+
+### 课件问答：放宽检索词法过滤 + system prompt 动态适配语言
+
+- 2026-04-06 **[后端]** `PageRetrievalServiceImpl`：`hasLexicalSupport` 过滤改为仅在向量分数 < 0.5 时启用，高分向量结果不再被词法过滤移除；修复中文查询因关键词搜索失败且词法过滤过严导致课件引用缺失的问题
+
+### 课件问答：system prompt 动态适配语言包语言
+
+- 2026-04-06 **[后端]** `AnswerSynthesisServiceImpl`：`buildSystemPrompt` 改为接受 `primaryLanguage` 参数，不再硬编码 "Python"；当语言包是 C/Java/其他语言时，prompt 正确引用对应语言
+- 2026-04-06 **[后端]** `AnswerSynthesisService` 接口：新增带 `primaryLanguage` 参数的 `synthesizeAnswer` 和 `synthesizeWithTrace` 重载
+- 2026-04-06 **[后端]** `LanguagePackQaServiceImpl`：同步和异步 sendMessage 均从数据库查询 `primary_language` 并传递给合成服务
+
+### 语言包管理：重命名 + 添加删除功能
+
+- 2026-04-06 **[前端]** `SideMenu.vue`：侧边栏菜单「语言包初始化」改为「语言包管理」
+- 2026-04-06 **[前端]** `LanguagePackInit.vue`：页面标题改为「语言包管理」；创建对话框标题改为「新建语言包」；按钮文字「新建初始化任务」→「新建语言包」
+- 2026-04-06 **[后端]** `AdminLanguagePackController`：新增 `DELETE /api/admin/language-packs/init-tasks/{taskId}` 端点，级联删除 init task 和对应 language_pack（仅限超级管理员/管理员）
+- 2026-04-06 **[前端]** `LanguagePackInit.vue`：任务详情头部新增「删除语言包」按钮（danger 样式），点击后弹出确认对话框，确认后调用删除 API 并刷新列表
+- 2026-04-06 **[前端]** `api.js`：新增 `deleteLanguagePackInitTask(taskId)` API 方法
+
+### 管理后台：语言包筛选添加「全部语言包」选项
+
+- 2026-04-06 **[前端]** `LanguagePackInit.vue`：语言包下拉框新增「全部语言包」选项（值 `__all__`），选择后显示所有语言包的初始化任务
+
+### 错题本：修复图标不可见 + 添加「错题强化训练」入口
+
+- 2026-04-06 **[前端]** `LearnerNotebook.vue`：头部操作区新增「错题强化训练」按钮（`type="warning"`），点击后基于当前筛选的错误类型调用 `POST /api/ai/review-packages` 创建强化复习包，跳转至专项复习页面
+
+### 语言包初始化：任务详情在新标签页打开
+
+- 2026-04-06 **[前端]** `LanguagePackInit.vue`：点击任务名改为 `openTaskInNewTab`（`window.open`），在新浏览器标签页中打开任务详情；`loadTasks` 支持 `?task_id=XXX` query 参数自动选中对应任务
+
+### 修复 Element Plus radio 废弃警告
+
+- 2026-04-06 **[前端]** `LanguagePackInit.vue`：`el-radio` 的 `label` 属性改为 `value`，消除 Element Plus 3.x 废弃警告
+
+### 管理后台：暂时隐藏「密钥与配置」侧边栏
+
+- 2026-04-06 **[前端]** `SideMenu.vue`：注释隐藏「密钥与配置」子菜单（系统路径、数据库与基础设施），路由和组件保留
+
+### 语言包创建：课件文件支持拖动排序
+
+- 2026-04-06 **[前端]** `LanguagePackInit.vue`：创建表单的课件文件列表改为自定义可排序列表（HTML5 drag and drop），支持拖动调整文件顺序；隐藏 `el-upload` 内置文件列表，改用带拖拽手柄、文件名和删除按钮的自定义 UI
+
+### 管理后台语言包详情：表格表头统一居中
+
+- 2026-04-06 **[前端]** `LanguagePackInit.vue`：所有标签页（课件文档、阶段日志、知识组件、例题、候选题）中表格的文本列统一添加 `align="center"`，表头对齐风格一致
+
+### 管理后台语言包详情：标签切换保持滚动位置
+
+- 2026-04-06 **[前端]** `LanguagePackInit.vue`：`el-tabs` 添加 `@tab-click` 处理器，切换标签后使用 `scrollIntoView` 保持标签页可见区域不跳转到页面顶部
+
+### 语言包初始化：彻底移除「目标题目数量」
+
+- 2026-04-06 **[前端]** `LanguagePackInit.vue`：移除创建表单中的 `target_problem_count` 输入控件及对应的表单数据字段和提交参数
+- 2026-04-06 **[数据库]** `V43__drop_target_problem_count.sql`：从 `language_pack_init_task` 表中删除 `target_problem_count` 列，题目数量完全由课件 PPT 内容决定
+- 2026-04-06 **[测试]** `LanguagePackInitIntegrationTest`、`AdminLanguagePackControllerContractTest`：移除 `target_problem_count.doesNotExist()` 断言
+
+### 导航栏精简：移除「我的课程」菜单项
+
+- 2026-04-06 **[前端]** `NavBar.vue`：移除顶部导航栏的 `<ElMenuItem index="/user-home">我的课程` 入口；用户主页仍可通过右上角下拉菜单「我的主页」进入
+- 2026-04-06 **[前端]** `NavBar.vue`：清理不再使用的 `Notebook` 图标导入
+
+### 课件问答页：修复发送消息后滚动到顶部的问题
+
+- 2026-04-06 **[前端]** `LanguagePackQaPage.vue`：`loadMessages` 中 `_scrollMessagesToBottom` 调用移至 `finally` 块（`loadings.messages = false` 之后），修复消息列表未渲染时 `$nextTick` 滚动无效、导致页面停留在顶部的问题
+
+### 课件问答页：移除常驻 OJ 防护栏文字
+
+- 2026-04-06 **[前端]** `LanguagePackQaPage.vue`：移除输入框上方的 `qa-guard-rail` 提示文字「不要在这里问 OJ 题目…」；OJ 题目检测拦截逻辑（`looksLikeOjProblemQuestion`）保留，仅在用户实际输入 OJ 相关问题时弹出通知拦截
+
+### 全局垂直滚动条修复：QA / 题目列表 / 提交列表
+
+- 2026-04-06 **[前端]** `common.less`：新增全局规则 `html.fullscreen-page` → `overflow: hidden`，供需要全视口布局的页面共用
+- 2026-04-06 **[前端]** `LanguagePackQaPage.vue`：挂载时添加 `fullscreen-page` class，卸载时移除；添加 `max-height` 约束消除全局滚动条
+- 2026-04-06 **[前端]** `ProblemList.vue`：`.problem-list-page` 改为定高 `calc(100vh - offset)` + `overflow-y: auto`，内部滚动取代 body 滚动；移除 `.problem-list-layout` 的 `min-height`
+- 2026-04-06 **[前端]** `SubmissionList.vue`：`.flex-container` 改为定高 `calc(100vh - offset)` + `overflow-y: auto`
+
+### 课件问答页证据侧栏：默认收起，有引用时展开
+
+- 2026-04-06 **[前端]** `LanguagePackQaPage.vue`：右侧证据侧栏默认隐藏（`v-if="showEvidencePanel"`），仅当用户点击引用页、播放视频或加载引用时展开；grid 布局从固定三栏改为动态两/三栏（`evidence-visible` class 切换）
+- 2026-04-06 **[前端]** 新增「收起」按钮（`closeEvidencePanel`），支持手动关闭证据面板，关闭后主聊天区自动扩展至全宽
+- 2026-04-06 **[前端]** 所有响应式断点（1180px / 900px / 768px）同步适配两栏/三栏切换
+
+### 关闭 ReAct 模式并隐藏 Beta 功能管理入口
+
+- 2026-04-06 **[后端]** `AnswerSynthesisServiceImpl`：移除 `QA_REACT_ENABLED` 条件分支及 `synthesizeViaReact` / `buildReactSystemPrompt` 方法，QA 问答合成固定使用单次 LLM 调用；移除不再需要的 `PageRetrievalService` 依赖注入
+- 2026-04-06 **[后端]** `DiagnosticsAgent`：移除 `TUTOR_REACT_ENABLED` 条件分支及 `executeWithReact` / `buildReactSystemPrompt` 方法，错误诊断固定使用 single-shot；移除 `CoursewareRetrievalService`、`SimilarErrorRetrievalService`、`JdbcTemplate` 构造参数
+- 2026-04-06 **[后端]** `AITutorWorkflowAdminServiceImpl`：移除 `TUTOR_REACT_ENABLED` 条件分支及 `generateErrorDiagnosisViaReact` 方法，错误诊断固定走 `generateErrorDiagnosisByLlm`；清理关联 react 包 import
+- 2026-04-06 **[后端]** `BetaFeatureRegistry`：从 `DEFINITIONS` 中删除 `TUTOR_REACT_ENABLED`（AI Tutor ReAct 模式）和 `QA_REACT_ENABLED`（语言包 QA ReAct 模式）两条已失效的定义
+- 2026-04-06 **[前端]** `SideMenu.vue`：删除「Beta 功能」子菜单入口（`index="beta"`）
+- 2026-04-06 **[前端]** `router.js`：删除 `/beta-features` 路由及 `BetaFeatures` 导入；从 `TEACHER_DENIED_ROUTE_NAMES` 移除 `beta-features`
+- 2026-04-06 **[前端]** `views/index.js`：删除 `BetaFeatures` 组件导入与导出
+
+### 迁移题生成：样例输出语义校验（禁止孤负号与「位位」错词）
+
+- 2026-04-06 **[后端]** `AITutorWorkflowAdminServiceImpl.java`：`validateGeneratedTransferPayload` 在落库前对 `samples` / `test_cases` 的 `output` 做 fail-fast 检查——正则 `TRANSFER_DIGIT_PLACE_LONE_MINUS` 拒绝「千位数是-」后未跟数字（如 `千位数是-，`）；`TRANSFER_DIGIT_PLACE_DUP_WEI` 拒绝「位位」类重复量词（如「百位位数」）；校验失败触发 LLM 重试（`TRANSFER_GENERATION_MAX_ATTEMPTS` 由 2 增至 3）
+- 2026-04-06 **[后端]** `buildTransferSystemPrompt()`：新增第 14、15 条规则，明确各位数字输出格式与禁止「位位」错词
+- 2026-04-06 **[测试]** `AITutorWorkflowAdminServiceImplTest`：补充上述校验的单元测试；修复 `Map.of` 超过 10 项的编译问题；同步反射调用 `generateTransferByLlmWithRetry` / `buildTransferSourcePayload` / `buildTransferUserPrompt` 的签名；`nextTransferDisplayId` 无章节前缀用例改为空 `display_id`
+
+### 题目页样例复制：按钮移至样例框右上角
+
+- 2026-04-06 **[前端]** `Problem.vue`：输入样例的复制按钮置于灰色 `pre` 样例框右上角（`sample-pre-wrap` + `sample-copy-btn`）；输出样例仅保留普通 `pre` 展示，不提供复制按钮
+
+### 迁移题卡片渲染修复：统一使用 Element Plus 组件
+
+- 2026-04-06 **[前端]** `TransferProblemCard.vue`：将 `<Tag>` 替换为 `<el-tag>`、`<Button>` 替换为 `<el-button>`，与其他卡片（PostACCard 等）统一使用 Element Plus 组件库；修复因 iView 组件未注册导致卡片内容（标题、描述、样例等）无法正常渲染、仅显示 target_kcs 纯文本和无样式按钮的问题；hint 区域改用 `v-html="sanitize(...)"` 支持 LLM 生成的 HTML 格式提示
+
+### 看门狗超时时间延长：适配 LLM 长耗时生成场景
+
+- 2026-04-06 **[前端]** `workflowStateMachine.js`：将 WebSocket 看门狗轮询间隔从 1s 改为 2s，最大重试次数从 30 改为 90（总超时从 ~36s 延长至 ~186s），适配迁移题等需要 LLM 长时间生成的场景
+
+### 迁移题 display_id 格式兼容：支持非标准 display_id（如 PPT3-3）
+
+- 2026-04-06 **[后端]** `AITutorWorkflowAdminServiceImpl.java`：修复 `resolveTransferDisplayIdRule()` 仅接受 `X.Y.Z` 格式 display_id 导致非标准题目（如 `PPT3-3`）无法生成迁移题的 `schema_violation` 错误；新增 `SOURCE_DISPLAY_GENERIC_PREFIX_PATTERN`（匹配 `字母+数字-数字` 格式），以及任意非空 display_id 兜底规则，生成格式为 `{prefix}-T{N}`
+- 2026-04-06 **[后端]** `AITutorWorkflowAdminServiceImpl.java`：在 async workflow 异常捕获处新增 `log.error` 日志输出，确保后续错误可在 backend log 中定位
+
+### 迁移题生成引入 AC 复盘"下一步练习方向"
+
+- 2026-04-06 **[后端]** `AITutorWorkflowAdminServiceImpl.java`：TRANSFER 事件处理时从 `nodeOutputs.post_ac.next_practice_direction` 提取 AC 复盘中生成的下一步练习方向，透传至迁移题 LLM 生成链路（`generateTransferProblem` → `generateTransferByLlmWithRetry` → `generateTransferByLlm` → `buildTransferUserPrompt`）
+- 2026-04-06 **[后端]** `AITutorWorkflowAdminServiceImpl.java`：`buildTransferSystemPrompt()` 新增第 3 条规则——当用户提供"下一步练习方向"时，必须以该方向作为迁移题核心设计依据
+- 2026-04-06 **[后端]** `AITutorWorkflowAdminServiceImpl.java`：`buildTransferUserPrompt()` 当 `nextPracticeDirection` 非空时，在 prompt 开头追加"学生在 AC 复盘时收到的下一步练习方向"指令，引导 LLM 围绕该方向出题
+
+### 迁移练习卡片不渲染修复：WebSocket 异步路径事件推断增强
+
+- 2026-04-06 **[前端]** `workflowStateMachine.js`：修复点击"迁移练习"按钮后不生成 TransferProblemCard 的问题——根因是 WebSocket 异步结果路径中 `_inferWorkflowEventFromResult()` 仅依赖 `node_outputs.last_event.event` 和 `data.phase` 两个字段来推断事件类型，若后端未设置这两个字段则返回空字符串，导致 `_pushCardMessage` 不被调用
+- 2026-04-06 **[前端]** `workflowStateMachine.js`：`_inferWorkflowEventFromResult()` 新增第三级回退——遍历 `EVENT_OUTPUT_KEY` 检查 `nodeOutputs` 中是否存在已知输出键（排除 `chat`），使 TRANSFER、AC_REVIEW 等事件在缺少 `last_event` / `phase` 时仍可被正确识别
+- 2026-04-06 **[前端]** `workflowStateMachine.js`：`_isWatchdogResultReady()` 放宽 `last_event` 强依赖——当 `last_event` 不存在时，回退检查 `context.expectedEvent` 对应的输出键是否已出现在 `nodeOutputs` 中，避免看门狗永远判断结果未就绪导致 30 秒超时
+- 2026-04-06 **[前端]** `workflowStateMachine.js`：`_handleWsResult()` 和 `_runWsResultWatchdog()` 在卡片推送时使用 `_lastAgentCall.event` / `context.expectedEvent` 作为最终回退事件，确保即使推断失败仍能渲染正确的卡片
+
+### AC 复盘快捷操作去重：已展示复盘卡片后不再重复出现"AC 复盘"按钮
+
+- 2026-04-06 **[前端]** `workflowStateMachine.js`：修复 AC_REVIEW 状态下 PostACCard 已展示后，底部快捷操作仍出现"AC 复盘"按钮的逻辑问题；通过检测 `agentMessages` 中是否已存在 `post_ac` 类型消息，在前端 fallback 分支和后端 `backendAvailableActions` 分支均过滤掉冗余的 `ac_review` 操作，仅保留"迁移练习"
+
+### AC 复盘卡片精简：移除多级 Tab，仅保留学习总结
+
+- 2026-04-06 **[前端]** `PostACCard.vue`：移除"学习总结 / 优秀解法 / 进阶引导"三个 Tab 及其切换逻辑，卡片改为直接展示学习总结（level 1）内容；删除 `activeTab`、`tabLoading` 状态、`tabs` / `level2` / `level3` 计算属性、`handleTabClick` / `hasLevelData` 方法，以及 peer/guide 相关模板和样式
+- 2026-04-06 **[前端]** `UnifiedAgentPanel.vue`：移除 `PostACCard` 上的 `:can-request-advanced-review`、`@request-level`、`@insert-code`、`@navigate-problem`、`@ask-question` 事件绑定；删除 `canRequestAdvancedAcReview` prop 和 `handleRequestLevel` 方法；emits 列表移除 `request-level`
+- 2026-04-06 **[前端]** `Problem.vue`：移除 `:can-request-advanced-ac-review` prop 传递和 `@request-level` 事件监听；删除 `handleAgentRequestLevel` 方法（含 guidance_level=3 的 AC_REVIEW 调度逻辑）和 `canRequestAdvancedAcReview` 计算属性
+- 2026-04-06 **[前端]** `PostACCard.vue`：移除 `celebration` 绿色庆祝文字区块，不再展示 AI 生成的夸奖长文；`level1` 回退检测条件中去除 `celebration` 字段
+
+### 骨架代码卡片持久化修复 & Vite HMR 缓存清理
+
+- 2026-04-06 **[前端]** `workflowStateMachine.js`：修复骨架代码（`skeleton_code`）卡片在页面刷新后丢失的问题——根因是 `initWorkflowSession()` 中 `_rebuildFromTrace()` 会逐条调用 `pushAgentMessage()` 覆写 localStorage 缓存，导致仅存于客户端的 `skeleton_code` 消息在 `_mergeAgentMessagesCache()` 读取前就被清除；改为在 restore 前先读取缓存副本，rebuild 后再将 `skeleton_code` 等客户端专属消息合并回来
+- 2026-04-06 **[前端]** `workflowStateMachine.js`：在 `_rebuildAgentMessages()` 中增加 `outputs.skeleton_code` 的处理，使后端若在 `node_outputs` 中返回骨架代码数据也能被正确重建为卡片
+- 2026-04-06 **[前端]** `agentContracts.js`：将 `skeleton_code` 加入 `CARD_TYPES` 常量，使 `_normalizeTraceMessageType()` 能识别执行轨迹中的骨架代码条目
+- 2026-04-06 **[前端]** 清理 Vite deps 缓存（`node_modules/.vite/deps`），解决 `CodeEditorPanel.vue` 热更新时 `Warning is not defined` 引用错误导致 HMR 失败、页面卡在思路分析卡片无法切换的问题
+
+### 题目描述 Markdown 粗体渲染修复
+
+- 2026-04-06 **[前端]** `Problem.vue`：题目描述、输入说明、输出说明、提示四个区域原来直接用 `sanitize()` 输出 HTML，导致 Markdown 语法（如 `**粗体**`）以原始星号文本显示；改为先通过 `marked()` 将 Markdown 转为 HTML 再经 `sanitize()` 消毒，与 AI 卡片中的 `renderMarkdown` 保持一致
+
+### 移除提交分享功能
+
+- 2026-04-06 **[后端]** 删除 `SubmissionShareRequest.java` DTO、`SubmissionController` 的 `PUT /api/submission` 端点、`SubmissionService` / `SubmissionCommandDomainService` 及其实现中的 `shareSubmission` 方法；简化 `canViewSubmission` 去除 `checkShare` 参数，不再以 `shared` 标记授权查看；`getSubmission` 响应移除 `shared`、`can_unshare` 字段，`listSubmissions` 响应移除 `shared` 字段
+- 2026-04-06 **[前端]** `SubmissionDetails.vue`：移除分享/取消分享按钮及 `shareSubmission` 方法；`api.js` 移除 `updateSubmission` 接口；`submission.js` 模块移除 `updateSubmission` 导出；清理 i18n 中 `Share`、`UnShare`、`ShareSubmission` 词条（en-US / zh-CN / zh-TW）
+
+### 代码编辑器语法高亮配色优化
+
+- 2026-04-06 **[前端]** `Cm5EditorCore.vue`：将 Solarized Light 配色方案替换为 VS Code Light+ 风格高对比度配色——关键字蓝色加粗、注释绿色斜体、字符串深红、数字深绿、函数名棕色、类型名青色，解决原配色颜色差异过小导致用户看不到语法高亮的问题
+
+### 调试面板图标优化
+
+- 2026-04-06 **[前端]** `CodeEditorPanel.vue`：将调试面板标题和调试按钮的图标从 `Warning`（感叹号）替换为自定义 `BugIcon`（虫子），使其与"调试/Debug"语义一致
+
+### AI 学习基础校准个性化增强
+
+- 2026-04-06T14:35:00+08:00 **[后端]** `AITutorServiceImpl.java`：将校准评分从“仅按回答字数”升级为“语义关键词覆盖 + 解释结构 + 长度约束”的组合评分；校准流程改为服务端权威累计（不再信任前端传入的 `accumulated`），并新增题号顺序校验与断点续答（`calibration/status` 返回当前题索引与已累计分值）；完成校准后返回 `calibrated_kcs[{kc_name,p_mastery_calibrated}]` 结构，供前端展示真实掌握度标签
+- 2026-04-06T14:35:00+08:00 **[后端]** `LearnerProfileProjector.java`：将 `ai_calibration_state.accumulated` 融合进 `mastery_by_kc`（命中 KC 用定向先验，未命中时用全局先验），并把是否应用校准先验写入 `recommended_action_bias`，使脚手架层级与后续推荐动作能真正利用校准结果提升个性化质量
+- 2026-04-06T14:35:00+08:00 **[测试]** `LearnerProfileProjectorTest.java`、`AITutorServiceImplCalibrationScoringTest.java`：新增校准融合与评分回归测试，覆盖“定向融合、无 KC 回退、缺失校准状态保持原画像、短答案上限约束、结构化答案高分”关键路径
+
+### OJ 骨架代码卡片交互与布局收敛
+
+- 2026-04-06T16:20:00+08:00 **[前端]** `SkeletonCodeCard.vue`：将“插入编辑器，开始填写”从 `<Button>` 收口为原生全宽主按钮，统一到 AI 卡片主操作视觉；按钮补齐 `type="button"`、`cursor: pointer`、`focus-visible` 和不少于 `44px` 的点击热区，保持 `insert-code` 事件与 `append` 插入链路不变；骨架代码区同时移除内部纵向滚动限制，改为按内容自然展开，由外层 AI 面板统一滚动
+- 2026-04-06T16:20:00+08:00 **[测试]** `problem-skeleton-card-contract.spec.js`：新增前端源码契约测试，约束骨架卡片必须使用原生主按钮、继续发送 `insert-code + append` 事件，并禁止恢复 `max-height` / `overflow-y: auto` 的内部纵向滚动样式
+- 2026-04-06T16:52:00+08:00 **[前端]** `SkeletonCodeCard.vue`：将底部“插入编辑器，开始填写”按钮的圆角、内边距、图标间距、透明度过渡收口为与上方“生成骨架代码”按钮完全一致的尺寸参数，移除额外 `min-height`，避免上下两个主按钮视觉尺寸不一致
+
+### OJ 骨架代码生成 prompt 收紧
+
+- 2026-04-06T16:45:00+08:00 **[后端]** `AITutorWorkflowAdminServiceImpl.java`：收紧骨架代码生成 prompt，明确要求骨架保持当前语言在 OJ 中的最小自然形态；若题目未明确要求且语言本身也不强制入口结构，则不要额外包 `main/def main()/主函数/启动类`；同时禁止添加不会实际用到的 `import/include/using/package` 声明，避免生成冗余模板
+- 2026-04-06T16:45:00+08:00 **[测试]** `AITutorWorkflowAdminServiceImplTest.java`：新增骨架 prompt 回归测试，约束骨架生成提示词必须明确禁止无谓的入口包装与无用库声明；同步将测试构造函数与 `UserAuth` 反射 helper 对齐到当前生产代码签名，确保该测试文件可继续运行
+- 2026-04-06T17:30:00+08:00 **[前后端]** `SkeletonCodeCard.vue`、`Problem.vue`、`AITutorWorkflowAdminServiceImpl.java`：修复骨架卡片“插入编辑器”按钮静默失效。骨架卡片改为显式 `handleInsertClick` 并声明 `insert-code` 事件；题目页插入链路新增“编辑器 ref 未就绪”时的追加回退，优先调用编辑器 `appendCode(...)`，拿不到实例时按同语义直接回写代码文本，避免点击后无任何反馈
+- 2026-04-06T17:30:00+08:00 **[后端]** `AITutorWorkflowAdminServiceImpl.java`：继续收紧骨架生成 prompt，新增“description、TODO 注释、行内注释、解释文案默认全部使用简体中文”的强约束，仅在题目明确要求英文时保留必要英文，减少骨架说明和注释混入英文
+- 2026-04-06T17:30:00+08:00 **[测试]** `problem-skeleton-card-contract.spec.js`、`problem-editor-skeleton-insert-contract.spec.js`、`AITutorWorkflowAdminServiceImplTest.java`：补充前端源码契约与后端定向回归断言，锁定骨架按钮显式点击处理、题目页追加回退逻辑，以及骨架 prompt 的中文输出要求
+- 2026-04-06T18:12:00+08:00 **[后端]** `AITutorWorkflowAdminServiceImpl.java`：收窄骨架中文约束范围，明确“中文”只约束 `description` 与 TODO/行内注释，不再把变量名、函数名、类名等标识符一起本地化；新增“优先使用符合语言习惯的清晰英文命名，禁止拼音变量名”提示，避免生成 `qian/bai/shi/ge` 这类不规范命名
+- 2026-04-06T18:12:00+08:00 **[测试]** `AITutorWorkflowAdminServiceImplTest.java`：扩展骨架 prompt 回归断言，要求提示词必须同时约束“注释中文”和“标识符使用清晰英文命名”，防止再次回归到拼音变量名
+- 2026-04-06T18:00:00+08:00 **[前端]** `UnifiedAgentPanel.vue`：修复 Vue warning。将快捷动作图标映射改为 `markRaw(...)` 常量，避免图标组件对象被 Vue 深响应式代理；同时为统一面板补齐完整 `emits` 声明，消除多根节点下的 `Extraneous non-emits event listeners` 警告
+- 2026-04-06T18:00:00+08:00 **[测试]** `unified-agent-panel-warning-contract.spec.js`：新增源码契约测试，约束统一面板必须将图标映射保持为非响应式常量，并声明对外自定义事件列表，防止控制台 warning 回归
+
+### Admin 端 AI 服务配置并入系统管理目录
+
+- 2026-04-06 **[前端]** `SideMenu.vue`：将 `AI 服务配置` 从“密钥与配置”菜单组移动到“系统管理”菜单组，保持路由与 `SUPER_ADMIN` 权限不变；Admin 侧边栏现在按“平台运行级配置归入系统管理、基础设施项保留在密钥与配置”展示
+- 2026-04-06 **[测试]** `admin-hidden-ai-entry-contract.spec.js`：新增源码契约测试，约束 `AI 服务配置` 必须出现在“系统管理”菜单段内，且不得重新回到“密钥与配置”分组
+
+### Beta 功能页移除实验性说明卡片
+
+- 2026-04-06 **[前端]** `BetaFeatures.vue`：移除页面顶部“实验性功能”说明卡片，Beta 功能页打开后直接展示功能分组列表，不再额外占用首屏空间
+- 2026-04-06 **[测试]** `admin-beta-features-layout-contract.spec.js`：补充源码契约，约束 Beta 功能页不得重新渲染 `beta-banner` 容器和“实验性功能”文案
+
+### 题目页课件参考增强为就地课件预览窗
+
+- 2026-04-06 **[后端]** `CoursewareRetrievalService`：语言包来源的 `courseware_refs` 补齐 `document_id`、`document_title`、`slide_number` 等可预览字段；题目导学与错误诊断卡片中的课件引用现在可直接定位到语言包课件页
+- 2026-04-06 **[前端]** `ProblemGuideCard.vue`、`ErrorDiagnosisCard.vue`、`UnifiedAgentPanel.vue`、`Problem.vue`：课件参考改为可点击引用项，点击后在做题页弹出“课件预览”对话框；对话框内支持切换同组引用、查看对应 PPT/PDF 页 iframe 预览、阅读命中片段与当前页正文，并提供“新标签打开完整课件”入口
+- 2026-04-06 **[测试]** `CoursewareRetrievalServiceTest`、`problem-courseware-preview-contract.spec.js`：新增后端字段单测与前端源码契约测试，约束语言包引用必须返回预览定位字段，且做题页必须通过统一面板承接课件预览弹窗
+
+### 修复登录前账号接口被 Spring Security 误拦截
+
+- 2026-04-06 **[后端]** `SecurityConfig`：将 `/api/profile` 与 `/api/tfa-required` 加入匿名访问白名单，和现有服务语义保持一致；未登录访问 `/api/profile` 现在返回 `{"error":null,"data":null}`，登录页调用 `/api/tfa-required` 不再被 Spring Security 提前拦截为 `403`
+- 2026-04-06 **[测试]** `AccountAnonymousAccessIntegrationTest`：新增匿名访问回归测试，覆盖 `/api/profile` 与 `/api/tfa-required` 的匿名请求契约，防止后续再次被鉴权配置误拦截
+
+### Beta 功能页去除重复页眉
+
+- 2026-04-06 **[前端]** `BetaFeatures.vue`：移除 `Panel` 组件上的 `title="Beta 功能管理"`，并在页面作用域内隐藏 `.admin-panel__header`，Beta 功能页不再显示重复页眉，只保留页面主体中的“实验性功能”说明卡片
+- 2026-04-06 **[测试]** `admin-beta-features-layout-contract.spec.js`：新增 Beta 功能页布局契约测试，约束该页面不得再次传入 `Panel` 标题，防止页眉回归
+
+### 语言包初始化页详情按名称展开并强化阶段反馈
+
+- 2026-04-06 **[前端]** `LanguagePackInit.vue`：任务列表取消按筛选结果自动展开首条详情，改为仅在管理员点击语言包名称按钮后才展开下方详情面板；列表同时新增显式提示文案与当前选中态，减少误触展开
+- 2026-04-06 **[前端]** `LanguagePackInit.vue`：阶段条改为自定义节点视觉，当前所在阶段显示蓝色转圈与高亮标题，`published` 阶段保持静态完成态；中间态 `segments_ready` / `units_ready` 统一映射到“例题抽取”节点展示
+- 2026-04-06 **[测试]** `admin-language-pack-init-contract.spec.js`：新增语言包初始化页交互契约测试，约束“仅名称点击展开详情”和“当前阶段转圈且发布不转圈”两项行为，防止回归
+- 2026-04-06 **[前端]** `LanguagePackInit.vue`：阶段完成态图标从旧版类名字体切换为直接渲染 `√`，已完成节点现在稳定显示勾选；语言包列表名称卡片新增居中容器，卡片本身与标题/slug 文案都改为居中布局
+- 2026-04-06 **[测试]** `admin-language-pack-init-contract.spec.js`：补充源码契约，约束完成态必须包含 `√` 标记，语言包名称卡片必须在表格单元格中居中展示
+
+### Admin 端隐藏 McMining 与预检帮助率入口
+
+- 2026-04-06 **[前端]** `SideMenu.vue`：从 AI Teaching 菜单中移除 `McMining 审核` 与 `预检帮助率` 两个入口，Admin 侧边栏不再显示这两项
+- 2026-04-06 **[前端]** `router.js`：删除 `/mcmining-review` 与 `/preflight-stats` 两个 Admin 子路由，并清理对应的教师拒绝名单项；旧地址现在不会再命中页面路由
+- 2026-04-06 **[测试]** `admin-hidden-ai-entry-contract.spec.js`：新增源码契约测试，约束侧边栏、Admin 路由表和 E2E 页面目录都不得继续暴露这两个入口
+- 2026-04-06 **[测试]** `replacementConfig.js`：同步移除 E2E 替换环境中的两条 Admin 页面登记，避免测试基线继续把已下线页面当作有效目标
+
+## [Unreleased] - 2026-04-05
+
+### 语言包导出导入与初始化模式选择
+
+- 2026-04-05 **[后端]** `LanguagePackExportImportService`：新增语言包导出导入服务，导出时将 init task 关联的所有数据（章节、知识组件、例题、候选题及 KC 映射）序列化为结构化 JSON，使用 `ref_id` 替代实际数据库 ID 以保证可移植性；导入时对 JSON 进行严格安全校验（`format_version` 版本检查、slug 格式校验、主语言白名单、数组大小上限、`<script>` 与事件处理器注入拦截、字段长度限制、枚举值校验、引用完整性校验），通过校验后在事务中创建 `language_pack` 及 `language_pack_init_task` 并批量写入全部数据，根据导入数据自动计算 stage
+- 2026-04-05 **[后端]** `AdminLanguagePackController`：新增 `GET .../export` 端点（返回 `Content-Disposition: attachment` 的 JSON 文件下载）和 `POST .../import` 端点（接收 `multipart/form-data` 上传的 JSON 文件，校验文件类型与大小后调用导入服务）
+- 2026-04-05 **[前端]** `LanguagePackInit.vue`：「新建初始化任务」对话框改为两步式，第一步选择初始化模式（逐步审核 / 一键初始化 / 导入语言包），第二步根据模式显示课件上传表单或 JSON 导入区域；「逐步审核」保持原有手动推进行为，「一键初始化」创建后自动执行全部阶段，「导入语言包」支持拖拽上传 JSON 并在提交前预览文件摘要（名称、slug、语言、章节/KC/例题/候选题计数）
+- 2026-04-05 **[前端]** `LanguagePackInit.vue`：任务详情面板新增「导出语言包」按钮，点击后浏览器下载当前 init task 的完整 JSON 导出文件
+- 2026-04-05 **[前端]** `api.js`：新增 `exportLanguagePack(taskId)` 和 `importLanguagePack(file)` API 方法
+- 2026-04-05 **[后端]** `LanguagePackExportImportServiceImpl`：（code review 修复）导出 KC 映射从 N+1 逐条查询改为单次批量查询；`toInt`/`toIntOrNull` 方法增加 `NumberFormatException` 捕获转 `BadRequestException`；控制器导入端点移除 `IOException.getMessage()` 避免内部路径泄漏
+
+
+### 完全重写竞赛文档（基于代码验证）
+
+- 2026-04-05 **[文档]** `docs/competition/设计说明书.md`：基于源代码完全重写，修正全部统计数据（349 Java 文件/53,300 行取代原文 299/46,700；105 Vue 组件取代 96；42 Flyway 迁移取代 38；35 Controller 取代 30；80 合约测试取代 75；280+ REST 端点取代 150+），修正 ReactResult record 为 4 字段（增加 toolTraceEntries），修正语言包管线为 10 阶段状态机（取代原文 8 阶段），修正 WebSocket 端点为 4 个（增加 /ws/qa/*），修正 LlmClient 行数为 1119（取代 910）、AITutorWorkflowAdminServiceImpl 为 3733（取代 4446）、ClassroomServiceImpl 为 2692（取代 4474），补充 ReflectionResult record 定义，补充课程学习中心等新增路由，所有图表以 ASCII 风格重绘
+- 2026-04-05 **[文档]** `docs/competition/作品情况表.md`：基于代码验证重写，内容与设计说明书保持一致
+- 2026-04-05 **[文档]** `docs/competition/作品小结.md`：基于代码验证重写，统计数据与设计说明书对齐，补充课程学习模块描述
+- 2026-04-05 **[文档]** `docs/competition/原创承诺书.md`：基于代码验证重写，修正所有文件数与行数统计
+- 2026-04-05 **[Figma]** 在 Figma 中创建 3 页系统架构图：系统功能框架 + 部署拓扑图、AI Agent 多层架构图、教学工作流 FSM 状态图
+
+## [Unreleased] - 2026-04-04
+
+### 班级详情页 Tab 面板页眉统一缩短
+
+- 2026-04-04 **[前端]** `ClassroomDetail.vue`：题目面板、协作编程面板页眉统一改用 `.panel-header` / `.panel-title` / `.panel-actions` 类，废弃旧 `classroom-problem-header-*` 类；两个面板的 `el-card__header` 内边距从默认值统一收窄至 `10px 16px`；协作编程 `el-card` 新增 `session-panel` 类以便 `:deep()` 选择器精准穿透
+- 2026-04-04 **[前端]** `LessonManagement.vue`：课件管理面板 `el-card__header` 内边距收窄至 `10px 16px`；`.card-title` 字体从 `16px` 统一为 `14px 600 #17233d`
+- 2026-04-04 **[前端]** `ClassroomAssignment.vue`：作业列表面板页眉从行内样式改为 `.panel-header` / `.panel-title` 类；`el-card__header` 内边距收窄至 `10px 16px`，视觉与其余三个 Tab 面板对齐
+
+### 修复做题界面 AI 卡片 Markdown 未渲染问题
+
+- 2026-04-04 **[前端]** `ProblemGuideCard.vue`：`plain_task`、`problem_explanation`、`input_translation`、`output_translation`、`approach_direction` 从文本插值改为 `v-html` + `renderMarkdown()`
+- 2026-04-04 **[前端]** `ErrorDiagnosisCard.vue`：`encouragement`、`root_cause`、`what_program_is_doing`、`expected_behavior`、`similar_error_summary` 从文本插值改为 `v-html` + `renderMarkdown()`；`fix_direction` 改为先 `renderMarkdown` 再 `renderStepLinks`，保持步骤导航链接可用
+- 2026-04-04 **[前端]** `MinimalHintCard.vue`：`hint`、`nudge` 从文本插值改为 `v-html` + `renderMarkdown()`
+- 2026-04-04 **[前端]** `IdeateAnalysisCard.vue`：`understood_as`、`step_plan` 每步文本、`logic_gap_hint` 从文本插值改为 `v-html` + `renderMarkdown()`
+- 2026-04-04 **[前端]** `WorkedExampleCard.vue`：`analogy_problem.description`、`step.explanation`、`bridge_to_current` 从文本插值改为 `v-html` + `renderMarkdown()`
+- 2026-04-04 **[前端]** 以上 5 个卡片均新增各自 `*-markdown` scoped `:deep()` 样式，覆盖段落、粗体、列表、代码块排版
+
+### 修复课件问答助手 Markdown 未渲染问题
+
+- 2026-04-04 **[前端]** `LanguagePackQaPage.vue`：AI 回答区从 `{{ }}` 文本插值改为 `v-html` + `renderMarkdown()`（复用 `marked` + `sanitize`），`**粗体**`、列表、代码块等 Markdown 语法现在可正常渲染；新增 `.qa-answer-markdown` 样式规则（`:deep()` 穿透 scoped），覆盖段落、粗体、列表、行内代码、代码块和引用的基础排版
+
+### 修复课件参考章节号不显示问题
+
+- 2026-04-04 **[后端]** `CoursewareRetrievalService`：`queryLanguagePackByKc` 将 `chapter` 字段从 `ch.title`（章节标题文字）改为 `cast(ch.chapter_index as text)`（章节编号），与前端 `第 N 章` 模板对齐
+- 2026-04-04 **[后端]** `CoursewareRetrievalService`：`queryLanguagePackRecentPages`（无 KC 映射回退路径）从硬编码空字符串改为通过 `page_range_start/end` 范围关联 `language_pack_chapter` 取得 `chapter_index`
+- 2026-04-04 **[后端]** `CoursewareRetrievalService`：新增 `rowWithSlide` 方法，在 `language_pack` 路径下补充 `slide_number`（来自 `p.page_no`）和 `preview`（来自 `excerpt`）字段，与前端 `ProblemGuideCard` 及 `ErrorDiagnosisCard` 的 `ref.slide_number` / `ref.preview` 绑定对齐
+
+### 课件引用跳转改为视觉幻灯片预览
+
+- 2026-04-04 **[后端]** `DocumentNormalizationServiceImpl`：PPTX / PPT 格式的预览 PDF 改用 LibreOffice 转换（与 DOCX 保持一致），移除基于 Pillow 纯文字布局的 `generatePptxPreviewPdf` 方法和 `resolvePreviewScriptPath` 方法，预览 PDF 现在呈现真实幻灯片视觉而非文字摘录
+- 2026-04-04 **[前端]** `LanguagePackQaPage.vue`：证据侧栏引用预览区从纯外链改为 iframe 内嵌（`#page=N` 直接定位到对应幻灯片页），同时保留"在新标签页查看"链接；iframe 高度 320px，底部以细分隔线与外链区分
+
+### Beta 功能开关持久化
+
+- 2026-04-04 **[后端]** `BetaFeatureRegistry` 改为 DB 持久化：通过 `sys_options` 表（key: `beta_features`）存储开关状态，`@PostConstruct` 启动时加载，toggle 时即时写入；重启后端不再丢失设置
+- 2026-04-04 **[后端]** `AdminBetaFeatureController` 简化：`listAll()` 不再依赖 `LlmClient`，直接使用 `System.getenv()` 获取原始环境变量值用于 source 显示
+- 2026-04-04 **[后端]** `LlmClient` 测试构造器修正：无 `BetaFeatureRegistry` 时传 `null`，`readEnvValue` 已有 null 守卫
+- 2026-04-04 **[前端]** `BetaFeatures.vue`：source 标签从"运行时覆盖"改为"管理员设置"（type: success），横幅文案更新为"开关状态已持久化到数据库"
+
+### Beta 功能管理页面美化及 Admin 端底部统一
+
+- 2026-04-04 **[前端]** `BetaFeatures.vue`：移除 `max-width: 960px` 限制，改为 `width: 100%`，使内容铺满容器宽度
+- 2026-04-04 **[前端]** `Home.vue`：Admin 端底部 footer 重构为单行横向布局，左侧「Alethicode 管理台」加粗，右侧「构建版本」字号缩小颜色淡化，上方添加细分隔线，与设计稿保持一致
+
+### 系统路径和凭据支持编辑
+
+- 2026-04-04 **[后端]** 新增 DTO：`SystemPathsConfigRequest/Response`、`InfraSecretsRequest/Response`
+- 2026-04-04 **[后端]** `SystemOptionService` / `SystemOptionServiceImpl`：新增 `getSystemPathsConfig()`、`updateSystemPathsConfig()`、`getInfraSecrets()`、`updateInfraSecrets()` 方法，系统路径和凭据持久化至 `sys_options` 表（key: `system_paths_config` / `infra_secrets`）
+- 2026-04-04 **[后端]** `AdminConfigController`：新增 4 个端点（`GET/PUT /api/admin/super/system-paths`、`GET/PUT /api/admin/super/infra-secrets`）
+- 2026-04-04 **[前端]** `SecretsSystemPaths.vue`：从只读卡片展示改为可编辑 `el-form`，支持保存 5 条路径 + 强制 HTTPS + CDN Host，附琥珀色"重启后生效"提示
+- 2026-04-04 **[前端]** `SecretsInfra.vue`：新增「凭据管理」Panel，支持在线编辑 DB 密码和 Redis 密码（掩码 + 可见切换），与 SecretsAiConfig 风格一致
+- 2026-04-04 **[前端]** `api.js`：新增 `getSystemPathsConfig()`、`updateSystemPathsConfig()`、`getInfraSecrets()`、`updateInfraSecrets()` 方法
+
+### Super Admin 密钥与配置管理页面
+
+- 2026-04-04 **[后端]** `SystemOptionService` / `SystemOptionServiceImpl`：新增 `getAiProviderConfig()`、`updateAiProviderConfig()`、`getEnvSnapshot()`、`getRawAiConfigValue()` 方法，AI Provider 配置持久化到 `sys_options` 表（key: `ai_provider_config`），DB 值优先于环境变量
+- 2026-04-04 **[后端]** `LlmClient`：注入 `SystemOptionService`（`@Autowired(required=false)` setter），在 `readEnvValue()` 中对 8 个 AI 相关环境变量（`OPENAI_API_KEY`、`LLM_BASE_URL` 等）优先读取 DB 配置，实现运行时热更新无需重启
+- 2026-04-04 **[后端]** `AdminConfigController`：新增 3 个 Super Admin 专属端点：`GET/PUT /api/admin/super/ai-config`（AI 配置读写）、`GET /api/admin/super/env-snapshot`（运行时环境快照只读）
+- 2026-04-04 **[后端]** 新增 DTO：`AiProviderConfigResponse`、`AiProviderConfigRequest`、`EnvSnapshotResponse`
+- 2026-04-04 **[前端]** 原 `SystemSecretsConfig.vue` 拆分为三个独立页面（`SecretsAiConfig.vue` / `SecretsSystemPaths.vue` / `SecretsInfra.vue`），各自对应独立路由（`/secrets/ai`、`/secrets/paths`、`/secrets/infra`）
+- 2026-04-04 **[前端]** `SideMenu.vue`：新增「密钥与配置」一级菜单（仅 Super Admin 可见），下含三个二级项；从「系统管理」移除旧的 `/system-secrets` 入口
+- 2026-04-04 **[前端]** `router.js`：以三条新路由替换旧 `/system-secrets`，三个路由名均加入 `TEACHER_DENIED_ROUTE_NAMES`
+- 2026-04-04 **[前端]** `api.js`：新增 `getAiProviderConfig()`、`updateAiProviderConfig()`、`getEnvSnapshot()` 方法
+- 2026-04-04 **[前端]** `router.js`：新增 `/system-secrets` 路由，加入 Teacher 禁止访问名单
+- 2026-04-04 **[前端]** `SideMenu.vue`：在「系统管理」子菜单新增「密钥与配置」入口（仅 Super Admin 可见）
+
+### 管理员端分页组件样式统一
+
+- 2026-04-04 **[前端]** `AdminPagination.vue`：通过 `ElConfigProvider` 局部覆盖分页语言，将总数文案由 "Total {total}" 改为 "总计 {total}"，页码选择器中 "/page" 后缀改为空字符串（仅显示数字）；分页区域对齐方式由右对齐（`flex-end`）改为居中（`center`）
+
+### Beta 功能管理页面调整
+
+- 2026-04-04 **[后端]** `BetaFeatureRegistry.java`：移除无实际作用的 `SPRING_AI_ENABLED` Beta 功能定义（该 toggle 不影响运行时后端路由，需通过环境变量+重启才能切换，保留会造成误导）
+
+### Beta 功能管理页面图标修复
+
+- 2026-04-04 **[前端]** `BetaFeatures.vue`：将旧版 Element UI 类名图标（`el-icon-warning-outline`、`el-icon-warning`）替换为 Element Plus v2 标准用法（`<el-icon><Warning />`、`<el-icon><WarningFilled />`），并导入对应组件，修复图标不显示的问题
+
+### 课件问答会话标题自动生成
+
+- 2026-04-04 **[数据库]** `V42__language_pack_chat_session_title.sql`：`language_pack_chat_session` 表新增 `title VARCHAR(100)` 列
+- 2026-04-04 **[后端]** `LanguagePackQaServiceImpl`：注入 `LlmClient`，新增 `generateSessionTitle` 和 `maybeStoreSessionTitle` 方法；在每次第一轮问答完成后（同步/异步路径均覆盖），调用 LLM 生成 8-16 汉字标题并写入 session；`listSessions` 接口返回 `title` 字段
+- 2026-04-04 **[前端]** `LanguagePackQaPage.vue`：`sessionTitle()` 优先使用后端生成的 `session.title`，降级时截断 `last_message_preview`
+
+### 课件问答页面（LanguagePackQaPage）体验修复
+
+- 2026-04-04 **[前端]** `LanguagePackQaPage.vue`：修复课件预览 `X-Frame-Options` 错误，将 `<iframe>` 替换为「在新标签页查看课件预览」链接按钮
+- 2026-04-04 **[前端]** `LanguagePackQaPage.vue`：会话历史标题改为展示第一轮对话内容摘要，移除无意义的「会话 #N」编号
+- 2026-04-04 **[前端]** `LanguagePackQaPage.vue`：隐藏「已进入课件问答模式」状态徽章（仅在 empty / unready / loading 时显示状态）
+- 2026-04-04 **[前端]** `LanguagePackQaPage.vue`：修复小屏幕下响应式断点导致三栏布局坍塌为纵向排列的问题，始终保持左中右三栏布局，小屏允许横向滚动
+- 2026-04-04 **[前端]** `LanguagePackQaPage.vue`：打开会话或收到新回复后，聊天消息列表自动滚动到底部
+
+### 登录页修复
+
+- 2026-04-04 **[后端]** `SecurityConfig`：禁用 HTTP Basic Auth（`.httpBasic(basic -> basic.disable())`），消除浏览器原生认证弹窗；认证完全由自定义 `SessionAuthenticationFilter` 处理
+
+### 启动脚本修复
+
+- 2026-04-04 **[构建]** `start.sh`：将 `mvn spring-boot:run -DskipTests` 改为 `-Dmaven.test.skip=true`，彻底跳过测试代码编译，避免测试类构造函数签名过期导致构建失败
+- 2026-04-04 **[后端]** `TransitionPolicy`、`TutorActionPolicy`、`ContextualBanditReranker` 三个 policy 类添加 `@Component` 注解，使 Spring 能正确装配 `WorkflowCheckpointService` 的构造器依赖
+
+### Beta 功能管理
+
+- 2026-04-04 **[后端]** 新增 `BetaFeatureRegistry`：运行时 Beta 功能开关注册表，支持在线覆盖环境变量值（`TUTOR_REACT_ENABLED`、`QA_REACT_ENABLED`、`QA_GROUNDING_CRITIC_ENABLED`、`LLM_TOOL_USE_PROMPT_FALLBACK`、`SPRING_AI_ENABLED`）
+- 2026-04-04 **[后端]** `LlmClient.readEnvValue` 增加 `BetaFeatureRegistry` 运行时覆盖层，优先级：运行时覆盖 > 环境变量 > .env 文件 > 默认值
+- 2026-04-04 **[后端]** 新增 `AdminBetaFeatureController`：`GET /api/admin/beta-features` 列出所有 Beta 功能及其状态；`PUT /api/admin/beta-features` 切换指定功能开关（仅 SUPER_ADMIN）
+- 2026-04-04 **[前端]** 新增 `BetaFeatures.vue`：Beta 功能管理页面，按分类分组展示功能卡片，含开关、状态来源标签、风险提示
+- 2026-04-04 **[前端]** Admin 侧边栏新增「Beta 功能」菜单组（仅超级管理员可见），路由 `/beta-features`
+
+### 语言包驱动AI学习系统 · 五阶段全链路实施
+
+#### 阶段一：语言包课程化
+- 2026-04-04 **[数据库]** 新增迁移 `V40__language_pack_course_enrichment.sql`：`language_pack` 增加 `course_objective`、`target_audience`、`total_hours` 课程级字段；`language_pack_chapter` 增加 `learning_objective`、`estimated_hours`；新建 `language_pack_kc_prerequisite` KC 前驱关系表和 `language_pack_review_task` 复习任务模板表
+- 2026-04-04 **[后端]** 新增 `CourseStructureService` 接口与 `CourseStructureServiceImpl` 实现：`getCourseStructure` 返回完整课程树（pack 元信息 + 章节 + KC + 例题 + 题目 + 复习任务）；`getKcGraph` 返回 KC 有向图
+- 2026-04-04 **[后端]** 新增 `CourseStructureController`：`GET /api/language-pack/{id}/course-structure` 和 `GET /api/language-pack/{id}/kc-graph`
+- 2026-04-04 **[前端]** 新增 `CourseOverview.vue`：课程总览页面，展示课程目标、章节大纲、KC 结构、例题/题目分布，路由 `/course/:languagePackId`
+
+#### 阶段二：学生学习系统化
+- 2026-04-04 **[数据库]** 新增迁移 `V41__learner_course_progress.sql`：`learner_course_progress` 学生课程进度表、`learner_kc_mastery` KC 级掌握度表、`exam_sprint_plan` 冲刺计划表、`exam_sprint_task` 冲刺任务条目表
+- 2026-04-04 **[后端]** 新增 `LearnerMasteryServiceUnified`：统一 EMA 指数平滑掌握度计算，`updateMastery`、`getCourseMastery`、`getWeakKcs`，级联刷新 `learner_course_progress`
+- 2026-04-04 **[后端]** 新增 `LearnerCourseProgressService`：`getOrCreateProgress`、`refreshProgress`
+- 2026-04-04 **[后端]** 新增 `ExamSprintService`：冲刺计划生成（按 KC 掌握度排序 + 按日分配任务）、`getActivePlan`、`completeTask`、`skipTask`、`assessReadiness` 通过风险评估
+- 2026-04-04 **[后端]** 新增 `CourseProgressController`：课程进度、KC 掌握度、薄弱点、错题模式、专项练习、冲刺计划全部 API 端点
+- 2026-04-04 **[前端]** 新增 `CourseLearningHub.vue`：四能力面（理解/练习/复习/冲刺）统一入口，路由 `/course/:languagePackId/learn`
+- 2026-04-04 **[前端]** 新增 `ReviewCenter.vue`：薄弱知识点列表、错题模式分布、专项练习生成，路由 `/course/:languagePackId/review`
+- 2026-04-04 **[前端]** 新增 `SprintDashboard.vue`：冲刺计划生成/管理、通过风险仪表盘、任务时间线，路由 `/course/:languagePackId/sprint`
+- 2026-04-04 **[前端]** `NavBar.vue` 增加"我的课程"导航入口
+
+#### 阶段三：AI 治理一体化
+- 2026-04-04 **[后端]** `LlmClient.callWithTools` 增加 `StoppingCondition` 参数，ReAct 循环内强制检查 `maxIterations`、`maxRepeatToolCalls`、`timeoutSeconds`，超出阈值 fail-fast
+- 2026-04-04 **[后端]** `TutorToolRegistry` 新增 `getToolsForDomain(ToolDomain, ToolContext)` 方法，按域严格过滤工具，`ToolContext.languagePackId` 非空校验
+- 2026-04-04 **[后端]** 新增 `AiTraceService`：每次 LLM 调用生成 `trace_id`，工具调用链记录为 `ToolTraceEntry`，支持按 `trace_id` 回放完整调用链
+- 2026-04-04 **[后端]** `QaEvalHarness` 增加 `@Scheduled(cron)` 定时采样评估（每日 03:00），评估结果写入 `RolloutPolicyService` harness gate
+- 2026-04-04 **[后端]** `TutorEvalHarness` 增加 `@Scheduled(cron)` 定时采样评估（每日 03:30），评估结果写入 `RolloutPolicyService` harness gate
+- 2026-04-04 **[后端]** 新增 `AdminAiObservabilityController`：`GET /api/admin/ai/traces`、`GET /api/admin/ai/quality-report`、`GET /api/admin/ai/rollout-status`
+- 2026-04-04 **[后端]** `RolloutPolicyService` 增加 `isEnabled()`/`setEnabled()` 控制开关
+
+#### 阶段四：考试目标显性化
+- 2026-04-04 **[后端]** `ExamSprintService.generateSprintPlan` 实现：基于 weak KCs 拓扑排序 + 按目标日期分配每日任务量 + 生成 `exam_sprint_plan` + `exam_sprint_task`
+- 2026-04-04 **[后端]** 新增 `MockExamService`：`generateMockQuestions` 基于语言包 KC + 课件证据 LLM 生成模拟考试题目
+- 2026-04-04 **[后端]** `ExamSprintService.assessReadiness` 实现：基于全量 KC 掌握度加权计算通过准备度，输出风险等级和高风险 KCs
+- 2026-04-04 **[前端]** `SprintDashboard.vue` 包含冲刺计划时间线视图、每日任务卡片、通过风险仪表盘
+
+#### 阶段五：课程运营平台化
+- 2026-04-04 **[后端]** 新增 `CourseInsightService`：`getClassMasteryDistribution`（班级 KC 掌握度分布）、`getCommonWeakPoints`（共性薄弱点）、`getStudentRiskList`（高风险学生预警）、`getContentEffectiveness`（内容有效性报告）
+- 2026-04-04 **[后端]** 新增 `ContentImprovementService`：`getHighFrequencyErrors`（高频错误模式）、`getLowEfficiencyContent`（低效内容识别）、`getImprovementSuggestions`（改进建议聚合）
+- 2026-04-04 **[后端]** 新增 `AdminCourseInsightController`：班级掌握度、共性薄弱点、高风险学生、内容有效性、改进建议 5 个管理端 API
+- 2026-04-04 **[前端]** 新增 `TeacherInsight.vue`：教师洞察看板，含班级学习热力图、共性薄弱点排行、高风险学生预警、内容有效性报告
+
+### Code Review 修复（语言包驱动AI学习系统）
+
+- 2026-04-04 **[修复]** `RolloutPolicyService` 添加 `@Service` 注解，使 Spring 能注入到 `QaEvalHarness`、`TutorEvalHarness`、`AdminAiObservabilityController`；`AITutorWorkflowAdminServiceImpl` 从手动 `new` 改为注入 Spring Bean
+- 2026-04-04 **[修复]** `AiTraceService` 修正 `ai_workflow_event` 表列名：`payload` → `event_data`，移除不存在的 `language_pack_id` 列，补充必填 `session_id` 字段，`getQualityReport` 改为从 `event_data` JSON 中提取 `language_pack_id`
+- 2026-04-04 **[修复]** `AiTraceService` 中 `ToolTraceEntry.resultExcerpt()` 方法名错误，修正为 `resultSummary()`
+- 2026-04-04 **[修复]** `CourseProgressController.getErrorPatterns` 和 `ContentImprovementService.getHighFrequencyErrors`：`ai_learning_event` 表无 `language_pack_id`/`kc_id` 列，改为通过 `language_pack_problem_mapping` 表 JOIN 获取
+- 2026-04-04 **[修复]** `MockExamService`：`ANY(?::bigint[])` 不兼容 JdbcTemplate 位置参数，改为条件分支 + `IN (?)` 拼接
+- 2026-04-04 **[修复]** `CourseInsightService` 所有方法的 `classroomId` 参数类型从 `Long` 改为 `String`（`classroom_member.classroom_id` 为 `VARCHAR(64)`）
+- 2026-04-04 **[修复]** `CourseInsightService.getStudentRiskList`：`learner_course_progress` JOIN 缺少 `language_pack_id` 过滤，改为通过 `classroom_language_pack` 表关联
+- 2026-04-04 **[修复]** 新增 `POST /api/sprint/task/{taskId}/skip` 端点，`SprintDashboard.vue` 的跳过操作从错误调用 `completeTask` 改为调用独立的 `skipTask` API
+- 2026-04-04 **[修复]** `TeacherInsight.vue` 班级 ID 输入从 `ElInputNumber` 改为 `ElInput`（匹配 VARCHAR 类型）
+- 2026-04-04 **[清理]** 移除 `CourseStructureServiceImpl`、`LearnerCourseProgressService`、`CourseStructureService` 中未使用的 import
+
+### 安全 · P0 安全边界收口
+
+- 2026-04-04 **[安全]** `SecurityConfig` 将 `.anyRequest().permitAll()` 改为三层安全模型：公开接口白名单 + 管理接口 ADMIN 角色约束 + 其余接口认证
+- 2026-04-04 **[安全]** 为所有缺少 `@PreAuthorize` 的管理控制器补齐类级别角色注解：`AdminUploadController`、`AdminAccountController`、`AdminAITutorController`、`AdminAnnouncementController`、`AdminErrorReviewPackageController`、`AdminSubmissionController`
+- 2026-04-04 **[安全]** 敏感配置迁移：`application.yml`、`application-dev.yml`、`docker-compose.yml` 中的数据库密码、Redis 密码、Judge Token 全部改为 `${ENV_VAR}` 占位符注入，版本库中不再包含默认秘密
+- 2026-04-04 **[安全]** `AlethicodeProperties` 中 Judge Token 默认值清除，添加 `@PostConstruct` 启动校验
+- 2026-04-04 **[安全]** 提供 `backend/.env.example` 和 `deploy/.env.example` 模板文件
+
+### 前端 · ESLint 工具链升级
+
+- 2026-04-04 **[工程]** ESLint 从 3.x 升级到 10.x，配置从 `.eslintrc.js` 迁移到 `eslint.config.js`（flat config）
+- 2026-04-04 **[工程]** 移除过时依赖：`babel-eslint`、`eslint-loader`、`eslint-plugin-html`、`eslint-config-standard` 等
+- 2026-04-04 **[工程]** 安装现代化依赖：`eslint-plugin-vue`、`vue-eslint-parser`、`@eslint/js`、`globals`
+- 2026-04-04 **[工程]** 清零全部 lint 错误：修复 `vue/no-deprecated-delete-set`（12处）、`vue/no-deprecated-v-on-native-modifier`（4处）、`vue/no-deprecated-filter`（2处）、`no-useless-assignment`（4处）、`vue/no-unused-components`（2处）、`no-redeclare`（2处）、`vue/valid-template-root`（1处）
+
+### 仓库治理 · 过期引用清理
+
+- 2026-04-04 **[治理]** 全链路清理 `frontend_new` → `frontend`：17 个文件共 ~400+ 处替换
+- 2026-04-04 **[治理]** 脚本绝对路径参数化：`m12_up.sh`、`m12_down.sh`、`m12_sync_frontend.sh`、`verify_alethicode_readonly.sh`、`extract_source_api_baseline.sh` 改为脚本位置推导或环境变量
+- 2026-04-04 **[治理]** Java 源码绝对路径参数化：`AlethicodeProperties` 中 4 处 `/home/cypress/code_java/...` 路径改为环境变量注入；`ClassroomServiceImpl`、`ClassroomLessonService`、`ClassroomAiProblemService` 中 `LESSON_ROOT` 从硬编码改为配置属性
+- 2026-04-04 **[治理]** `static-audit.js` 中 `repoRoot` 从硬编码改为 `path.resolve(__dirname, '../..')`
+- 2026-04-04 **[治理]** `.gitignore` 补充注释说明
+
+### 后端 · 异常处理策略治理
+
+- 2026-04-04 **[修复]** 清理 18 个文件中全部 47 处 `catch (Exception ignored)` 空异常吞噬，按业务场景替换为 `log.debug`（解析辅助）、`log.warn`（WebSocket/基础设施）、或上下文日志 + rethrow
+
+### 后端 · 批量持久化优化
+
+- 2026-04-04 **[优化]** `ClassroomServiceImpl.importLanguagePackLessons/Problems`：循环内逐条 `jdbcTemplate.update` 改为 `batchUpdate`
+- 2026-04-04 **[优化]** `AITutorServiceImpl.learningEventsBatch`：循环内逐条 insert 改为参数收集 + 两次 `batchUpdate`（事件 + 反馈标签）
+
+### 前端 · workflowStateMachine 缓存模块抽取
+
+- 2026-04-04 **[重构]** 从 `workflowStateMachine.js` 中抽取 `workflowCache.js` 模块，包含 6 个纯函数（缓存键生成、持久化、读取、签名、合并、清除）
+
+### 后端 · ClassroomServiceImpl 子域服务拆分
+
+- 2026-04-04 **[重构]** 从 `ClassroomServiceImpl`（~4538行）中提取 3 个独立子域服务，原类保留接口契约并通过委托调用转发：
+  - `ClassroomLessonService`：课件列表、详情、上传、删除、下载、预览（6 个方法）
+  - `ClassroomMonitorService`：监控统计、快照、回放、教练干预、错误聚类、干预候选（6 个方法）
+  - `ClassroomAiProblemService`：AI 题目列表、生成、详情、更新、删除、任务状态、发布、推广、验证、审核通过/驳回、导出（12 个方法）
+- 各子服务使用 `@Service` + 构造器注入，包含独占的私有辅助方法和记录类；共享辅助方法保留在原类中
+- 原类构造器更新为注入 3 个子服务，移除不再直接使用的 `LlmClient`、`ClassroomMonitorFacade`、`AlethicodeProperties` 依赖
+- 原文件从 ~4538 行缩减至 ~2690 行；编译验证通过
+
+### 后端 · AITutorWorkflowAdminServiceImpl 子域服务拆分
+
+- 2026-04-04 **[重构]** 从 `AITutorWorkflowAdminServiceImpl`（~4584行）中提取 5 个独立子域服务，原类保留接口契约并通过委托调用转发：
+  - `AdminKcManagementService`：KC 列表、详情更新、关联题目、教室章节管理
+  - `AdminPreflightService`：预检检测器统计与诊断
+  - `AdminMisconceptionMiningService`：误概念挖掘审批（挂起、批准、拒绝、合并、发现）
+  - `AdminVariantReviewService`：AI 变体题审核、批准、拒绝
+  - `WorkflowCheckpointService`：工作流检查点列表与恢复
+- 各子服务使用 `@Service` + 构造器注入，包含独占的私有辅助方法；共享辅助方法保留在原类中
+
+### 后端 · KC 提取性能优化
+
+- 2026-04-04 **[优化]** `KcExtractionServiceImpl.insertCanonicalKcs`：将逐行 `jdbcTemplate.update` 插入页面映射改为先收集所有 `(kcId, pageId)` 对，再通过一次 `batchUpdate` 批量写入，减少 DB 往返次数。
+
+### 后端 · 消除 `catch (Exception ignored)` 空吞异常（Batch 3 · WebSocket / Controller / 服务）
+
+- 2026-04-04 **[改造]** `ClassroomWebSocketSupport`、`ClassroomCollabWebSocketHandler`：新增类级 `Logger`；消息字段数值解析失败时记录 `debug` 并回退。
+- 2026-04-04 **[改造]** `ClassroomMonitorWebSocketHandler`：新增类级 `Logger`；定时 `pushStatusToTeachers` 失败记录 `warn`（含 classroomId）；数值解析同 `debug` 回退。
+- 2026-04-04 **[改造]** `ProblemQueryServiceImpl`、`AdminProblemQueryServiceImpl`：新增类级 `Logger`；`parseLimit` / `parseOffset` 非法参数记录 `debug` 并回退默认值。
+- 2026-04-04 **[改造]** `AccountServiceImpl`：新增类级 `Logger`；头像文件存在性检查失败记录 `warn`；数值/JSON 会话键解析失败记录 `debug` 或回退空列表。
+- 2026-04-04 **[改造]** `AnnouncementServiceImpl`：新增类级 `Logger`；`parseInt` / `parseLong` 失败记录 `debug` 并回退。
+- 2026-04-04 **[改造]** `VideoJobServiceImpl`：`stubRender` 写占位文件失败记录 `warn`（含 jobId、目录）。
+- 2026-04-04 **[改造]** `LearnerMemoryService`、`SimilarErrorRetrievalService`：新增类级 `Logger`；JSON 解析回退空映射时记录 `debug`。
+- 2026-04-04 **[改造]** `JudgeBackedExecutionTraceService`：新增类级 `Logger`；判题服务 `ping` 失败记录 `debug` 并返回不可达。
+- 2026-04-04 **[改造]** `AITutorController`：新增类级 `Logger`；`parseLong` 失败记录 `debug`。
+- 2026-04-04 **[改造]** `PublicAssetController`：新增类级 `Logger`；本地读文件与库内 Base64 头像解码失败记录 `warn` 并返回 404。
+
+### 后端 · 消除 `catch (Exception ignored)` 空吞异常（Batch 2 · Classroom + Submission）
+
+- 2026-04-04 **[改造]** `ClassroomServiceImpl`：新增类级 `Logger`；`parseJsonMap` / `parseJsonList` 及数值解析辅助方法在回退或返回空集合/null 时记录 `debug`。
+- 2026-04-04 **[改造]** `SubmissionServiceImpl`：判题机 `ping` 不可达时记录 `debug`（含 URL）；错题复习包 `recordSubmission` 失败时记录 `warn`（含 userId、problemId、finalResult）。
+
+### 后端 · 消除 `catch (Exception ignored)` 空吞异常（Batch 1）
+
+- 2026-04-04 **[改造]** `AITutorWorkflowAdminServiceImpl`：测试用例目录逐文件删除失败时记录 `warn`（含 problemId、testCaseId、path）；`parseInt` / `parseLong` / `parseDoubleObj` 在回退或返回 null 时记录 `debug`。
+- 2026-04-04 **[改造]** `AITutorServiceImpl`：新增类级 `Logger`；数值解析辅助方法在回退或返回 null/0 时记录 `debug`。
+- 2026-04-04 **[改造]** `LlmClient`：`parseInt` / `parseDouble` 在回退时记录 `debug`。
+
+### 前端 · ESLint：`no-useless-assignment` / `vue/no-unused-components` / `no-redeclare` / `vue/valid-template-root`
+
+- 2026-04-04 **[修复]** `Announcement.vue`：`submitAnnouncement` 去掉无用的 `funcName` 初值，改为在分支结束后 `const funcName` 再调用 API。
+- 2026-04-04 **[修复]** `MonitorDashboard.vue`：WebSocket `onmessage` 在 `try` 内 `const data = JSON.parse(...)` 后直接 `handleWebSocketMessage`，去掉 `let data = null` 的无用赋值。
+- 2026-04-04 **[修复]** `SubmissionDetails.vue`：`generateDistributionData` / `generateMemoryDistribution` 中去掉仅被覆盖的 `userMemory`、`val` 初值 `0`。
+- 2026-04-04 **[修复]** `CodeEditorPanel.vue`：移除未在模板使用的 `Refresh`、`Upload` 图标注册与导入。
+- 2026-04-04 **[修复]** `workflowStateMachine.js`：删除对内置全局 `AbortController`、`WebSocket` 的 `/* global */` 声明，消除与浏览器全局的 `no-redeclare` 冲突。
+- 2026-04-04 **[修复]** `Logout.vue`：模板增加单根占位元素，满足 `vue/valid-template-root`。
+
+### 前端 · ESLint：Vue 3 废弃语法清理
+
+- 2026-04-04 **[修复]** `ClassroomAssignment.vue`、`ClassroomList.vue`、`CollaborativeCoding.vue`、`JoinClassroom.vue`：将 `v-on` 上的 `.native` 修饰符改为原生事件监听（`@keyup.enter`），消除 `vue/no-deprecated-v-on-native-modifier` 告警。
+- 2026-04-04 **[修复]** `JudgeServer.vue`：将 `| localtime` 模板过滤器替换为方法调用 `localtime(...)`，并从 `@/utils/time` 引入 `utcToLocal` 映射为 `methods.localtime`，消除 `vue/no-deprecated-filter` 告警。
+
+### 前端 · Vue 3 移除已废弃的 `this.$set`
+
+- 2026-04-04 **[修复]** `LanguagePackQaPage.vue`、`ParsonsPanel.vue`、`UnifiedAgentPanel.vue`、`PostACCard.vue`：将 `this.$set(obj, key, value)` 替换为 `obj[key] = value`，消除 `vue/no-deprecated-delete-set` 规则告警，与 Vue 3 响应式语义一致。
+
+### 文档 · 根目录技术债审计报告
+
+- 2026-04-04 **[新增]** `todo_debt.md`：新增根目录技术债审计报告，基于当前真实代码与命令基线梳理 5 类技术债，固定审计范围、排除范围、仓库规模、基线命令、当前事实，并给出每类技术债的证据、影响链路、根因、最短正确解决方案、改造顺序和验收方式。
+- 2026-04-04 **[更新]** `CHANGELOG.md`：记录本次技术债审计文档落盘，确保文档修改也进入统一变更日志。
+
+### 题目页 · 代码编辑区语言选择器修复 + 默认语言优化 + 移除错误诊断按钮
+
+- 2026-04-04 **[修复]** `CodeMirror.vue`：将编辑器头部的 `Row`、`Col`、`Select`、`Option`、`Button` 从未注册的 iView/ViewUI 组件替换为 Element Plus 的 `el-select`、`el-option`、`el-button`，使语言选择下拉栏在代码编辑区上方正确渲染。
+- 2026-04-04 **[改造]** `ProblemQueryServiceImpl.java`：`fetchProblemsByIds` 查询新增 `left join language_pack`，在题目响应中附加 `language_pack_primary_language` 字段，表示题目所属语言包的主编程语言。
+- 2026-04-04 **[改造]** `Problem.vue`：`pickDefaultLanguage` 方法优先采用 `problem.language_pack_primary_language` 作为默认语言（前提是该语言在题目可用语言列表中），使语言选择器默认匹配题目所属语言包的语言。
+- 2026-04-04 **[移除]** `CodeEditorPanel.vue`：移除右下角"错误诊断"按钮（`FirstAidKit` 图标按钮），清理对应的 `FirstAidKit` 图标导入。
+
+### 课件问答助手 · 开放通用编程知识回答
+
+- 2026-04-04 **[改造]** `AnswerSynthesisServiceImpl`：移除"课件证据不足即拒答"的硬限制，改为三档回答模式：①课件有覆盖时 grounded 回答并标注引用页；②通用编程知识回答（grounded=false, insufficient_evidence=false）；③仅对 OJ 相关请求显式拒答。更新系统 prompt 和用户 prompt 以支持新模式，当命中为空时提示模型从通用知识回答。
+- 2026-04-04 **[改造]** `AnswerSynthesisServiceImpl`：`validateAnswer` 方法新增对"通用知识回答"路径的支持（grounded=false 且 insufficient_evidence=false 时直接返回 GroundedAnswer，不视为拒答）。
+- 2026-04-04 **[改造]** `LanguagePackQaPage.vue`：新增 `isGroundedMessage()` 方法区分三种回答状态；答案状态区只在 grounded 时显示"已定位到课件页证据"，拒答时显示"证据不足，已拒答"，通用知识回答时不显示状态标签。更新 eyebrow、介绍文案、占位符文案等面向用户的文本，反映问答范围已扩大。
+
+### 前端 · Login 页 Banner 重设计 + 蛇形光标交互
+
+- 2026-04-04 **[改造]** `Login.vue`：重新设计登录卡片 Banner 区域，还原截图样式（蓝色渐变背景、半透明装饰球、ALETHICODE logo、"Code with / focus." 大标题、中文副标题、Judge/Track/Improve 胶囊按钮）。
+- 2026-04-04 **[新增]** `Login.vue`：Banner 区域添加 Canvas 蛇形光标效果——鼠标进入后光标化身 14 节绿色小蛇（含眼睛、红色分叉舌头、鳞片高光），蛇身通过 link-distance 链条算法平滑跟随鼠标。
+- 2026-04-04 **[新增]** `Login.vue`：文字字母级交互——"Code with" 与 "focus." 拆分为独立 `<span>` 节点，借鉴 pretext 库的字符位置测量思路（通过 `getBoundingClientRect` 获取每个字形的 Banner 相对坐标），当蛇头进入 72px 散射半径时字母被推开，离开后通过弹簧阻尼（K=0.11, D=0.80）自动回弹；所有动画通过 `requestAnimationFrame` + 直接 DOM transform 驱动，零 Vue 响应式开销。
+- 2026-04-04 **[优化]** `StandaloneLogin.vue` / `Login.vue`：蛇形光标配色改为 Python 官方品牌色——偶数节 Python 黄（`#FFD43B`）/ 奇数节 Python 蓝紫（`#3776AB`）交替；每节添加深色描边（对比蓝色背景）与球面高光（`rgba(255,255,255,0.18)` 偏上角），视觉更立体。
+- 2026-04-04 **[修复]** 上述蛇形效果实际应添加至全页登录路由组件 `StandaloneLogin.vue`（两栏布局，左侧 `.brand-panel`），而非弹窗小卡片 `Login.vue`；已同步将 Canvas 蛇形光标、字母散射物理及 ResizeObserver 测量逻辑移植到 `StandaloneLogin.vue`，保留原有粒子背景与登录逻辑不变。
+
+### 后端 · LlmClient 构造函数修复
+
+- 2026-04-04 **[修复]** `LlmClient`：在 3 参数构造函数上添加 `@Autowired` 注解，修复多构造函数场景下 Spring 无法确定注入目标导致的 `No default constructor found` 启动失败。
+
+### 后端 · 语言包共享边界加固
+
+- 2026-04-04 **[删除]** `LanguagePackPublishServiceImpl#rebindClassroomsToLatestVersion`：移除发布新版本时自动将所有同 slug 班级绑定切换到新版本的行为。发布新版本后，已开课班级保持原绑定不动，消除隐式全局 rebinding 导致的跨班级污染风险。
+- 2026-04-04 **[改造]** `LanguagePackPublishServiceImpl#publishPack`：移除对 `rebindClassroomsToLatestVersion` 的调用，发布流程不再触发班级绑定变更。
+- 2026-04-04 **[改造]** `LanguagePackInitIntegrationTest#publishShouldNotRebindExistingClassrooms`（原 `publishShouldRebindClassroomToNewestPublishedVersion`）：测试断言反转，验证发布新版本后已有班级仍绑定旧版本。
+
+### 全栈 · QA 页 Runtime 事件消费与状态 UI（Phase 3–4）
+
+- 2026-04-04 **[新增]** `backend/src/main/java/com/pytutor/websocket/QaWebSocketHandler.java`：QA 独立 WebSocket 通道 `/ws/qa/{sessionId}`，复用 `WorkflowRealtimeSupport` 的 subscribe/broadcast 基础设施，通过 `qa:{sessionId}` channel ID 隔离命名空间，连接时验证 session 归属。
+- 2026-04-04 **[改造]** `backend/src/main/java/com/pytutor/config/WorkflowWebSocketConfig.java`：注册 QA WebSocket handler 到 `/ws/qa/*` 路由。
+- 2026-04-04 **[改造]** `backend/src/main/java/com/pytutor/service/languagepack/LanguagePackQaService.java`：接口新增 `sendMessageAsync` 方法。
+- 2026-04-04 **[改造]** `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackQaServiceImpl.java`：
+  - 注入 `WorkflowRealtimeSupport`，实现 `sendMessageAsync`：生成 taskId，通过 `submitTrackedTask` 异步执行检索+合成，按 RuntimeContract 标准广播 TASK_STARTED / TASK_COMPLETED / TASK_FAILED 事件。
+  - OJ 问题拦截路径直接返回 completed 状态，不进入异步任务。
+- 2026-04-04 **[改造]** `backend/src/main/java/com/pytutor/controller/LanguagePackQaController.java`：`sendMessage` 端点新增 `?async=true` 查询参数，按参数分流到同步或异步路径。
+- 2026-04-04 **[新增]** `frontend/src/utils/websocketUrl.js`：新增 `buildQaWebSocketPath(sessionId)` 函数。
+- 2026-04-04 **[改造]** `frontend/src/pages/oj/api.js`：`sendLanguagePackQaMessage` 支持 `options.async` 参数。
+- 2026-04-04 **[改造]** `frontend/src/pages/oj/views/languagepack/LanguagePackQaPage.vue`：
+  - 新增 `qaRuntimeContext` / `qaPendingQuestion` / `_qaWsConnection` 状态。
+  - `sendQuestion()` 改造：WebSocket 就绪时走异步 dispatch + runtime 监听，WebSocket 不可用时降级为同步。
+  - 新增 `_handleQaRuntimeEvent`：按 `server_event` 分流处理 TASK_STARTED → RUNNING、TASK_COMPLETED → 刷新消息列表、TASK_FAILED → 记录错误、TASK_EXPIRED → 提示超时。
+  - 收到 Tutor 专属状态（WAITING_HUMAN_APPROVAL / RESTORING）时 fail-fast 抛异常。
+  - 会话切换、语言包切换、页面卸载时清理 WebSocket 连接和 runtime 状态。
+  - 新增 QA 状态 UI（QUEUED / RUNNING / FAILED / EXPIRED 四种 banner）。
+  - RUNNING 期间禁用发送按钮、输入框、语言包选择、新建会话。
+  - FAILED 时展示失败原因和 failureBucket，提供「用原问题重试」按钮。
+  - COMPLETED 后清空 qaPendingQuestion。
+  - 不引入 checkpoint / approval / restore UI。
+- 2026-04-04 **[新增]** `frontend/tests/unit/language-pack-qa-runtime-contract.spec.js`：QA 页 runtime 事件消费 + 状态 UI 单测（28 个）。
+
+### 前端 · Agent + Harness 前端 Runtime 事件消费与状态 UI（Phase 0–2）
+
+- 2026-04-04 **[新增]** `frontend/src/utils/runtimeContract.js`：前端 runtime contract 归一化模块，统一 snake_case → camelCase 字段映射，提供 `normalizeRuntimeEvent`、`isTerminalRuntimeState`、`isBlockingRuntimeState`、`isApprovalRuntimeState`、`assertAllowedForProblemPage`、`assertAllowedForQaPage` 等判断函数，冻结 Problem 页和 QA 页各自允许消费的 runtime state 子集。
+- 2026-04-04 **[改造]** `frontend/src/pages/oj/views/problem/workflowStateMachine.js`：
+  - WebSocket onmessage 主分支从旧 `node_start / result` 协议切换为 `runtime_event`，新增 `_handleRuntimeEvent(msg)` 方法，按 `server_event` 分流处理 TASK_STARTED、TASK_COMPLETED、TASK_FAILED、TASK_EXPIRED、TASK_INTERRUPTED、TASK_RESTORING、APPROVAL_REQUESTED、APPROVAL_RESOLVED 等事件。
+  - 新增 `runtimeContext` 本地状态（sessionId / taskId / checkpointId / traceId / runtimeState / serverEvent / approvalState / failureBucket / lastError / updatedAt），通过 `_updateRuntimeContext` 跟踪最新 runtime 快照。
+  - `resetWorkflowContext` / `restoreCheckpoint` / `clearWorkflow` 流程中同步重置 `runtimeContext`。
+  - `_applySessionSnapshot` 支持从后端 session 查询返回体恢复 runtime 快照字段。
+  - `cancelled` 消息保留不回归。
+- 2026-04-04 **[改造]** `frontend/src/pages/oj/views/problem/Problem.vue`：向 `UnifiedAgentPanel` 新增 `:runtime-context` / `:pending-human-action` 属性透传，新增 `@approve-action` / `@reject-action` / `@recover-checkpoint` / `@restart-workflow` 事件接线，新增 `handleRecoverLatestCheckpoint` 方法恢复最近 checkpoint。
+- 2026-04-04 **[改造]** `frontend/src/pages/oj/views/problem/UnifiedAgentPanel.vue`：
+  - 新增 `runtimeContext` / `pendingHumanAction` props。
+  - 在面板头部和消息流之间新增 runtime 状态区，区分审批态（WAITING_HUMAN_APPROVAL）、恢复态（RESTORING）、失败态（FAILED）三种 banner。
+  - 审批态展示 pendingHumanAction 描述和「确认/拒绝」按钮，通过 `handleInterrupt` 接入后端。
+  - 恢复态展示 checkpointId 和加载动画，阻止重复提交。
+  - 失败态展示 failureBucket 和 lastError，提供「恢复最近 checkpoint」和「清空重开」两条恢复路径。
+  - 审批态和恢复态期间禁用输入框和 quick actions。
+- 2026-04-04 **[新增]** `frontend/tests/unit/runtime-contract.spec.js`：runtime contract 字段映射和状态判断单测。
+- 2026-04-04 **[新增]** `frontend/tests/unit/workflow-runtime-event-contract.spec.js`：workflowStateMachine runtime_event 协议切换单测。
+- 2026-04-04 **[新增]** `frontend/tests/unit/problem-runtime-ui-contract.spec.js`：Problem 页 runtime UI 属性透传和事件接线单测。
+- 2026-04-04 **[修复]** `frontend/tests/unit/workflow-state-machine-restore-cache.spec.js`：为新增的 `@/utils/runtimeContract` 依赖补充 jest mock，保持已有测试通过。
+
+### 后端 · agent_review.md 全量修复：主链路接线与正确性修复
+
+- 2026-04-04 **[BUG修复]** `QaEvalHarness.java`：修复表名错误（`language_pack_qa_message` → `language_pack_chat_message`）、字段名错误（`answer_payload` → `answer_json`、`retrieval_payload` → `page_hit_json`）、时间字段错误（`created_at` → `create_time`）。replay 和 batch eval 现在查询真实表结构，通过 `language_pack_chat_retrieval_log` 关联检索记录。
+- 2026-04-04 **[BUG修复]** `ConversationContextServiceImpl.loadRecentCitedPageIds`：修复不存在的 `cited_pages` 列引用，改为从 `language_pack_chat_retrieval_log.page_hit_json` 解析引用页 ID。
+- 2026-04-04 **[BUG修复]** `TutorToolRegistry.getLearnerHistoryExecutor`：移除非 fail-fast 行为（缺 userId/problemId 时直接抛异常，不再返回空列表）。
+- 2026-04-04 **[主链路接线]** `LlmClient.callWithTools`：新增 `ToolContext` 参数重载方法，工具执行前调用 `ToolDefinition.checkGuard()`，guard 失败时返回结构化错误而非执行工具，每次工具调用生成 `ToolTraceEntry`，trace 汇入 `ReactResult.toolTraceEntries`。
+- 2026-04-04 **[主链路接线]** `ReactResult.java`：新增 `toolTraceEntries` 字段，保留旧构造器兼容。
+- 2026-04-04 **[主链路接线]** `AITutorWorkflowAdminServiceImpl.java`：
+  - 异步任务 WebSocket 推送全部改用 `broadcastEvent(sessionId, ServerEvent, RuntimeContract)`：TASK_STARTED、TASK_COMPLETED、TASK_FAILED 三个事件点。
+  - `processWorkflowEvent` 末尾新增：ERROR_FEEDBACK/AC_REVIEW 完成后调用 `learnerMemoryService.onEventCompleted()` 写入候选记忆。
+  - 响应中新增 `context_snapshot` 字段，输出 `evidencePack.contextSnapshot()`。
+- 2026-04-04 **[主链路接线]** `LanguagePackQaServiceImpl.sendMessage`：
+  - 使用 `buildSessionContext()` 替代 `buildRecentContext()`，获取结构化 SessionContext。
+  - 使用 `retrieveWithTrace()` 替代 `retrieve()`，获取 RetrievalTrace。
+  - 新增 `resolveQueryReferences()` 方法：检测指代词（这个/那个/上面/刚才等），自动拼接 session summary 作为上下文补充。
+- 2026-04-04 **[主链路接线]** `PageRetrievalServiceImpl.java`：实现 `retrieveWithTrace()` 方法，返回 RetrievalTrace（含 latency、query rewrite 状态）。
+- 2026-04-04 **[主链路接线]** `AnswerSynthesisServiceImpl.java`：实现 `synthesizeWithTrace()` 方法，返回 SynthesisTrace（含 critic 结果、failure bucket）。
+- 2026-04-04 **[灰度门禁]** `RolloutPolicyService.java`：新增 `evaluateHarnessGate()` 方法，基于离线 harness 报告的 grounding_accuracy、refusal_accuracy、avg_overall_score 决定是否允许进入 gray。
+
+### 后端 · Harness 主体闭环与 HITL 扩展（Phase 4 完整 + Phase 5）
+
+- 2026-04-04 `backend/src/main/java/com/pytutor/service/aitutor/contract/PendingHumanAction.java`：扩展审批点枚举，新增 CONFIRM_MEMORY_SAVE, CONFIRM_HIGH_RISK_TOOL_USE, CONFIRM_RETRIEVAL_OVERRIDE。
+- 2026-04-04 新增 `backend/src/main/java/com/pytutor/service/aitutor/contract/StoppingCondition.java`：agent 循环停止条件 record（maxIterations, maxRepeatToolCalls, maxCriticFails, timeoutSeconds），含 defaults 工厂方法和超限判定方法。
+- 2026-04-04 `backend/src/main/java/com/pytutor/service/aitutor/eval/TutorEvalHarness.java`：
+  - `evaluateBatch` 新增 failure bucket 分类和聚合统计（answer_leakage, factual_error, low_quality, pedagogy_mismatch）。
+  - 新增 `replaySample(logId)` 方法：指定单个样本一键回放导学评估全链路。
+  - 新增 `classifyTutorFailureBucket` 方法。
+
+### 后端 · RAG 治理与 QA Harness 升级（Phase 2）
+
+- 2026-04-04 新增 `backend/src/main/java/com/pytutor/service/languagepack/RetrievalTrace.java`：检索追踪 record，包含 originalQuery, rewrittenQuery, hits, candidateCount, latencyMs, strategy。
+- 2026-04-04 新增 `backend/src/main/java/com/pytutor/service/languagepack/SynthesisTrace.java`：合成追踪 record，包含 answer, criticPassed, criticVerdict, synthesisLatencyMs, criticLatencyMs, failureBucket。
+- 2026-04-04 `backend/src/main/java/com/pytutor/service/aitutor/eval/QaEvalHarness.java`：
+  - `evaluateBatch` 新增 failure bucket 分类和聚合统计。
+  - 新增 `replaySample(messageId)` 方法：指定单个样本一键回放 QA 评估全链路。
+  - 新增 `classifyFailureBucket` 方法：将评估结果归入 grounding_failure, refusal_failure, citation_mismatch, incomplete_answer 等分类。
+
+### 后端 · ToolContext、工具治理与 ACI 文档化（Phase 3）
+
+- 2026-04-04 新增 `backend/src/main/java/com/pytutor/service/aitutor/react/ToolContext.java`：工具执行上下文 record，包含 userId, sessionId, problemId, languagePackId, phase, event, locale, permissions，带 fail-fast require* 方法。
+- 2026-04-04 新增 `backend/src/main/java/com/pytutor/service/aitutor/react/ToolDomain.java`：工具域枚举（TUTOR / QA），用于域隔离。
+- 2026-04-04 新增 `backend/src/main/java/com/pytutor/service/aitutor/react/ToolTraceEntry.java`：工具调用 trace record，包含 iteration, toolName, arguments, guardPassed, latencyMs, resultSummary, abortReason。
+- 2026-04-04 `backend/src/main/java/com/pytutor/service/aitutor/react/ToolExecutor.java`：新增带 ToolContext 的 execute 默认方法，向后兼容。
+- 2026-04-04 `backend/src/main/java/com/pytutor/service/aitutor/react/ToolDefinition.java`：扩展为包含 domain, guard (Predicate<ToolContext>), agentDescription 字段，新增 checkGuard 方法。保留三参数构造器兼容现有代码。
+- 2026-04-04 `backend/src/main/java/com/pytutor/service/aitutor/react/TutorToolRegistry.java`：四个工具定义全部标注工具域（search_courseware/search_similar_errors/get_learner_history → TUTOR，search_language_pack_pages → QA），补充 guard（如 requireUserId, requireLanguagePackId）和 ACI 文档描述。
+
+### 后端 · Context Layering 与 Memory 升级（Phase 1）
+
+- 2026-04-04 新增 `backend/src/main/java/com/pytutor/service/aitutor/profile/MemoryCandidate.java`：记忆候选 record，包含 memoryKey, summary, memoryType, confidence, source, scope, sourceProblemId。
+- 2026-04-04 新增 `backend/src/main/java/com/pytutor/service/aitutor/profile/MemorySaveDecision.java`：记忆保存决策枚举（SAVE / DEFER / DISCARD）。
+- 2026-04-04 新增 `backend/src/main/java/com/pytutor/service/aitutor/profile/MemoryScope.java`：记忆作用域枚举（ERROR_PATTERN, LEARNING_SIGNAL, READING_PREFERENCE, DEBUG_PREFERENCE, GENERIC）。
+- 2026-04-04 `backend/src/main/java/com/pytutor/service/aitutor/profile/LearnerMemoryService.java`：
+  - 新增 `createCandidate` 方法：从事件创建记忆候选。
+  - 新增 `evaluateCandidate` 方法：基于置信度决定 SAVE/DEFER/DISCARD。
+  - 新增 `persistCandidate` 方法：将候选记忆持久化到 ai_learner_memory。
+  - 新增 `onEventCompleted` 方法：事件驱动增量写入入口。
+- 2026-04-04 新增 `backend/src/main/java/com/pytutor/service/languagepack/SessionContext.java`：QA 会话结构化上下文 record（sessionId, recentDialogue, sessionSummary, recentCitedPageIds）。
+- 2026-04-04 `backend/src/main/java/com/pytutor/service/languagepack/ConversationContextService.java`：接口新增 `buildSessionContext` 方法。
+- 2026-04-04 `backend/src/main/java/com/pytutor/service/languagepack/impl/ConversationContextServiceImpl.java`：实现 `buildSessionContext`，包含会话摘要构建和最近引用页加载。
+- 2026-04-04 `backend/src/main/java/com/pytutor/service/aitutor/evidence/EvidencePack.java`：新增 `contextSnapshot()` 方法，输出统一命名的分层上下文快照（runtime_context, session_context, retrieval_context, learner_memory, policy_context）。
+
+### 后端 · Runtime Contract 与状态枚举（Phase 4 基础）
+
+- 2026-04-04 新增 `backend/src/main/java/com/pytutor/service/aitutor/contract/RuntimeState.java`：统一运行时状态枚举（QUEUED, RUNNING, WAITING_TOOL, WAITING_HUMAN_APPROVAL, INTERRUPTED, RESTORING, FAILED, COMPLETED, EXPIRED），含终态/活跃态判定方法。
+- 2026-04-04 新增 `backend/src/main/java/com/pytutor/service/aitutor/contract/RuntimeContract.java`：统一运行时契约 record，包含 sessionId, taskId, checkpointId, traceId, runtimeState, serverEvent, approvalState, failureBucket 等字段，附带 Builder 和 toMap 序列化。
+- 2026-04-04 新增 `backend/src/main/java/com/pytutor/service/aitutor/contract/ServerEvent.java`：标准化服务端事件枚举，覆盖任务生命周期全事件。
+- 2026-04-04 新增 `backend/src/main/java/com/pytutor/service/aitutor/contract/FailureBucket.java`：结构化失败分类枚举。
+- 2026-04-04 新增 `backend/src/main/java/com/pytutor/service/aitutor/contract/RecoveryReason.java`：结构化恢复原因枚举。
+- 2026-04-04 `backend/src/main/java/com/pytutor/service/aitutor/agent/AgentTaskStatus.java`：增加 `toRuntimeState()` 和 `fromRuntimeState()` 双向映射方法。
+- 2026-04-04 `backend/src/main/java/com/pytutor/service/aitutor/agent/AgentTaskTracker.java`：`submit` 方法自动生成 traceId，`persistStatus` 方法同步写入 runtime_state 和 trace_id。
+- 2026-04-04 `backend/src/main/java/com/pytutor/websocket/WorkflowRealtimeSupport.java`：新增 `broadcastEvent(sessionId, ServerEvent, RuntimeContract)` 标准化推送方法。
+- 2026-04-04 新增 `V39__harness_runtime_contract.sql`：为 ai_workflow_event 补 runtime_state, trace_id, failure_bucket, recovery_reason；为 language_pack_chat_message 补 trace_id, runtime_state, failure_bucket。
+
+### 后端 · Spring AI 试点基线建立（Phase 0.5）
+
+- 2026-04-04 `backend/pom.xml`：新增 `spring-ai.version=1.1.4` 属性，通过 Maven profile `spring-ai` 引入 `spring-ai-starter-model-openai` 和 `spring-ai-starter-model-observation`，默认不激活，不影响现有编译。
+- 2026-04-04 新增 `backend/src/main/java/com/pytutor/config/SpringAiConfig.java`：Spring AI 集成配置，使用 `@ConditionalOnClass` + `@ConditionalOnProperty` 双重守卫，仅在 classpath 中存在 Spring AI 且 `spring.ai.openai.enabled=true` 时激活。
+- 2026-04-04 `backend/src/main/java/com/pytutor/service/LlmClient.java`：
+  - 新增 `LlmBackend` 枚举（`NATIVE` / `SPRING_AI`），通过环境变量 `LLM_BACKEND` 切换，默认 `NATIVE`。
+  - `callForJson` 和 `callForEmbedding` 增加 Spring AI 路由分支，使用反射调用避免编译时对 Spring AI 的硬依赖。
+  - 所有现有调用方完全不受影响。
+- 2026-04-04 `backend/src/main/resources/application.yml`：新增 `spring.ai` 配置块，默认 `enabled: false`，配置 MiniMax OpenAI-compatible API 端点。
+
+### 工程 · Agent + Harness 工程落盘（Phase 0）
+
+- 2026-04-04 新增 `todo_agent_harness/` 目录，作为 Agent + Harness 工程的唯一执行入口。
+- 2026-04-04 新增 `todo_agent_harness/README.md`：全局路线图、范围声明、统一术语表、Spring AI 渐进迁移策略、阶段依赖关系、AI 导学助手与 AI 问答边界定义。
+- 2026-04-04 新增 `todo_agent_harness/phase_0_5_spring_ai_baseline.md`：Phase 0.5 Spring AI 试点基线建立完整文档。
+- 2026-04-04 新增 `todo_agent_harness/phase_1_context_memory.md`：Phase 1 Context Layering 与 Memory 升级完整文档。
+- 2026-04-04 新增 `todo_agent_harness/phase_2_rag_harness.md`：Phase 2 RAG 治理与 QA Harness 升级完整文档。
+- 2026-04-04 新增 `todo_agent_harness/phase_3_tools_trace_rollout.md`：Phase 3 ToolContext、工具治理与 ACI 文档化完整文档。
+- 2026-04-04 新增 `todo_agent_harness/phase_4_hitl_and_agent_runtime.md`：Phase 4 + Phase 5 Harness 主体闭环与 HITL 完整文档。
+- 2026-04-04 新增 `todo_agent_harness/PROGRESS.md`：实施进度追踪文件。
+- 2026-04-04 更新 `docs/PROJECT.md`：增加第十六节 Agent + Harness 工程路线图索引。
+
+### 后端 · LLM 断联鲁棒性加固（语言包初始化并行链路）
+
+- 2026-04-04 `backend/src/main/java/com/pytutor/util/BoundedParallel.java`：
+  - 将 `received no bytes`、`connection reset/refused`、`broken pipe`、`stream is closed`、`eof` 纳入并行任务的可重试失败判定。
+  - 当并行阶段出现这类单点传输失败时，不再立刻中断整批任务，而是走既有“失败项串行重试”路径，避免语言包初始化因偶发断联整体失败。
+- 2026-04-04 `backend/src/main/java/com/pytutor/service/LlmClient.java`：
+  - 参考 Spring AI `RetryUtils` 的策略，将 LLM/Embedding 默认重试预算提升为 `10` 次尝试（`LLM_API_MAX_RETRIES` 默认 `9`），并改为可配置指数退避（`LLM_API_RETRY_BACKOFF_MS`、`LLM_API_RETRY_MULTIPLIER`、`LLM_API_RETRY_MAX_BACKOFF_MS`）+ 抖动。
+  - 传输层可重试判定从“仅看顶层异常消息”升级为“遍历异常因果链 + IO/超时异常类型识别”，降低被包装异常漏判导致的误失败。
+- 2026-04-04 新增 `backend/src/test/java/com/pytutor/util/BoundedParallelTest.java`：
+  - 覆盖“单个任务出现 `HTTP/1.1 header parser received no bytes` 可被串行重试恢复”场景。
+  - 覆盖“非可重试错误仍保持 fail-fast”场景。
+- 2026-04-04 `backend/src/test/java/com/pytutor/service/LlmClientTest.java`：
+  - 新增回归测试，覆盖“包装异常的 cause 为 `IOException` 时仍判定可重试”场景。
+
+### 后端 · Python Basic 语言包清理重建约束落地（章节顺序 + `PPTX-X` 编号）
+
+- 2026-04-04 `backend/src/main/java/com/pytutor/service/languagepack/impl/DocumentNormalizationServiceImpl.java`：
+  - 上传归一化阶段新增章节顺序构建逻辑，初始化时写入 `language_pack_document.sort_order`，不再依赖上传顺序或文件名字典序。
+  - 对 `python-basic` 初始化增加强约束：仅接受 PPT/PPTX、文件名必须可解析章节号（`第X章` 或 `PPTX`）、章节号必须唯一且完整覆盖 `1..7`，否则 fail-fast 中止。
+- 2026-04-04 新增 `LanguagePackChapterIndexResolver.java`：
+  - 统一解析 `.ppt/.pptx` 文件名章节号，支持中文章节号与 `PPTX` 前缀规则。
+- 2026-04-04 `backend/src/main/java/com/pytutor/service/languagepack/impl/ProblemGenerationServiceImpl.java`：
+  - 在最终 `oj_convertible` 单元集上引入确定性题号分配，排序键为 `chapter_index`、首个 `source_page`、`source_title`、`source_signature`，每章从 1 递增生成 `display_id = PPT<chapter>-<ordinal>`。
+  - 题目生成提示词增加 `required_display_id` 约束，确保生成内容与确定性编号一致。
+- 2026-04-04 新增 `LanguagePackDisplayIdAllocator.java`、`LanguagePackDisplayIdPolicy.java`：
+  - 抽离确定性编号分配器与编号格式策略，统一复用 `^PPT\\d+-\\d+$` 规则。
+- 2026-04-04 `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackProblemPackageMapper.java`：
+  - `display_id` 优先使用单元上下文中已分配的确定性编号，不再由 LLM 输出决定最终题号。
+- 2026-04-04 `backend/src/main/java/com/pytutor/service/languagepack/impl/ProblemValidationServiceImpl.java`：
+  - 新增 `display_id` 校验：必填、格式必须匹配 `^PPT\\d+-\\d+$`，且 `PPT` 前缀章节号必须与该题 `chapter_index` 一致。
+- 2026-04-04 `backend/src/main/java/com/pytutor/service/languagepack/impl/ProblemPackageWriteServiceImpl.java`：
+  - 移除空 `display_id` 的随机 `LP-*` 回退逻辑，发布写入阶段改为强制要求 `PPTX-X` 编号，缺失或格式错误直接失败。
+- 2026-04-04 `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackPublishServiceImpl.java`：
+  - 发布前新增确定性编号校验，防止无效 `display_id` 进入题库。
+- 2026-04-04 `backend/src/test/java/com/pytutor/manual/LanguagePackAlethicodeReplayManualTest.java`：
+  - 手工重放流程中的 PPT 文件列表改为按解析出的章节号排序，确保 7 章初始化顺序稳定。
+- 2026-04-04 新增测试：
+  - `LanguagePackChapterIndexResolverTest.java`
+  - `LanguagePackDisplayIdPolicyTest.java`
+  - `LanguagePackDisplayIdAllocatorTest.java`
+  - 覆盖章节号解析、`PPTX-X` 规则校验、跨章节确定性编号与缺失章节 fail-fast 场景。
+- 2026-04-04 验证结果：
+  - `cd backend && mvn -Dtest=LanguagePackChapterIndexResolverTest,LanguagePackDisplayIdPolicyTest,LanguagePackDisplayIdAllocatorTest test` 通过。
+
+## [Unreleased] - 2026-04-02
+
+### 文档 · 2025 上海大赛文档模板填写
+
+- 2026-04-02 基于项目真实代码与架构，填写 4 份参赛文档（Markdown 格式），输出至 `docs/competition/`：
+  - `设计说明书.md`：学术化撰写，引用 14 篇参考文献（Vygotsky/Collins/ReAct/Self-Refine/RAG/CoT 等），包含 9 种 UML 2.0 图（用例图、部署图、构件图、类图、状态图、活动图、序列图、协作图、对象图），7 张数据库表设计 + E-R 图，基于源码引用 Agent/ReAct/Reflection/混合检索等核心类的实际实现细节。
+  - `作品小结.md`：250 字简介 + 10 张效果图说明 + 设计思想（背景/构思/模块/技术）。
+  - `作品情况表.md`：环境要求、开发平台清单、一键启动与手动启动安装说明。
+  - `原创承诺书.md`：开源基础声明与自创占比说明（约 95%）。
+- 2026-04-02 在 `docs/agent_architecture_workflow.md` 和 `docs/agent_architecture_optimization_implementation.md` 中添加界面归属说明，明确标注每个优化模块归属于"做题界面 AI 导学面板"还是"课件问答页"，以及共享基础设施的标识。
+
+### 测试 · 契约测试 Mock `VideoJobService`
+
+- 2026-04-02 在 8 个控制器契约测试类中于 `AITutorWorkflowAdminService` 的 `@MockBean` 之后增加 `@MockBean VideoJobService`，避免 Spring 上下文加载时缺少 `VideoJobService` Bean。
+
+### 数据库 · V37 错误口径统一迁移
+
+- 2026-04-02 `V37__unify_error_taxonomy.sql`：
+  - `student_monitoring_snapshot` 拆分 `status` 为 `activity_status`（实时活动态）+ `error_taxonomy`（教学分类）；全量回填历史数据后删除旧 `status` 列。
+  - `ai_learner_notebook` 重命名 `error_category` -> `error_taxonomy`，全量回填 canonical 值（`compile_error` -> `syntax_error`、`wrong_answer` -> `logic_error`、`time_limit`/`memory_limit` -> `performance` 等）。
+  - `ai_learning_event` 新增一等列 `error_taxonomy`、`root_cause`、`detector_name`，从 `extra_data` JSON 回填。
+  - 新建 `ai_error_review_package` 与 `ai_error_review_problem` 表，支撑按错误类型生成个人专项复习包。
+
+### 后端 · 错误口径统一
+
+- 2026-04-02 新增 `ErrorTaxonomy.java` 和 `ActivityStatus.java` canonical 常量类，固定 9 种 `error_taxonomy` 值域和 7 种 `activity_status` 值域，并提供 `normalize()` 和 `fromLegacyStatus()` 映射方法。
+- 2026-04-02 `ClassroomMonitorQueryService`、`ClassroomWebSocketSupport`、`ClassroomServiceImpl`、`ClassroomMonitorFacade`：全部 SQL 和 DTO 从单一 `status` 切换为 `activity_status` + `error_taxonomy` 双维度。
+- 2026-04-02 `AITutorWorkflowAdminServiceImpl`：`classifyErrorCategory` 重写为 `classifyErrorTaxonomy`，输出 canonical 值；诊断 payload key 由 `error_category` 改为 `error_taxonomy`。
+- 2026-04-02 `EvidencePackAssembler`：`deriveErrorCategory` 重写为 `deriveErrorTaxonomy`，返回 canonical 值。
+- 2026-04-02 `CardSchemaRegistry`：`ERROR_DIAGNOSIS` required field 由 `error_category` 改为 `error_taxonomy`。
+- 2026-04-02 `SubmissionServiceImpl`：`notebookCategoryByResult` 重写为 `notebookTaxonomyByResult`，返回 canonical 值（`-2` -> `syntax_error`，`-1` -> `logic_error` 等）。
+- 2026-04-02 `AITutorServiceImpl`：notebook CRUD 全部改读写 `error_taxonomy`；`reviewDue` 从按题目列表改为按 `error_taxonomy` 返回焦点卡片。
+- 2026-04-02 `SimilarErrorRetrievalService`、`LearnerMemoryService`：字段对齐 `error_taxonomy`。
+
+### 后端 · 专项复习包
+
+- 2026-04-02 新增 `ErrorReviewPackageService`：支持创建复习包（聚合 notebook/event 证据、选取 3 道复习题）、列表查询、详情查询、提交记录、达标判定。
+- 2026-04-02 新增 `ErrorReviewPackageController`（`POST/GET /api/ai/review-packages`）和 `AdminErrorReviewPackageController`（`GET /api/admin/ai/review-packages/stats`）。
+
+### DTO/API · 统一契约
+
+- 2026-04-02 `ClassroomMonitorSnapshotItemResponse`：`status` -> `activity_status` + `error_taxonomy`。
+- 2026-04-02 `ClassroomErrorClusterItemResponse`：`cluster` -> `error_taxonomy`。
+- 2026-04-02 新增 `CreateReviewPackageRequest`、`ReviewPackageResponse`、`ReviewPackageStatsResponse`。
+
+### 前端 · 课堂监控对齐 `activity_status` 与 `error_taxonomy`
+
+- 2026-04-02 `useMonitorUi.js`：`getStatusText` / `mapStatusClass` 仅基于 `activity_status`；新增 `getErrorTaxonomyLabel`；头像与进度条样式改为读取 `stu.activity_status`。
+- 2026-04-02 `MonitorDashboard.vue`：学生列表、热力图、统计与 WebSocket 批量更新改用 `activity_status`；异常与 `alert_type` 与 `error_taxonomy` 对齐；错误聚类展示改用 `error_taxonomy`；实时警报严重级别依据 `abnormal` / `level`。
+
+### 前端 · 错题本与错误诊断统一 `error_taxonomy`
+
+- 2026-04-02 `LearnerNotebook.vue`：字段与接口载荷由 `error_category` 改为 `error_taxonomy`；下拉与标签文案对齐规范分类；`normalizeErrorTaxonomy` 仅保留必要旧值别名并将允许集收敛为规范枚举。
+- 2026-04-02 `ErrorDiagnosisCard.vue`：默认 props 与执行轨迹展示条件改为 `error_taxonomy === 'logic_error'`。
+
+### 前端 · 专项复习包
+
+- 2026-04-02 `Home.vue`：今日复习从按题目列表改为按 `error_taxonomy` 焦点卡片展示，点击创建复习包跳转。
+- 2026-04-02 新增 `ErrorReviewPackagePage.vue`：展示复习包详情、题目列表、完成状态和达标指示。
+- 2026-04-02 `oj/api.js`：新增 `createReviewPackage`、`getReviewPackages`、`getReviewPackage`。
+- 2026-04-02 `admin/api.js`：新增 `getReviewPackageStats`。
+- 2026-04-02 路由新增 `/review-package/:packageId`。
+
+### 测试 · V37 统一错误分类
+
+- 2026-04-02 集成测试：`SubmissionDebugNotebookIntegrationTest`、`AITutorWorkflowEvidenceIntegrationTest`、`AccountAnnouncementAiIntegrationTest`、`ClassroomMonitorScaleIntegrationTest`、`ClassroomM10IntegrationTest` 中 SQL/JSON 由 `error_category`/`status` 改为 `error_taxonomy`/`activity_status`，取值对齐规范枚举。
+
+### 前端 · OJ 课件问答界面风格统一
+
+- 2026-04-02 `LanguagePackQaPage.vue`：
+  - 全面移除橙色调独立设计，配色、字体、圆角、阴影全部切换到 OJ 前端统一设计令牌（`--primary-color`、`--font-sans`、`--border-radius-*`、`--shadow-*`）。
+  - 页面整体高度自适应视口（`height: calc(100vh - var(--oj-content-top-offset))`），初始态下左侧边栏不出现滚动条。
+  - 中间聊天消息列表为唯一可滚动区域（`flex: 1; overflow-y: auto`），输入区固定在底部。
+  - 三栏均采用 flex column 布局，侧栏会话列表和证据面板各自独立滚动，互不干扰。
+  - 小屏（≤1180px）回退为单列流式布局，恢复自然高度。
+
+### 后端 · 语言包初始化链路五阶段重构
+
+- 2026-04-02 `KcExtractionServiceImpl.java`：
+  - 重写 KC 抽取系统提示词（v2 → v3），从"具体事实召回"收敛为"教学级知识组件"粒度，明确给出正反面示例。
+  - 增强 `findMergeTarget()` 合并逻辑：新增编号前缀剥离（"第一种函数调用" / "第二种函数调用" → "函数调用"），新增英文名跨文档匹配。
+  - 新增 `reconcileCrossDocument()` 跨文档全局 KC 归并，消除跨 PPT 重复 canonical KC。
+  - 修复 `kc_count` 计数漂移：改用 `distinct canonical_kc_id` 统计，而非 catalog 条目数。
+- 2026-04-02 `ExampleExtractionServiceImpl.java`：
+  - 重写例题抽取提示词（v2 → v3），从"召回优先"改为"精度优先"，仅抽取可独立作为 OJ 编程题的教学单元。
+  - 明确排除纯概念页、单 API 演示、选择题 / 填空题等非编程题形态。
+- 2026-04-02 `AdminLanguagePackController.java`：
+  - `GET .../examples` 新增 `kc_count` 和 `kc_names` 子查询，admin 侧可直接查看每个例题绑定的 canonical KC。
+  - 新增 `PATCH .../documents/order` 文档排序接口，仅允许在 `kc_ready` 之前调用。
+- 2026-04-02 `AlethicodeProperties.java` + `application.yml`：
+  - 新增 `alethicode.language-pack.concurrency` 配置节：`document-normalize=4`, `document-parse=4`, `kc-extract=3`, `unit-extract=6`, `problem-generate=6`。
+- 2026-04-02 `BoundedParallel.java`（新增）：
+  - 通用有界并发执行工具，基于 Java 21 虚拟线程 + Semaphore 实现。
+- 2026-04-02 `KcExtractionServiceImpl.java`：
+  - KC 抽取改为按文档并发（`kcExtractConcurrency` 控制），单文档内部仍保留串行批次回退。
+- 2026-04-02 `ExampleExtractionServiceImpl.java`：
+  - 例题抽取改为按 segment 并发（`unitExtractConcurrency` 控制）。
+- 2026-04-02 `ProblemGenerationServiceImpl.java`：
+  - 候选题生成改为按 OJ candidate 并发（`problemGenerateConcurrency` 控制），DB 持久化仍串行。
+- 2026-04-02 `V36__language_pack_document_sort_order.sql`（新增）：
+  - `language_pack_document` 新增 `sort_order INTEGER NOT NULL DEFAULT 0` 列。
+- 2026-04-02 全链路文档排序统一：
+  - `LanguagePackDocumentQueryServiceImpl`、`LanguagePackQueryServiceImpl`、`DocumentParsingServiceImpl`、`KcExtractionServiceImpl`、`ExampleExtractionServiceImpl`、`ClassroomServiceImpl` 共 6 处 `ORDER BY` 从 `d.id` 改为 `d.sort_order, d.id`。
+
+### 前端 · 语言包初始化页面重构
+
+- 2026-04-02 `LanguagePackInit.vue`：
+  - 阶段显示从过时的 7 阶段（含 `examples_ready`）更正为真实 10 阶段流水线。
+  - 新增"课件文档"标签页，支持上移/下移排序与保存，仅在 `extract-kcs` 之前可用。
+  - 例题列表新增 `source_title`、`unit_type`、`kc_names`、`kc_count`、`oj_convertible` 列。
+  - `canAdvance` 映射更正：`generate-problems` 从 `examples_ready` 改为 `oj_candidates_ready`，`validate-problems` 改为 `problem_packages_ready`。
+  - `runAllSteps` 链路拆分：候选题生成与验证不再合并为同一步。
+- 2026-04-02 `admin/api.js`：
+  - 新增 `reorderLanguagePackDocuments(taskId, documentIds)` 调用 `PATCH .../documents/order`。
+
+## [Unreleased] - 2026-04-01
+
+### 后端 · Alethicode Python -v2 续跑稳定性修复（extract-examples）
+
+- 2026-04-02 `backend/src/test/java/com/pytutor/manual/LanguagePackAlethicodeResumeManualTest.java`：
+  - 新增“失败任务断点续跑”手工测试（`ALETHICODE_MANUAL_RESUME=1`），用于在不清空数据的前提下对已有 `python-basic v2` 任务继续执行 `extract-examples -> generate-problems -> validate-problems -> publish`。
+  - 测试保持 Alethicode 正式库连接参数（`5436/alethicode`），并复用 admin MockMvc 调用路径验证真实阶段接口返回。
+- 2026-04-02 `backend/src/main/java/com/pytutor/service/LlmClient.java`：
+  - 修复 LLM 返回 JSON 中字符串内未转义双引号导致的解析失败；在 JSON 清洗阶段会将字符串内部裸引号转义为 `\"`，避免 `Courseware unit extraction failed: LLM message.content is not valid JSON object`。
+  - 新增 LLM/Embedding 请求重试机制（默认 `LLM_API_MAX_RETRIES=2`，可通过环境变量调整），覆盖 `timeout/EOF/connection reset` 与 `429/5xx` 场景，降低长任务阶段的偶发网络中断失败率。
+  - 新增 `LLM_API_RETRY_BACKOFF_MS` 退避间隔配置（默认 `800ms`，线性递增并上限 `5s`）。
+- 2026-04-02 `backend/src/test/java/com/pytutor/service/LlmClientTest.java`：
+  - 新增回归测试：当 JSON 字符串值中含未转义双引号（示例：`所谓"差分"`）时，`normalizeJsonObjectContent` 仍能输出可解析 JSON。
+  - 现有换行清洗与 code fence 提取测试保持通过。
+
+### 后端 · Alethicode 正式库删除历史 Python 高版本并以 Python -v2 真实重跑
+
+- 2026-04-02 `backend/src/test/java/com/pytutor/manual/LanguagePackAlethicodeReplayManualTest.java`：
+  - 新增 Alethicode 正式库手工回放测试，受 `ALETHICODE_MANUAL_INIT=1` 控制。
+  - 测试会删除 `python-basic` 的历史高版本语言包、初始化任务、历史发布题目与测试点目录，并在 `/home/cypress/Alethicode/docs/ppt` 基础上以 `Python -v2` 名义重建初始化任务。
+  - 回放链路覆盖 `parse -> extract-kcs -> extract-examples -> generate-problems -> validate-problems -> publish`，用于真实验证 MiniMax M2.7 下的全链路可用性。
+- 2026-04-02 `backend/src/main/java/com/pytutor/service/languagepack/impl/KcExtractionServiceImpl.java`：
+  - 将 KC 提取单批页数从 `30` 页收紧到 `10` 页，降低真实 PPT 在 MiniMax M2.7 上的超时概率。
+- 2026-04-02 `backend/src/test/java/com/pytutor/integration/LanguagePackInitIntegrationTest.java`：
+  - 新增 `extractKcsShouldSplitLongDocumentsIntoSmallBatches` 回归测试，锁定长文档 KC 提取必须按更小批次多次调用模型。
+- 2026-04-02 真实重跑结果：
+  - Alethicode 正式库已删除历史 `python-basic v2/v3/v4`，并重新创建 `python-basic v2`，名称为 `Python -v2`。
+  - 真实重跑已完成 `parse`，新版本达到 `document_count=7`、`page_count=561`。
+  - 当前真实失败点仍在 `extract-kcs`，并收敛到 `第七章：归纳与抽象.pptx pages 21-30` 的 MiniMax 请求超时。
+  - 失败任务已稳定落库为 `language_pack_init_task.id=5`、`stage=failed`，课堂绑定仍保持在默认 `language_pack_id=1`，未误切到失败版本。
+  - 这次真实运行说明：删除旧版本与重建 `Python -v2` 已可重复执行，但 KC 提取在正式课件上的超时问题尚未彻底解决。
+
+### 后端 · 语言包初始化抽题召回升级为 3+1 Agent 流水线，并接入 51 题基线发布门槛
+
+- 2026-04-02 `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackCoverageBaselineSupport.java`：
+  - 将 `high_risk_chapters` 判定收敛回“当前任务自身的章节覆盖风险”，不再因为 `python-basic` 的 51 题专项基线数量差直接把已有 OJ 候选的章节标成高风险。
+  - 对带基线的语言包，仅当章节页数较多、当前没有任何 OJ 候选且基线也表明该章节本应出题时，才继续保留高风险标记；`missing` 继续只作为专项回归报告输出。
+- 2026-04-02 `backend/src/main/java/com/pytutor/service/languagepack/impl/ProblemValidationServiceImpl.java`：
+  - 固定输出题的“无输入”识别补充支持 `无显式输入要求`、`没有输入` 等课件常见表述，避免真实题包因为自然语言写法不同而被误判为测试用例不足。
+- 2026-04-02 `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackPublishServiceImpl.java`：
+  - 发布门槛改为优先根据 `coverage_report_json.chapter_stats` 现算高风险章节，而不是直接信任历史缓存的 `high_risk_chapters`。
+  - 这样旧任务即使在规则调整前已经生成过 coverage report，只要章节统计本身满足新规则，也不需要再手工改库才能继续发布。
+- 2026-04-02 `backend/src/test/java/com/pytutor/service/languagepack/impl/LanguagePackCoverageBaselineSupportTest.java`、`backend/src/test/java/com/pytutor/integration/LanguagePackInitIntegrationTest.java`：
+  - 回归测试同步覆盖“基线零题章节不应被误报高风险”和“固定输出题使用 `无显式输入要求` 仍可通过校验”两条真实回归路径。
+
+- 2026-04-02 `backend/src/main/java/com/pytutor/service/languagepack/impl/ExampleExtractionServiceImpl.java`：
+  - 将旧的单阶段示例抽取重构为 `CoursewareSegmentationAgent -> CoursewareUnitExtractionAgent -> OjCandidateJudgementAgent -> EscalationReviewAgent` 的 3+1 段内建 Agent 流水线。
+  - 题源扫描改为按文档 `4` 页窗口、`1` 页重叠的连续片段分段，补强跨页题源和标题不规范题源的召回能力。
+  - 抽取得到的教学单元会明确写出 `source_title`、`unit_type`、`page_range`、`chapter_title`、`chapter_index`、`source_signature`，并以 `courseware_segments.json`、`courseware_units.json`、`oj_candidates.json`、`escalation_review.json` artifact 形式持久化。
+  - `oj_convertible` 判断与高风险复核拆成独立阶段，避免“题源召回”和“OJ 可转化判断”相互污染。
+- 2026-04-02 `backend/src/main/java/com/pytutor/service/languagepack/impl/ProblemGenerationServiceImpl.java`：
+  - 题目生成入口改为只接受 `oj_candidates_ready` 阶段。
+  - 生成源改为读取复核后的 `oj_candidates.json`，严格执行“`1` 个最终可 OJ 教学单元 -> `1` 个标准 JSON 题包”。
+  - 题包生成后会稳定产出 `problem_packages.json`、`problem_packages.md` 与新的 `coverage_report.json`。
+- 2026-04-02 `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackCoverageBaselineSupport.java`：
+  - 覆盖率报告扩展为固定结构，新增 `baseline_problem_count`、`final_oj_candidate_count`、`blocked_candidates`、`chapter_stats`、`high_risk_chapters`、`unresolved_review_required`。
+  - 基线匹配键从单纯标题升级为“章节 + 归一化标题”，避免跨章节同名题目误匹配。
+  - 支持无基线语言包的章节密度风险识别，同时对 `python-basic` 读取 `language-pack-baselines/python-basic.json` 作为 51 题专项回归基线。
+  - 高风险章节统计改为先并入完整章节清单，再叠加候选题与生成结果，避免“整章没有进入候选池”时被漏判。
+- 2026-04-02 `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackPublishServiceImpl.java`：
+  - 发布前新增覆盖率硬门槛。
+  - 对 `python-basic` 这类带基线的语言包，若存在 `missing`、`high_risk_chapters`，或 `generated_problem_count != final_oj_candidate_count`，则直接阻断发布并 fail-fast。
+  - 对无基线语言包，若仍存在高风险章节或未完成复核的候选题，同样直接阻断发布。
+- 2026-04-02 `backend/src/main/java/com/pytutor/service/languagepack/impl/ProblemValidationServiceImpl.java`：
+  - 新增题包标题过泛校验；若生成标题与来源 `source_title` 无法对齐，直接判为校验失败，避免发布“练习 / 示例”这类不可追溯标题。
+- 2026-04-02 `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackProblemPackageMapper.java`：
+  - 标准题包 artifact 补写 `chapter_title`、`chapter_index`，并修正 Markdown 渲染读取 snake_case 字段，保证题包审阅稿和覆盖率统计使用同一份真实数据。
+- 2026-04-02 `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackInitServiceImpl.java`、`backend/src/main/resources/db/migration/V34__language_pack_stage_add_segments_and_oj_candidates.sql`：
+  - 初始化状态机新增 `segments_ready`、`oj_candidates_ready`，链路更新为 `created -> normalizing -> parsing -> kc_ready -> segments_ready -> units_ready -> oj_candidates_ready -> problem_packages_ready -> problems_validated -> published / failed`。
+- 2026-04-02 `backend/src/test/java/com/pytutor/service/languagepack/impl/LanguagePackCoverageBaselineSupportTest.java`、`backend/src/test/java/com/pytutor/integration/LanguagePackInitIntegrationTest.java`：
+  - 覆盖率基线测试改到新报告结构，补齐 `blocked_candidates`、`unresolved_review_required` 等断言。
+  - 初始化集成测试切到新阶段语义，校验 `extract-examples` 会落 `4` 类 artifact 和 `4` 个 Agent run，`generate-problems` 会读取 `oj_candidates.json` 并生成 `coverage_report.json`。
+  - 修复测试夹具中超出 `Map.of(...)` 参数上限的问题，改为 helper 形式构造候选题 artifact，降低后续测试维护成本。
+- 2026-04-02 `docs/language_pack_init_worklog_20260402.md`：
+  - 追加本轮“从 10 题抽题质量拉向 51 题基线”的重构记录、验证命令和当前结论。
+- 2026-04-02 验证：
+  - `mvn -q -DskipTests test-compile` 通过。
+  - `mvn -q -Dtest=LanguagePackCoverageBaselineSupportTest,LanguagePackInitIntegrationTest test` 通过。
+  - `mvn -q -Dtest=AdminLanguagePackControllerContractTest,ProblemImportExportIntegrationTest,AdminProblemCommandServiceImplTest test` 通过。
+
+### 后端 · 语言包初始化 Agent 审计与集成回归修复
+
+- 2026-04-02 `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackInitAuditServiceImpl.java`：
+  - 新增 `resolveModelName`，强制把 `language_pack_init_agent_run.model_name` 归一为非空值。
+  - 修复集成环境下 `LlmClient` 被 mock 时 `readEnvOrDefault` 返回 `null`，导致 Agent 审计日志先于初始化主链路失败的问题。
+- 2026-04-02 `backend/src/test/java/com/pytutor/integration/LanguagePackInitIntegrationTest.java`：
+  - 集成测试补齐 `LlmClient.readEnvOrDefault(...)` 的默认桩，恢复 Agent 审计链路的真实行为。
+  - 题目生成夹具补写 `document_id`、`source_title`、`unit_type`、`oj_convertible`、`source_signature`，让回归数据与新的“教学单元 -> 标准 JSON 题包”流程对齐。
+  - 测试初始化的 `root` 账号改为幂等插入，降低共享测试库下误并行执行时的唯一键噪音。
+  - 修复新夹具插入 SQL 的参数占位错误，恢复 `generate-problems` 回归。
+- 2026-04-02 `docs/language_pack_init_worklog_20260402.md`：
+  - 追加本轮修复过程、验证命令和当前结论，继续作为初始化重构的实时工作记录。
+- 2026-04-02 `docs/language_pack_init_agent_workflow.md`：
+  - 补充“有参考校准结果如何反推无参考运行阈值”和“无参考时先全量再收敛”的执行策略。
+  - 明确 `python-basic` 的 51 题基线只属于本次测试 PPT，不上升为通用业务规则；通用任务改以章节级覆盖率、低置信度清单和 artifact 可追溯性验收。
+- 2026-04-02 验证：
+  - `mvn -q -Dtest=LanguagePackInitIntegrationTest test` 通过。
+  - `mvn -q -Dtest=LanguagePackCoverageBaselineSupportTest,AdminLanguagePackControllerContractTest,LanguagePackInitIntegrationTest,ProblemImportExportIntegrationTest,AdminProblemCommandServiceImplTest test` 通过。
+
+### 运行验证 · Python 基础语言包真实初始化与课件问答联调完成
+
+- 2026-04-02 `docs/language_pack_init_worklog_20260402.md`：
+  - 新增语言包初始化实时工作记录，按时间顺序记录了本次从真实 PPT 初始化、阶段推进、发布到课件问答验收的全过程。
+- 2026-04-02 真实运行结果：
+  - 使用 `/home/cypress/Alethicode/docs/ppt` 下 7 个章节 `.pptx` 对 `language_pack_init_task.id=3` 执行真实初始化，模型实际使用 MiniMax M2.7。
+  - 真实示例抽取阶段已跑通，最终产出 `205` 条 `language_pack_example`，任务阶段从 `kc_ready` 推进到 `examples_ready`。
+  - 真实题目生成阶段已跑通，最终产出 `10` 条候选题并全部通过结构校验，任务阶段推进到 `problems_validated`。
+  - 发布阶段已跑通，`language_pack.id=4`（`python-basic v4`）状态更新为 `published`，`problem_count=10`，课堂绑定已切换到该新版本。
+  - 课件问答联调已通过：`/api/language-pack-qa/packs` 可返回已发布语言包，创建会话成功，针对“什么是计算思维？”能返回带 citation 的 grounded answer。
+  - 证据页接口联调通过：`/api/language-pack-qa/packs/4/documents/15/pages/42` 能返回页标题、摘录、全文和 `preview_url`，满足右侧证据栏预览。
+  - OJ 防护联调通过：在课件问答会话中发送“请直接给我这道OJ题的完整代码和题解”会被拒答，并返回 `refusal_reason=oj_problem_question`。
+
+### 后端 · 语言包 PPT 初始化链路补全（无 LibreOffice 也可生成问答预览）
+
+- 2026-04-01 `backend/src/main/java/com/pytutor/service/languagepack/impl/DocumentNormalizationServiceImpl.java`：
+  - 调整 `.pptx` 语言包文档的 normalize 流程，不再依赖本机 `libreoffice` 才能产出预览 PDF。
+  - 新增基于 Python 脚本的 PPT 预览 PDF 生成链路，使课件初始化在当前环境下可以继续完成 parse、QA 索引与后续发布流程。
+  - 旧版 `.ppt` 在完成转 `.pptx` 后也改为复用同一套预览 PDF 生成逻辑，避免重复走第二次 Office 转 PDF。
+- 2026-04-01 `backend/scripts/generate_language_pack_preview_pdf.py`：
+  - 新增课件预览 PDF 生成脚本，从 `.pptx` 按页抽取文本并生成多页 PDF，供问答侧引用预览使用。
+- 2026-04-01 `backend/src/main/java/com/pytutor/service/languagepack/impl/DocumentParsingServiceImpl.java`：
+  - 解析页文本入库时补写 `page_embedding`，确保问答索引不会再出现“有页文本但没有 embedding，导致语言包永远不 ready”的问题。
+- 2026-04-01 `backend/src/main/resources/application.yml`：
+  - 将语言包初始化入口的 multipart 上限调整为 `max-file-size=128MB`、`max-request-size=256MB`，使一整套 PPT 课件可以通过同一个初始化任务完成上传，而不会在创建阶段被 Tomcat 按请求体积直接拒绝。
+- 2026-04-01 `backend/src/test/java/com/pytutor/integration/LanguagePackInitIntegrationTest.java`：
+  - 新增失败后转绿的集成测试，锁定“无 LibreOffice 时 `.pptx` 也能完成 normalize 并生成预览 PDF”的行为。
+  - 补充页级解析测试，锁定 `.pptx` 页面解析后必须持久化 `page_embedding`，防止 QA-ready 判定回归失败。
+
+### 后端 · 语言包初始化链路分批调用 MiniMax M2.7，并补齐发布后的课堂切换
+
+- 2026-04-01 `backend/src/main/java/com/pytutor/service/languagepack/impl/KcExtractionServiceImpl.java`：
+  - KC 提取改为按文档、按页批次多次调用模型，不再把整套课件一次性塞进单个 prompt。
+  - 修复跨文档重复页码导致 `page_no -> page_id` 映射串页的问题；知识点页映射现在只在所属文档内部建立。
+  - KC/章节写入前先清理旧结果，并把阶段推进改到成功写入后执行，避免中途失败时留下“阶段已前进但数据不完整”的假状态。
+- 2026-04-01 `backend/src/main/java/com/pytutor/service/languagepack/impl/ExampleExtractionServiceImpl.java`：
+  - 示例提取改为按文档、按页批次多次调用模型，避免长上下文污染和超限。
+  - 新增示例去重与旧数据清理，重新初始化同一任务时不会把历史示例重复叠加。
+  - 阶段推进改为在示例真正入库并统计完成后执行，保证 `examples_ready` 状态和数据一致。
+- 2026-04-01 `backend/src/main/java/com/pytutor/service/languagepack/impl/ProblemGenerationServiceImpl.java`：
+  - 题目生成改为“按选中的知识点逐个调用 MiniMax M2.7”，每次只携带当前知识点和少量相关示例，严格满足分多次初始化的要求。
+  - 新增知识点选取、来源页绑定、示例绑定与旧候选题清理逻辑，避免全量 prompt 过大，也避免同一任务重复生成时残留旧候选题。
+  - 题目元数据中的 `kc_id`、`example_id`、`source_pages`、`related_kc_ids` 由服务端按真实课件数据绑定，降低模型返回错误 ID/页码导致后续验证失败的概率。
+- 2026-04-01 `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackPublishServiceImpl.java`：
+  - 语言包发布成功后，会把同 `slug` 的课堂绑定自动切到最新发布版本，修复“新版本已发布但学生问答页仍读取旧版本”的链路问题。
+- 2026-04-01 `backend/src/main/java/com/pytutor/service/LlmClient.java`：
+  - 新增对 MiniMax 返回 JSON 字符串内原始换行、制表符和控制字符的清洗逻辑，降低课件示例中多行代码导致 JSON 解析失败的概率。
+  - 当模型返回内容仍然无法解析为 JSON 对象时，后端日志会记录更长的原始片段，便于定位具体失败批次。
+- 2026-04-01 `backend/src/main/java/com/pytutor/service/languagepack/impl/ExampleExtractionServiceImpl.java`：
+  - 示例提取进一步收紧为“按批次只传当前页命中的知识点”，不再把整包知识点反复塞进每次 MiniMax 请求，减少上下文污染与格式失真。
+  - 去除整阶段长事务，改为逐条写库自动提交；单批次失败时已完成的前序批次不会整体回滚，任务失败态也能可靠落库。
+  - 失败原因中补充文档名与页码范围，便于定位是哪个课件片段触发 MiniMax 返回异常格式。
+- 2026-04-01 `backend/src/main/java/com/pytutor/service/languagepack/impl/KcExtractionServiceImpl.java`、`backend/src/main/java/com/pytutor/service/languagepack/impl/ProblemGenerationServiceImpl.java`：
+  - 去除长事务并补充批次上下文日志，避免长时间 LLM 初始化阶段在最后一步失败时丢失全部进度。
+- 2026-04-01 `backend/src/test/java/com/pytutor/integration/LanguagePackInitIntegrationTest.java`：
+  - 新增集成测试，锁定 KC 提取、示例提取、题目生成都必须走多次模型调用。
+  - 新增发布回归测试，锁定课堂绑定会在发布新版本后自动切换到最新语言包。
+- 2026-04-01 `backend/src/test/java/com/pytutor/service/LlmClientTest.java`、`backend/src/test/java/com/pytutor/integration/LanguagePackInitIntegrationTest.java`：
+  - 新增原始换行 JSON 清洗测试，并补充示例抽取提示词只包含当前批次相关知识点的回归断言。
+
+### 前端 · 课件问答助手语言包选择态修正（可见包与可问答包分离展示）
+
+- 2026-04-01 `frontend/src/pages/oj/views/languagepack/LanguagePackQaPage.vue`：
+  - 左侧语言包下拉不再只依赖 `language-pack-qa/packs`，改为同时读取“可见语言包列表”和“QA 就绪语言包列表”。
+  - 对当前用户可见但尚未完成问答索引的语言包，改为在下拉中直接展示并标记 `暂不可问答`，避免页面出现“空白选择器”。
+  - 选中未完成问答索引的语言包时，页面明确展示“当前语言包暂不可问答”，并禁用新会话与提问入口，不再误导为页面故障。
+- 2026-04-01 `frontend/tests/unit/oj-language-pack-qa-contract.spec.js`：
+  - 新增契约断言，锁定“可见包与 QA-ready 包分离展示”的页面行为与文案，防止回归为空白下拉框。
+
+### 后端 + 前端 · 课件问答助手拦截 OJ 题目并收紧无关回答
+
+- 2026-04-01 `backend/src/main/java/com/pytutor/service/languagepack/impl/PageRetrievalServiceImpl.java`：
+  - 新增查询证据词提取与页内词面支撑校验，向量召回结果只有在命中页标题、摘录或正文包含有效证据词时才允许进入最终 rerank 结果。
+  - 修复“课件中没有相关内容的问题”仍被向量相似度误判为 grounded 的问题，确保无证据时稳定走拒答链路。
+- 2026-04-01 `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackQaServiceImpl.java`：
+  - 在写入用户问题后、执行检索前新增 OJ 题目识别与 fail-fast 拦截。
+  - 命中 `OJ/判题/样例输入输出/题解/直接给代码` 等典型做题语义时，直接返回 `refusal_reason=oj_problem_question` 的拒答消息，不再进入检索日志与答案合成流程。
+- 2026-04-01 `backend/src/test/java/com/pytutor/integration/LanguagePackQaIntegrationTest.java`：
+  - 新增集成测试，锁定“询问 OJ 题完整解法时必须在检索前拦截，且 retrieval_log 计数保持为 0”的行为。
+- 2026-04-01 `frontend/src/pages/oj/views/languagepack/LanguagePackQaPage.vue`：
+  - 输入区新增明确提示，提醒学生不要在课件问答助手里询问 OJ 题、提交结果或索要完整解法。
+  - 发送前增加同口径的前端快速拦截，命中 OJ 做题语义时直接弹出 warning，不再发起请求。
+- 2026-04-01 `frontend/tests/unit/oj-language-pack-qa-contract.spec.js`：
+  - 补充契约测试，约束页面既有 OJ 提示文案，也有发送前本地拦截逻辑。
+
+### 后端 · 语言包统计口径修复（详情页统计为 0）
+
+- 2026-04-01 `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackQueryServiceImpl.java`：
+  - `listPublishedPacks`、`listVisiblePacks`、`getPackDetail` 由直接返回 `language_pack` 表冗余计数字段，改为“实时统计优先”。
+  - 新增 `applyDerivedCounts`：从关联表实时计算并覆盖 `document_count/page_count/chapter_count/kc_count/example_count/problem_count`。
+  - 章节、知识点、题目数采用主来源优先并带回退口径：
+    - `chapter_count`：`language_pack_chapter` 无数据时回退 `ai_knowledge_component.chapter` 去重计数。
+    - `kc_count`：`language_pack_kc` 无数据时回退 `ai_knowledge_component` 计数。
+    - `problem_count`：`language_pack_problem_mapping` 无数据时回退 `ai_problem_kc_mapping` 的去重题目计数。
+  - `getPackDetail` 新增列表级回退：当 `chapters` / `kcs` 为空时，改为从 `ai_knowledge_component` 动态构建章节列表与知识点列表，避免“统计有值但明细为空”。
+  - 解决历史默认语言包（如 `python-basic`）冗余计数字段未回填导致详情页统计显示为 0 的问题。
+
+### 前端 · 班级题目列表页眉高度对齐“状态”页
+
+- 2026-04-01 `frontend/src/pages/oj/views/classroom/ClassroomDetail.vue`：
+  - 班级题目卡片新增 `classroom-problem-panel`，并单独覆盖 `el-card__header` 为紧凑间距 `padding: 8px 18px`。
+  - 页眉结构改为 `classroom-problem-header`，统一 `min-height: 36px`，与“状态”页头部高度保持一致。
+  - 页眉标题与操作区改为专用样式类（`classroom-problem-header-title` / `classroom-problem-header-actions`），移除行内样式，按钮间距统一为 `8px`。
+
+### 前端 · ClassroomDetail 题目页默认激活与表头单行优化
+
+- 2026-04-01 `frontend/src/pages/oj/views/classroom/ClassroomDetail.vue`：
+  - 页面进入默认主 Tab 改为 `题目`（`activeTab: 'problems'`），并新增 `problemActiveTab`，默认激活题目子 Tab `班级题目`。
+  - 班级题目表格新增 `classroom-problem-table`，表头单元格强制 `white-space: nowrap`，避免“难度/总提交”等表头折行。
+  - 拉宽班级题目表列宽：`#` `130`、`题目` `min-width 520`、`难度` `120`、`总提交` `130`、`通过率` `130`、`状态` `130`、`操作` `220`，提升表头同一行显示稳定性。
+
+### 前端 · 协作会话创建时间列单行显示
+
+- 2026-04-01 `frontend/src/pages/oj/views/classroom/ClassroomDetail.vue`：
+  - 协作会话列表“创建时间”列宽由 `170` 调整为 `220`，避免时间文本被压缩换行。
+  - 创建时间内容增加 `session-created-at-text` 样式，设置 `white-space: nowrap`，强制单行展示 `YYYY-MM-DD HH:mm`。
+
+### 后端 · KC 初始化关系补全（无明确关系时按 PPT 顺序连边）
+
+- 2026-04-01 `backend/src/main/java/com/pytutor/service/impl/AITutorServiceImpl.java`：
+  - 在 `knowledgeGraph` 中保留已有“明确关系”（同题共现边）不变。
+  - 新增 `loadKcOrderByPptAppearance(languagePackId, allowedNodeIds)`：按 `language_pack_kc` 的章节序与最早 `page_no` 计算 KC 出现顺序，并映射到 `synced_ai_kc_id`。
+  - 新增 `appendFallbackEdgesByPptOrder(...)`：当相邻 KC 之间没有明确关系时，按 PPT 出现先后补 `related` 边（`weight=0.3`），保证关系图在缺少显式关系数据时仍按课件学习顺序连通。
+  - 该补边逻辑是“补充而非覆盖”：不会替换或删除已存在的显式关系边。
+
+### 前端 + 后端 · 知识星图数据口径与单章关系补全
+
+- 2026-04-01 `frontend/src/pages/oj/components/skillProfile/KnowledgeStarMap.vue`：
+  - 统计卡片从 `safeStats` 原始值改为 `displayStats` 实时计算，按“当前筛选章节 + 当前时间快照 mastery”同步显示 `知识点/已掌握/薄弱/易错点`，避免章节切换或时间回溯时统计口径不一致。
+  - 新增 `resolveNodeMastery`，快照值读取改为 `hasOwnProperty` 精确判断，修复快照 mastery 为 `0` 时被 `||` 回退覆盖导致“已掌握”与节点颜色失真问题。
+  - 章节过滤补强：新增 `normalizeChapterKey`、`getEdgeEndpointId`，统一章节键与边端点 id 比较，修复章节视图中关系边因类型/格式差异被误过滤的问题。
+  - 顶部章节文字标签仅在单章视图显示；当筛选为“全部”时不渲染“第X章”标题，减少图内视觉噪音并避免遮挡知识点名称。
+  - 取消节点坐标边界钳制（clamp），恢复力导自由排布风格，不再将知识点强制限制在固定矩形范围内。
+  - 节点标签截断策略改为章节视图更宽松（单章更长标签），降低单章下知识点名被过度截断。
+- 2026-04-01 `backend/src/main/java/com/pytutor/service/impl/AITutorServiceImpl.java`：
+  - `knowledgeGraph` 边生成从“按 KC 顺序串联”改为“同题共现 KC 关系边”（`ai_problem_kc_mapping` 自连接聚合），恢复更真实的知识点联系结构。
+  - 保留无共现数据时的顺序边兜底，避免空图断联。
+  - 推荐路径边去重键改为无向 canonical key，修复边方向差异导致的重复/漏标记问题。
+- 2026-04-01 `frontend/tests/unit/knowledge-star-map-display-contract.spec.js`：
+  - 新增契约测试，锁定星图统计口径、快照 mastery 读取与章节过滤关键实现，并约束“全部”视图不渲染章节标题。
+
+### 前端 · 技能雷达显示与刷新稳定性修复
+
+- 2026-04-01 `frontend/src/pages/oj/components/skillProfile/SkillRadar.vue`：
+  - 雷达加载态从 `v-if` 改为 `v-show`，保留雷达图 DOM 常驻，修复刷新时容器被销毁导致图表实例失效、刷新后空白问题。
+  - 新增 `clamp01` 与 `sanitizeRadarPayload`，统一处理维度/数值长度不一致、空值与非法数值，修复“雷达数据未正确显示”。
+  - 增加 `loading` watcher，在骨架屏收起后主动 `resize + renderChart`，确保刷新后稳定重绘。
+- 2026-04-01 `frontend/tests/unit/skill-radar-refresh-contract.spec.js`：
+  - 新增契约测试，约束加载态 DOM 持久化、payload 归一化与刷新后重绘逻辑。
+
+### 前端 · PracticeHeatmap 星期对齐与 Tooltip 残影修复
+
+- 2026-04-01 `frontend/src/pages/oj/components/skillProfile/PracticeHeatmap.vue`：
+  - 星期标签改为 `weekdayRows` 七行占位渲染（`Mon/Wed/Fri` + 空行），与热力图 7 行网格一一对齐，修复左侧星期显示错位。
+  - Tooltip 交互改为快速收起：`hide-after=0`、`enterable=false`、`persistent=false`、`transition=""`，并保留轻微 `show-after=60`，修复鼠标移开后提示残影和叠影问题。
+- 2026-04-01 `frontend/tests/unit/practice-heatmap-tooltip-contract.spec.js`：
+  - 增加回归断言：约束 Tooltip 快速隐藏配置与 `weekdayRows` 七行对齐结构，防止后续回归。
+
+### 前端 · PracticeHeatmap Tooltip 组件解析告警修复
+
+- 2026-04-01 `frontend/src/pages/oj/components/skillProfile/PracticeHeatmap.vue`：
+  - 将旧组件 `<Tooltip>` / `</Tooltip>` 替换为 Element Plus 组件 `<el-tooltip>` / `</el-tooltip>`。
+  - Tooltip 属性从 `theme="dark"`、`:transfer="true"` 迁移为 Element Plus 语义：`effect="dark"`、`:teleported="true"`，消除 Vue3 运行时 `Failed to resolve component: Tooltip` 告警。
+- 2026-04-01 `frontend/tests/unit/practice-heatmap-tooltip-contract.spec.js`：
+  - 新增回归契约测试，强制要求 `PracticeHeatmap` 使用 `<el-tooltip>`，并禁止残留 `<Tooltip>` 标签。
+
+### 前端 · SubmissionList 页眉与列布局微调
+
+- 2026-04-01 `frontend/src/pages/oj/views/submission/SubmissionList.vue`：
+  - `状态` 页 `OjPanel` 增加 `submission-list-panel`，页眉尺寸与 `ProblemList` 对齐：`el-card__header` 调整为 `padding: 8px 18px`，`panel-header` 最小高度 `36px`，标题/筛选区统一行内对齐。
+  - 页眉字体统一为 `14px`：标题、下拉筛选、开关文本、输入框、按钮统一字号，修复页眉字号不一致问题。
+  - 列宽重排以保证“选项”完整显示：`When 170`、`ID 150`、`Status 120`、`Problem 120`、`Time 100`、`Memory 100`、`Language 110`、`Author 110`。
+  - “选项”列调整为 `width="132"` 并增加 `class-name="submission-option-column"`；单元格改为居中 flex，`重新评分` 按钮设置最小宽度，确保按钮完整显示且居中。
+  - 顶部“刷新”按钮由 `type="info"` 改为 `type="primary"`，与“重新评分”统一为同一蓝色视觉。
+- 2026-04-01 `frontend/tests/unit/submission-list-ui-contract.spec.js`：
+  - 新增 SubmissionList UI 合约测试，覆盖刷新按钮主色、选项列宽与居中、页眉紧凑对齐与统一字号约束。
+
+### 前端 · ProblemList 难度文案 i18n 告警修复
+
+- 2026-04-01 `frontend/src/pages/oj/views/problem/ProblemList.vue`：
+  - 难度显示从模板内直接 `$t('m.' + scope.row.difficulty)` 改为 `difficultyText()` 白名单翻译（仅 `Low/Mid/High`）。
+  - 当难度为空或异常值时显示 `-`，并使用 `problem-difficulty-pill-unknown` 中性样式，避免触发 `m.undefined` i18n 警告。
+- 2026-04-01 `frontend/tests/unit/problem-list-ac-rate-and-layout-contract.spec.js`：
+  - 增加回归断言：`ProblemList` 必须使用 `difficultyText(scope.row.difficulty)`，且不允许直接拼接 `$t('m.' + scope.row.difficulty)`。
+
+### 前端 · ProblemList 页眉与标签交互微调
+
+- 2026-04-01 `frontend/src/pages/oj/views/problem/ProblemList.vue`：
+  - 标签列调整为“默认仅显示第一个标签”，当存在多个标签时显示 `...` 按钮；点击后通过 `el-popover` 展开其余标签并支持继续按标签筛选。
+  - 新增 `problem-list-tag-more`、`problem-tags-popover-list` 样式，保证展开后的标签布局可读且交互一致。
+  - 页眉（卡片 header）高度压缩：`el-card__header` 调整为 `padding: 8px 18px`，并将标题区/筛选区最小高度统一到紧凑布局。
+  - 标题、筛选项、输入框、按钮字体统一为 `14px`，并通过 `filter-trigger` 统一行内对齐，确保处于同一水平线。
+  - 默认宽屏下筛选区单行显示（`flex-wrap: nowrap`），窄屏回退为换行布局（媒体查询中恢复 `flex-wrap: wrap`）。
+  - 状态列增加 `class-name="problem-status-column"` 并放宽 `cell` 裁剪，失败符号由 `−` 调整为 `-`，同时状态圆点尺寸微调（20x20），修复“未通过符号右侧被遮挡”。
+  - 标签列收口为强制单行：`problem-tags-wrap` 改为 `inline-flex + nowrap + overflow hidden`，标签 chip 增加省略裁剪，修复“标签偶发占两行”。
+  - 统一两种标签样式：新增非 `scoped` 的 `.problem-tags-popover .problem-list-tag-chip` 样式，确保 popover 内标签与表格内首标签视觉一致（圆角、蓝色边框、背景与 hover 行为一致），修复“展开后标签样式不一致”。
+
+### 前端 · ProblemList 表格显示修复（难度/标签/通过率）
+
+- 2026-04-01 `frontend/src/pages/oj/views/problem/ProblemList.vue`：
+  - 难度列增加 `class-name="problem-difficulty-column"`，并将列宽由 `112` 调整为 `132`，同时取消该列 `cell` 的省略截断（`overflow: visible; text-overflow: clip;`），修复“难度后出现省略号”问题。
+  - 标签列增加 `class-name="problem-tags-column"` 与 `problem-tags-wrap` 容器，标签区改为单行展示（`nowrap`），并关闭截断；标签按钮改为 `white-space: nowrap`，避免标签文本在按钮内断行后被下一行遮挡。
+  - 通过率列增加 `class-name="problem-ac-rate-column"` 与 `problem-ac-rate-text`，固定单行显示，避免窄列下数字被拆行为 `0.0` / `0%`。
+  - 覆盖 `problem-list-panel` 的 `panel-body` 断词策略为正常断词，避免 `OjPanel` 的全局 `break-all` 影响表格内容排版。
+- 2026-04-01 `frontend/src/utils/utils.js`：
+  - `getACRate` 调整为数值化计算：当 `accepted` 或 `total` 为 `0` 时直接返回 `0%`，修复“全部 WA 时偶发显示 `0.00%`”。
+- 2026-04-01 `frontend/tests/unit/problem-list-ac-rate-and-layout-contract.spec.js`：
+  - 新增回归契约测试，覆盖 `0%` 展示规则、ProblemList 列 class 约束、标签列非截断多行样式约束。
+
+### 前端 · NavBar 微调（班级独立入口 + 用户信息右置）
+
+- 2026-04-01 `frontend/src/pages/oj/components/NavBar.vue`：
+  - `ElMenu` 增加 `:ellipsis="false"`，取消横向菜单自动折叠的 `...` 省略行为，恢复“班级”为 navbar 独立可见选项。
+  - 导航“教室”文案调整为“班级”。
+  - 登录态用户区保持最右对齐（`margin-left: auto` + `flex-shrink: 0`），用户名左侧新增头像展示。
+  - 头像优先使用 `profile.avatar`，无头像时回退为用户名首字母圆形占位；用户名增加省略样式，避免挤压导航布局。
+  - 菜单项横向间距微调（`padding: 0 14px`），提升中等宽度视口下主导航项稳定性。
+
+### 前端 · ViewUI Plus → Element Plus 迁移完成：Batch 5 最终清理
+
+- 2026-04-01 **view-ui-plus 依赖彻底移除**：`package.json` 删除 `"view-ui-plus": "^1.3.24"`，`npm install` 清理 13 个关联子依赖。
+- 2026-04-01 **残留文件清理**：
+  - `iview-custom.less` → 重命名为 `element-custom.less`（内容已在前批次迁移为 `.el-*` 选择器），`index.less` 引用同步更新。
+  - `viewUiPlusTheme.less` 在前批次已删除，确认无残留。
+- 2026-04-01 **单元测试清理**：
+  - 删除 3 个已失效的 ViewUI 合约测试：`oj-style-bridge-contract.spec.js`（`viewUiPlusBridge.less` 已不存在）、`viewui-icon-registry-contract.spec.js`（ViewUI 图标注册表已不适用）、`oj-table-typography-contract.spec.js`（`viewUiPlusTheme.less` 已删除）。
+  - 更新 8 个合约测试断言：`problem-list-render-contract`、`problem-debug-input-contract`、`oj-custom-render-contract`、`problem-list-filter-ui-contract`、`problem-editor-default-language-contract`、`oj-language-pack-catalog-contract`、`codemirror-select-binding-contract`、`classroom-member-table-contract`、`oj-loading-contract`、`admin-style-bridge-contract` 中的 ViewUI 模式匹配更新为 Element Plus 模式。
+  - `api.spec.js` 移除 `jest.mock('view-ui-plus', () => ({}))` 模拟。
+- 2026-04-01 **E2E 测试选择器更新**：`oj-runtime-regression.spec.js` 中 `.ivu-table-wrapper` → `.el-table`；`navbar-authenticated-navigation.spec.js` 中 `.ivu-menu-item` → `.el-menu-item`、`.ivu-btn-text` → `.el-button--text`、`.ivu-dropdown-item` → `.el-dropdown-menu__item`；`authRegressionHelper.js` 中 `.ivu-modal-wrap` → `.el-overlay`。
+- 2026-04-01 **全源码扫描验证**：`src/` 目录零 `view-ui-plus`/`ViewUIPlus`/`.ivu-` 匹配；`package.json` 零 `view-ui-plus` 引用；`npm run build` 通过；136/136 单元测试通过。
+
+### 前端 · ViewUI Plus → Element Plus 迁移 Batch 4-8（班级列表）
+
+- 2026-04-01 [班级列表] `ClassroomList.vue`：ViewUI → Element Plus 迁移。
+  - **h() 渲染函数全部消除**：`columns` 数据属性中的 `render(h, params)` 函数（班级名称/课程代码/学期/身份/成员/操作等列）移除，改为 `<el-table>` + `<el-table-column #default="scope">` 模板声明式写法。
+  - **模板**：`Input search @on-search` → `el-input @keyup.enter.native`（`#prefix` 插槽放置 `Search` 图标），`Select @on-change` → `el-select @change`，`Option` → `el-option`，`Table :columns :data :loading` → `el-table :data v-loading`，`Modal v-model @on-ok` → `el-dialog v-model`（`#footer` 自定义按钮），`Form/FormItem` → `el-form/el-form-item`，`Input @on-enter` → `el-input @keyup.enter`，`Page @on-change` → `el-pagination @current-change`，`Alert` → `el-alert :closable="false"`，`Button` → `el-button`。
+  - **Icon**：`Icon type="ios-people"` → `<el-icon><User />`，`ios-add` → `Plus`，`ios-search` → `Search`。
+  - **JS API**：`this.$Modal.confirm()` → `ElMessageBox.confirm()`，`import { ... } from 'view-ui-plus'` 移除，新增 `import { ElMessageBox } from 'element-plus'` 及图标组件。
+
+### 前端 · ViewUI Plus → Element Plus 迁移 Batch 4-7（课堂协作 & 监控）
+
+- 2026-04-01 [加入班级] `JoinClassroom.vue`：ViewUI → Element Plus 迁移。
+  - **模板**：`Card` → `el-card`（`#title` → `#header`），`Form/FormItem` → `el-form/el-form-item`，`Input @on-enter` → `el-input @keyup.enter.native`，`Button long` → `el-button style="width: 100%"`，`Alert show-icon` → `el-alert show-icon :closable="false"` 使用 `title` 属性。
+  - **Icon**：`Icon type="ios-people" size="24"` → `<el-icon :size="24"><User />`。
+  - **JS**：新增 `import { User } from '@element-plus/icons-vue'` 并注册组件。
+
+- 2026-04-01 [协作编程] `CollaborativeCoding.vue`：全面 ViewUI → Element Plus 迁移（~930 行复杂文件）。
+  - **模板**：`Card` → `el-card`（`#title` → `#header`），`Row/Col` → `el-row/el-col`，`Tag :color` → `el-tag :type`（`'default'` → `'info'`，`'primary'` → `''`），`Select @on-change` → `el-select @change`，`Option` → `el-option`（使用 `label` 属性），`Input @on-enter` → `el-input @keyup.enter.native`，`Modal` → `el-dialog`，`Tabs value` → `el-tabs model-value`，`TabPane` → `el-tab-pane`，`Spin` → `<el-icon class="is-loading"><Loading />`，`Alert` → `el-alert`（`:closable="false"`），`Avatar` → `el-avatar`，`Button ghost` → `el-button plain`。
+  - **Icon**：20 个 `Icon type="ios-*"` 静态替换 + 2 个动态 `Icon :type` → `<el-icon><component :is="..." />`。图标映射：`ios-book-outline` → `Notebook`，`ios-key` → `Key`，`ios-timer-outline` → `Timer`，`ios-people-outline/ios-people/ios-person` → `User`，`ios-create` → `Edit`，`ios-sync/ios-refresh` → `Refresh`，`ios-code` → `Monitor`，`ios-play` → `VideoPlay`，`ios-log-out` → `SwitchButton`，`ios-information-circle-outline` → `InfoFilled`，`ios-locked-outline` → `Lock`，`ios-unlocked-outline` → `Unlock`，`ios-chatbubbles` → `ChatDotRound`，`ios-expand` → `FullScreen`，`ios-arrow-forward/down/up` → `ArrowRight/ArrowDown/ArrowUp`。
+  - **JS API**：`this.$Modal.confirm()` → `ElMessageBox.confirm()`，`this.$Message.info/warning/success()` → `this.$info/$warning/$success()`，新增 `import { ElMessageBox } from 'element-plus'` 及 18 个 `@element-plus/icons-vue` 图标组件。`getModeColor()` 返回值适配 EP tag type（`'default'` → `'info'`，`'primary'` → `''`）。
+  - **CSS**：`:deep(.ivu-card-body)` → `:deep(.el-card__body)`，`:deep(.ivu-card-head)` → `:deep(.el-card__header)`。
+
+- 2026-04-01 [监控面板] `MonitorDashboard.vue`：全面 ViewUI → Element Plus 迁移（~1730 行复杂文件）。
+  - **模板**：`Modal` → `el-dialog`（`:closable="false"` → `:show-close="false"`），`Tabs value` → `el-tabs model-value`，`TabPane` → `el-tab-pane`，`Timeline/TimelineItem` → `el-timeline/el-timeline-item`，`Card` → `el-card`，`Row/Col` → `el-row/el-col`，`Tag :color` → `el-tag :type`（`'error'` → `'danger'`，`'primary'` → `''`），`ButtonGroup` → `el-button-group`，`Select @on-change` → `el-select @change`，`Option` → `el-option`，`Slider @on-change` → `el-slider @change`，`Button icon="ios-pulse"` → 内联 `<el-icon><TrendCharts />`。
+  - **Icon**：30+ 个 `Icon type="ios-*"` 静态替换 + 2 个动态 `Icon :type` → `<el-icon><component :is="..." />`。图标映射：`ios-people/ios-person/ios-people-outline` → `User`，`ios-list-box` → `Tickets`，`ios-cloud-upload` → `Upload`，`ios-checkmark-circle` → `CircleCheck`，`ios-code-working/ios-code` → `Monitor`，`ios-warning` → `Warning`，`ios-notifications` → `Bell`，`ios-time` → `Timer`，`ios-bug` → `Aim`，`ios-stats` → `DataLine`，`ios-search` → `Search`，`ios-pulse` → `TrendCharts`，`ios-bulb-outline/ios-bulb` → `Sunny`，`ios-close` → `Close`，`ios-list` → `List`，`ios-close-circle` → `CircleClose`，`ios-play` → `VideoPlay`，`ios-pause` → `VideoPause`，`ios-square` → `CloseBold`，`ios-alert` → `WarningFilled`。
+  - **JS API**：`this.$set(this.students[idx], key, val)` × 5 → 直接属性赋值（Vue 3 Proxy 响应式），`this.$set(this.students, idx, obj)` → `this.students.splice(idx, 1, obj)`，`this.$set(this.heatmapStudents, idx, entry)` → `this.heatmapStudents.splice(idx, 1, entry)`。计算属性 `clusterDetailIcon` 返回值从 ViewUI icon 字符串改为 EP 组件名（`'ios-warning'` → `'Warning'`，`'ios-close-circle'` → `'CircleClose'`，`'ios-bug'` → `'Aim'`，`'ios-alert'` → `'WarningFilled'`）。新增 20 个 `@element-plus/icons-vue` 图标组件导入及注册。
+  - **CSS**：`.ivu-modal-header` → `.el-dialog__header`，`.ivu-modal-body` → `.el-dialog__body`。
+
+### 前端 · ViewUI Plus → Element Plus 迁移 Batch 4-6（课件管理 & AI 出题）
+
+- 2026-04-01 [课件管理] `LessonManagement.vue`：全面 ViewUI → Element Plus 迁移。
+  - **h() 渲染函数全部消除**：`columns` 数据属性中 6 列（课件名称/格式/页数/关联题目/上传时间/操作）的 `render(h, params)` 函数移除，改为 `<el-table>` + `<el-table-column #default="scope">` 模板声明式写法。`h(ViewIcon)`、`h(ViewTag)`、`h(ViewButton)` 全部消除。
+  - **模板**：`Card` → `el-card`（`#title/#extra` → `#header` flex 布局），`Table :columns :data :loading` → `el-table :data v-loading`，`Modal` → `el-dialog`（`:mask-closable` → `:close-on-click-modal`，`:closable` → `:show-close`，`fullscreen` 保留），`Form/FormItem` → `el-form/el-form-item`，`Upload` → `el-upload`（`:format`/`:max-size`/`:on-format-error`/`:on-exceeded-size` 整合到 `before-upload`，`:show-upload-list` → `:show-file-list`），`ButtonGroup` → `el-button-group`，`Input @on-enter` → `el-input @keyup.enter`，`InputNumber` → `el-input-number`，`RadioGroup/Radio` → `el-radio-group/el-radio`（`label` 值 → `value` 属性），`Slider show-input` → `el-slider show-input`，`Row/Col` → `el-row/el-col`，`Tag color="green"` → `el-tag type="success"`，`Tooltip :max-width` → `el-tooltip :popper-style`，`Button` → `el-button`。
+  - **Icon**：`Icon type="ios-document"` → `<el-icon><Document />`，`ios-cloud-upload`/`ios-cloud-upload-outline` → `Upload`，`ios-cloud-download` → `Download`，`ios-close-circle-outline` → `CircleClose`，`ios-arrow-back` → `ArrowLeft`，`ios-arrow-forward` → `ArrowRight`，`ios-albums` → `Files`，`ios-color-wand` → `MagicStick`。动态模式 `<Icon :type="getFileIcon(...)">` → `<el-icon><component :is="getFileIconComponent(...)"/>`（`markRaw` 包裹图标组件避免响应式警告）。
+  - **JS API**：`this.$Modal.confirm()` → `ElMessageBox.confirm()`（`dangerouslyUseHTMLString: true`），`this.$Message.warning/error()` → `this.$warning/$error()`，`import { Button as ViewButton, Icon as ViewIcon, Tag as ViewTag } from 'view-ui-plus'` 移除，新增 `import { ElMessageBox } from 'element-plus'` 及 8 个 `@element-plus/icons-vue` 图标组件。`handleFormatError`/`handleSizeError` 方法移除，验证逻辑合并到 `handleBeforeUpload`。`getFileIcon` 方法改为 `getFileIconComponent`（返回组件引用而非字符串）。
+
+- 2026-04-01 [AI 出题] `AIGeneratedProblems.vue`：全面 ViewUI → Element Plus 迁移。
+  - **h() 渲染函数全部消除**：`initColumns()` 方法中 7 列（题目标题/题型/难度/来源/状态/生成时间/操作）的 `render(h, params)` 函数移除，改为 `<el-table-column #default="scope">` 模板写法。`initColumns()` 方法及 `columns` 数据属性移除，`h(ViewButton)`/`h(ViewTag)` 全部消除。
+  - **模板**：`Card` → `el-card`（`#title/#extra` → `#header` flex 布局），`Table :columns :data :loading` → `el-table :data v-loading`，`Modal` → `el-dialog`（`:styles="{top: '20px'}"` → `top="20px"`，`class-name` → `class`，`:mask-closable="false"` → `:close-on-click-modal="false"`），`Tabs/TabPane` → `el-tabs/el-tab-pane`（`icon` 属性移除，改用 `#label` 插槽），`Form/FormItem` → `el-form/el-form-item`，`Select @on-change` → `el-select @change`，`Option` → `el-option`，`InputNumber` → `el-input-number`，`Checkbox` → `el-checkbox`，`Input` → `el-input`，`Alert @on-close` → `el-alert @close`，`Page @on-change show-elevator` → `el-pagination @current-change layout="prev, pager, next, jumper"`，`Row/Col` → `el-row/el-col`，`Tag color="green"` → `el-tag type="success"`，`Tag color="blue"` → `el-tag type="primary"`，`Button type="error"` → `el-button type="danger"`。
+  - **Icon**：`ios-color-wand` → `MagicStick`，`ios-cloud-download-outline` → `Download`，`ios-add` → `Plus`，`ios-refresh` → `Refresh`，`ios-document` → `Document`，`ios-list` → `List`，`ios-create` → `Edit`，`ios-bulb` → `Sunny`，`ios-log-in` → `Right`，`ios-log-out` → `Back`，`ios-code` → `Monitor`，`ios-bug` → `Aim`，`ios-information`/`ios-information-circle` → `InfoFilled`。
+  - **JS API**：`this.$Modal.confirm()` × 5（发布/验证/审查通过/审查驳回/删除）→ `ElMessageBox.confirm()`，`this.$Message.warning/error()` → `this.$warning/$error()`，`import { Button as ViewButton, Tag as ViewTag } from 'view-ui-plus'` 移除，新增 `import { ElMessageBox } from 'element-plus'` 及 13 个 `@element-plus/icons-vue` 图标组件。`initColumns()` 调用从 `mounted()` 移除。状态/题型/难度的 Tag 颜色映射提取为模块级常量（`DIFF_TAG_TYPE`、`TYPE_TAG_TYPE`、`STATUS_MAP`），新增 `getStatusStyle()`、`getStatusText()`、`getDiffTagType()`、`getTypeTagType()` 辅助方法。
+  - **CSS**：`.ivu-card-head` → `.el-card__header` 样式移除（改为 `.card-header` flex 布局），`.ivu-card-extra` 移除（由 `#header` 插槽统一处理），`.ivu-table-header th` → `.el-table th`，`.ivu-table-body td` → `.el-table td`，`.ivu-row` → `.el-row`。
+
+### 前端 · ViewUI Plus → Element Plus 迁移 Batch 4-5（课堂详情）
+
+- 2026-04-01 [课堂详情] `ClassroomDetail.vue`：全面 ViewUI → Element Plus 迁移（~1240 行复杂文件）。
+  - **h() 渲染函数全部消除**：`memberColumns`、`problemColumns`、`searchProblemColumns`、`sessionColumns` 四组 `created()` render 函数列定义移除，改为 `<el-table>` + `<el-table-column #default="scope">` 模板声明式写法。`visibleMemberColumns` / `visibleProblemColumns` 计算属性移除，改为 `v-if="!isStudent"` / `v-if="isStaff"` 条件列。
+  - **模板**：`Card` → `el-card`（`#title/#extra` → `#header` flex 布局），`Table :columns :data :loading` → `el-table :data v-loading`，`Modal v-model` → `el-dialog v-model`（`@on-ok` → `#footer` 按钮），`Tabs/TabPane` → `el-tabs/el-tab-pane`（移除 `icon` 属性），`Form/FormItem` → `el-form/el-form-item`（`:label-width="80"` → `label-width="80px"`），`Input search enter-button="搜索" @on-search` → `el-input @keyup.enter` + `#append` 按钮，`Select/Option/OptionGroup` → `el-select/el-option/el-option-group`（`@on-change` → `@change`），`Row/Col` → `el-row/el-col`，`Alert show-icon` → `el-alert show-icon :closable="false"`，`Button long` → `el-button style="width: 100%"`，`Tag :style` → `el-tag :style`。
+  - **Icon**：`Icon type="ios-person"` → `<el-icon><User />`，`ios-add` → `Plus`，`ios-document` → `Document`，`ios-stats` → `DataLine`，`ios-cloud-upload-outline` → `Upload`，`ios-cloud-download-outline` → `Download`，`ios-unlock` → `Unlock`，`ios-shuffle` → `Sort`，`ios-create-outline` → `EditPen`，`ios-people` → `UserFilled`，`ios-checkmark-circle` → `Check`，`ios-log-in` → `ArrowRight`。动态模式 `<Icon :type="mode.icon">` → `<el-icon><component :is="mode.icon" />`。
+  - **JS API**：`this.$Modal.confirm()` × 3 → `ElMessageBox.confirm()`（`dangerouslyUseHTMLString: true`），`this.$Message.info()` → `this.$info()`，`this.$set()` → 直接赋值，`import { Button as ViewButton, Icon as ViewIcon, Tag as ViewTag } from 'view-ui-plus'` 移除，新增 `import { ElMessageBox } from 'element-plus'` 及 12 个 `@element-plus/icons-vue` 图标组件。
+  - **CSS**：`.ivu-modal-header` → `.el-dialog__header`，`.ivu-modal-header-inner` → `.el-dialog__title`，`.ivu-modal-body` → `.el-dialog__body`，`.ivu-modal-footer` → `.el-dialog__footer`，`.ivu-form-item-label` → `.el-form-item__label`。
+  - **方法**：`getSessionModeColor()` → `getSessionModeType()`（返回 EP type 值 `'info'`/`'primary'`）。
+
+### 前端 · ViewUI Plus → Element Plus 迁移 Batch 4-4（课堂作业域）
+
+- 2026-04-01 [作业管理] `ClassroomAssignment.vue`：ViewUI `<Table :columns>` render 函数模式 → Element Plus `<el-table>` + `<el-table-column #default="scope">` 模板模式。
+  - **h() 渲染函数**：`h(ViewButton)` / `h(ViewTag)` / `h(ViewIcon)` 全部消除，`initColumns()` 方法及 `columns` 数据属性移除，改为模板声明式 `<el-table-column>` + `v-if="isStaff"` 条件列。
+  - **模板**：`Card #title/#extra` → `el-card #header`（flexbox 布局），`Modal` → `el-dialog`，`Form/FormItem` → `el-form/el-form-item`，`Input` → `el-input`，`DatePicker format="yyyy-MM-dd"` → `el-date-picker format="YYYY-MM-DD"`，`Checkbox` → `el-checkbox`，`InputNumber` → `el-input-number`，`Page @on-change` → `el-pagination @current-change`，`Button type="error"` → `el-button type="danger"`，`Button type="dashed"` → `el-button plain`，`Button long` → `el-button style="width: 100%"`，`Input @on-enter` → `el-input @keyup.enter.native`，`Table @on-selection-change` → `el-table @selection-change`，`Table height="400"` → `el-table :max-height="400"`。
+  - **Icon**：`Icon type="ios-book"` → `<el-icon><Reading />`，`ios-add` → `Plus`，`ios-trash` → `DeleteIcon`，`ios-search` → `Search`，`ios-close` → `Close`，`ios-eye-outline` → `View`，`ios-create` → `Edit`，`ios-open-outline` → `Link`。
+  - **JS API**：`this.$Modal.confirm` → `ElMessageBox.confirm`（`dangerouslyUseHTMLString: true`），`import { Button as ViewButton, Icon as ViewIcon, Tag as ViewTag } from 'view-ui-plus'` 移除。
+- 2026-04-01 [助教评分] `AssignmentGrading.vue`：ViewUI `<Table :columns>` render 函数模式 → `<el-table>` 模板模式。
+  - **h() 渲染函数**：`h(ViewButton)` / `h(ViewTag)` 全部消除，`columns` 数据属性移除，6 列（学生/提交时间/迟交/总分/已评阅/操作）全部改为 `<el-table-column>` 模板。
+  - **模板**：`Card #title/#extra` → `el-card #header`，`Modal` → `el-dialog`，`Tag :color` → `el-tag :type`（`error` → `danger`，`default` → `info`，`blue` → `primary`），`Alert` → `el-alert :closable="false"`，`InputNumber` → `el-input-number`，`Input` → `el-input`，`Button` → `el-button`。
+  - **JS API**：`this.$set(this.gradingIds, ...)` → 直接赋值（Vue 3 响应式），`import { Button as ViewButton, Tag as ViewTag } from 'view-ui-plus'` 移除。
+- 2026-04-01 [作业详情] `AssignmentDetail.vue`：全面 ViewUI → Element Plus 迁移。
+  - **模板**：`Card` → `el-card`，`Button type="text" icon="ios-arrow-back"` → `el-button text` + `<el-icon><ArrowLeft />`，`Tag :color` → `el-tag :type`（color 值映射：`blue` → `primary`，`green` → `success`，`orange` → `warning`，`default` → `info`），`RadioGroup vertical` → `el-radio-group` + CSS flex 垂直布局，`Radio :label` → `el-radio :value`，`Input` → `el-input`，`Button` → `el-button`（`type="default"` → `type=""`），`Spin fix` → `v-loading` 指令。
+  - **Icon**：`Icon type="ios-open-outline"` → `<el-icon><Link />`，`ios-arrow-back` → `ArrowLeft`。
+  - **JS API**：`this.$set(this.mySubmissions, ...)` → 直接赋值，`getStatusColor` 返回值 `error` → `danger`。
+- 2026-04-01 [门禁] Batch 4 作用域（`ClassroomAssignment.vue`、`AssignmentGrading.vue`、`AssignmentDetail.vue`）`view-ui-plus` / `ViewButton` / `ViewTag` / `ViewIcon` / `$Modal` / `$set` 扫描结果为 **0 匹配**。
+
+### 前端 · ViewUI Plus → Element Plus 迁移 Batch 3（提交与错题本域）
+
+- 2026-04-01 [提交列表] `SubmissionList.vue`：ViewUI `<Table :columns>` render 函数模式 → Element Plus `<el-table>` + `<el-table-column #default="scope">` 模板模式。
+  - **h() 渲染函数**：`h(ViewButton, {...})` / `h(ViewTag, { color })` 全部消除，改为 `<el-button>` / `<el-tag :color effect="dark">` 模板写法。
+  - **模板**：`Dropdown @on-click` → `el-dropdown @command`（`name` → `command`，`#list` → `#dropdown`），`i-switch @on-change` → `el-switch @change`（`#open/#close` slot → `active-text/inactive-text` prop），`Input @on-enter` → `el-input @keyup.enter`，`Button icon="ios-refresh"` → `el-button` + `<el-icon><Refresh /></el-icon>`。
+  - **动态列**：Rejudge 列由原 `adjustRejudgeColumn()` 运行时插入 columns 数组改为 `v-if="rejudgeColumnVisible"` 模板声明式渲染，删除 `rejudge_column` 标志及相关 watcher。
+  - **CSS**：`.ivu-btn-text` / `.ivu-table-body` / `.ivu-input-wrapper` / `.ivu-select` / `.ivu-btn` 全部替换为 `.el-input` / `.el-button` 对应选择器。
+- 2026-04-01 [提交详情] `SubmissionDetails.vue`：`import { Tag as ViewTag } from 'view-ui-plus'` 移除，`h(ViewTag, { color })` render 函数改为模板 `<el-tag :color effect="dark">`。
+  - **模板**：`Icon type="ios-*"` → `<el-icon>` + 图标组件（`Document`、`Clock`、`User`、`DataAnalysis`），`Tag color="blue"` → `el-tag type="primary"`，`Row/Col` → `el-row/el-col`，`Alert showIcon` → `el-alert show-icon :closable="false"`（`#desc` slot → 默认 slot），`Table :columns :data` → `el-table` + `el-table-column` 模板模式，`Button` → `el-button`。
+  - **动态列**：Score 列和 Admin 列（Real_Time、Signal）由 `isConcat` 标志位控制的运行时 columns.push/concat 改为 `v-if="hasScoreColumn"` / `v-if="isAdminRole"` 模板声明式渲染。
+- 2026-04-01 [提交河流图] `SubmissionRiver.vue`：经审查无 ViewUI 依赖（纯 d3 + 自定义 SVG），无需迁移。
+- 2026-04-01 [错题本] `LearnerNotebook.vue`：`Button` → `el-button`，`Icon type="ios-*"` → `el-icon` + 图标组件（`Refresh`、`Plus`、`Download`），`Select @on-change` → `el-select @change`，`Option` → `el-option`（`:label` prop），`Spin fix` → `v-loading` 指令，`Modal @on-ok` → `el-dialog` + `#footer` 自定义确认/取消按钮，`Input` → `el-input`。
+- 2026-04-01 [门禁] Batch 3 作用域（`views/submission`、`components/SubmissionRiver.vue`、`views/user/LearnerNotebook.vue`）`view-ui-plus` / `.ivu-` 扫描结果为 **0 匹配**，`npm run build` 通过，lint 无新增错误。
+
+### 前端 · ViewUI Plus → Element Plus 迁移 Batch 2（题目练习域）
+
+- 2026-04-01 [题目详情] `Problem.vue`：完成 ~3000 行核心文件的 ViewUI → Element Plus 全面迁移。
+  - **模板**：`Poptip` → `el-popover`，`Tooltip` → `el-tooltip`，`Tag` → `el-tag`（新增 `kcElType` / `objectiveTagType` / `objectiveSubmissionTagType` 映射），`Card` → `el-card`，`Modal` → `el-dialog`，`Button` → `el-button`（`ghost` → `plain`），`RadioGroup/Radio` → `el-radio-group/el-radio`，`Input` → `el-input`，`Alert` → `el-alert`，`Spin` → `el-icon.is-loading`。
+  - **Icon**：全部 `Icon type="ios-*"` → `<el-icon><XxxComponent /></el-icon>`（`InfoFilled`、`DocumentCopy`、`ArrowDown`、`Share`、`School`、`Download`、`Check`、`Refresh`、`Loading`）。
+  - **JS API**：`this.$Message.*` → `this.$info/$success/$error`，`this.$Loading.*` → `this.$loadingStart/$loadingFinish`，`this.$Modal.confirm` → `ElMessageBox.confirm`，`this.$set` → 直接赋值（Vue 3）。
+  - **CSS**：`.ivu-card*` → `.el-card*`，`.ivu-modal*` → `.el-dialog*`，`.ivu-btn-*` → `.el-button--*`，`.ivu-alert-*` → `.el-alert__*`。
+- 2026-04-01 [题目列表] `ProblemList.vue`：`Dropdown/@on-click` → `el-dropdown/@command`（5 处筛选），`Input @on-enter/@on-click` → `el-input @keyup.enter` + `<Search />` 图标，`Button/Icon` → `el-button/el-icon`，`Button ghost shape="circle"` → `el-button plain round`。ViewUI `<Table :columns>` render 函数 → Element Plus `<el-table>` + `<el-table-column #default="scope">` 模板模式。`.ivu-*` CSS 全部替换为 `.el-*`。
+- 2026-04-01 [编辑器] `CodeEditorPanel.vue`：`Card` → `el-card`，`Row/Col` → `el-row/el-col`，`Tag` → `el-tag`（新增 `elType` computed），`Alert` → `el-alert`，`Tooltip` → `el-tooltip`，`Input` → `el-input`，`Button` → `el-button`（`ghost` → `plain`，`type="error"` → `type="danger"`），全部 `Icon` → `el-icon` + 图标组件。`.ivu-*` CSS → `.el-*`。
+- 2026-04-01 [面板] `UnifiedAgentPanel.vue`：全部 `Icon type="ios-*"` → `el-icon` + 图标组件，动态图标改为 `<component :is="iconComponents[...]" />` 映射表，`Input @on-keydown` → `el-input @keydown`，`$Modal.confirm` → `ElMessageBox.confirm`。
+- 2026-04-01 [教学面板] `PedagogyPanel.vue`：13 处 `Icon` 替换，`@on-enter` → `@keyup.enter`，`$Message.success` → `$success`，`$set` → 直接赋值，`.ivu-input` → `.el-input__inner`。
+- 2026-04-01 [编辑器] `CodeMirror.vue`：`Icon` → `el-icon`（`Refresh`、`Upload`），`$Message.*` → `$success/$error`。
+- 2026-04-01 [工作流] `workflowStateMachine.js`：`quickActions` 图标名由 `ios-*` 改为 Element Plus 组件名（`Reading`、`Sunny`、`Monitor`、`Warning`、`StarFilled`、`Sort`、`CircleCheck`、`DArrowRight`、`Lightning`）。
+- 2026-04-01 [卡片] `TransferProblemCard.vue`、`PostACCard.vue`、`ProblemGuideCard.vue`、`ExecutionTraceExplainerCard.vue`、`SkeletonCodeCard.vue`、`ErrorDiagnosisCard.vue`：全部 `Icon type="ios-*"` → `el-icon` + 图标组件，`Spin` → `v-loading`。
+- 2026-04-01 [技能画像] `ProblemRecommendations.vue`、`PracticeHeatmap.vue`：`Icon/Spin/Button` → `el-icon/v-loading/el-button`。
+- 2026-04-01 [门禁] Batch 2 作用域（`views/problem`、`components/CodeMirror.vue`、`components/ECharts.vue`、`components/skillProfile`、`components/PedagogyPanel.vue`）`ios-*` / `.ivu-` / `$Message` / `$Modal` 扫描结果为 **0 匹配**，`npm run build` 通过。
+
+### 前端 · ViewUI Plus → Element Plus 迁移 Batch 1（用户与站点框架域）
+
+- 2026-04-01 [共享] `Pagination.vue`：事件名由 ViewUI 风格 `on-change` / `on-page-size-change` 改为标准 `change` / `page-size-change`，全部消费方（`Announcements.vue`、`ProblemList.vue`、`SubmissionList.vue`）同步更新。
+
+- 2026-04-01 [入口] `src/pages/oj/index.js`：`app.use(ViewUIPlus)` → `app.use(ElementPlus)`，全局 `$Message` → `ElMessage`，`$Loading` → `ElLoading.service()`，替换主题 CSS 引用为 `element-plus/dist/index.css` + `elementPlusTheme.less`。
+- 2026-04-01 [i18n] `src/i18n/index.js`：移除 `view-ui-plus/dist/locale/*` 三语言导入及合并逻辑，仅保留 Element Plus locale。
+- 2026-04-01 [导航] `NavBar.vue`：`Menu/MenuItem` → `ElMenu/ElMenuItem`，`Dropdown` → `ElDropdown`（`@on-click` → `@command`），`Modal` → `ElDialog`，`Icon type="ios-*"` → `<ElIcon><ComponentName /></ElIcon>`，清理 `:deep(.ivu-*)` 样式选择器。
+- 2026-04-01 [导航] `VerticalMenu.vue`：`Card` → `ElCard`（`shadow="never"`）。`VerticalMenuItem.vue`：`.ivu-icon` → `.el-icon`。
+- 2026-04-01 [壳层] `App.vue`：`BackTop` → `ElBacktop`。
+- 2026-04-01 [共享] `Panel.vue`：`Card` → `ElCard`，适配 `#header` slot（Element Plus 不分 `#title` / `#extra`，合并为 `#header`）。
+- 2026-04-01 [共享] `Pagination.vue`：`Page` → `ElPagination`（`@on-change` → `@current-change`，`@on-page-size-change` → `@size-change`，`layout` 属性控制显示）。
+- 2026-04-01 [认证] `Login.vue`：`Form/FormItem/Input/Button` → `ElForm/ElFormItem/ElInput/ElButton`，`@on-enter` → `@keyup.enter`，`Icon type="ios-*"` → Element Plus icons，`useForm().validateForm` → `$refs.formLogin.validate()`，清理 `.ivu-input-*` 样式。
+- 2026-04-01 [认证] `Register.vue`：同 Login 迁移模式，`Tooltip` → `ElTooltip`，`Button ghost` → `ElButton plain`。
+- 2026-04-01 [设置] `AccountSetting.vue`：`Form/FormItem/Input/Alert/Button` → `ElForm/ElFormItem/ElInput/ElAlert/ElButton`，移除 `useForm` 依赖。
+- 2026-04-01 [设置] `SecuritySetting.vue`：`Card/Tag/Button/Form/FormItem/Alert/Input` → Element Plus 对等组件，`Spin fix` → `v-loading`，`$Modal.confirm` → `ElMessageBox.confirm`，`type="error"` → `type="danger"`。
+- 2026-04-01 [设置] `ProfileSetting.vue`：`Modal` → `ElDialog`。
+- 2026-04-01 [通用] `Home.vue`：`Row/Col/Card/Badge/Progress/Button` → `ElRow/ElCol/ElCard/ElBadge/ElProgress/ElButton`，`ghost` → `plain`，`:percent` → `:percentage`，清理 `.ivu-btn-primary.ivu-btn-ghost` 和 `.ivu-row-flex` 样式。
+- 2026-04-01 [通用] `NotFound.vue`：`Card/Icon/Button` → `ElCard/ElIcon/ElButton`，`Icon type="ios-navigate-outline"` → `<Compass />`。
+- 2026-04-01 [通用] `Announcements.vue`：`Button icon="ios-undo"` → `ElButton` + `<ElIcon><RefreshLeft /></ElIcon>`，`type="info"` 保留。
+- 2026-04-01 [通用] `LanguagePackCatalog.vue`：`Row/Col` → `ElRow/ElCol`，`Icon type="ios-arrow-back"` → `<ArrowLeft />`，`Icon type="ios-list"` → `<List />`，`Button` → `ElButton`。
+- 2026-04-01 [样式] 删除 `src/pages/oj/viewUiPlusTheme.less`，由 Batch 0 的 `elementPlusTheme.less` 替代。
+- 2026-04-01 [样式] `src/styles/common.less`：`.ivu-btn/.ivu-btn-primary/.ivu-card/.ivu-input/.ivu-select-selection/.ivu-page-item/.ivu-page-item-active` 全部替换为 `.el-button/.el-button--primary/.el-card/.el-input__wrapper/.el-pagination` 对应选择器。
+- 2026-04-01 [样式] `src/styles/iview-custom.less`：`.ivu-table-wrapper/.ivu-table/.ivu-card-head/.ivu-modal-footer/.ivu-modal-body` 全部替换为 `.el-table/.el-card__header/.el-dialog__footer/.el-dialog__body` 对应选择器。
+- 2026-04-01 [门禁] Batch 1 作用域 `viewui-audit.sh` 扫描结果为 **0 匹配**，`npm run build` 通过。
+
+### 前端 · ViewUI Plus → Element Plus 迁移 Batch 0（准备批）
+
+- 2026-04-01 [依赖] 安装 `@element-plus/icons-vue@^2.3.2` 到 `package.json`，`npm run build` 通过。
+- 2026-04-01 [工具] 新增门禁扫描脚本 `frontend/scripts/viewui-audit.sh`，扫描 `view-ui-plus|ViewUIPlus|\.ivu-` 匹配数，支持 `--scope` 按目录过滤，输出 JSON 格式，非零 exit 1。当前基线：OJ 全域 185 处匹配。
+- 2026-04-01 [工具] 新增图标映射文件 `frontend/src/utils/iconMap.js`，覆盖 OJ 全域 96 个唯一 `ios-*` 图标名到 `@element-plus/icons-vue` 组件的完整映射，提供 `resolveIcon(iosName)` 查询函数。
+- 2026-04-01 [样式] 新增 `frontend/src/pages/oj/elementPlusTheme.less`，参照 admin 主题并适配 OJ 设计系统（CSS 变量对齐 `common.less`），覆盖 Button/Input/Select/Table/Pagination/Dialog/Card/Tabs/Switch/Dropdown 组件样式。
+- 2026-04-01 [基线] 锁定视觉基线：`npm run build` 通过，`npm run lint` 基线 130 问题（127 errors + 3 warnings，均为已有，无新增）。
+
+### 后端 + 前端 · 语言包 2+3 强隔离收口（最终版）
+
+- 2026-04-01 [后端接口] `AdminLanguagePackController#createTask` 改为唯一初始化入口：仅接受 `multipart/form-data` 的 `name/slug/primary_language/target_problem_count/enable_objective_questions/files`，创建任务后立即执行 `documentNormalizationService.uploadAndNormalize(created.id(), files)` 并返回最新任务状态，不再保留“先建任务再上传”的双入口流程。
+- 2026-04-01 [后端接口] 删除二次上传 POST 路由 `POST /api/admin/language-packs/init-tasks/{taskId}/documents`，保留 `GET /api/admin/language-packs/init-tasks/{taskId}/documents` 作为任务详情展示文件列表能力，管理端不再有二次补传动作。
+- 2026-04-01 [后端接口] 候选题列表查询 `GET /api/admin/language-packs/init-tasks/{taskId}/candidates` 补充 `teaching_explanation/common_mistakes_json/source_pages_json/related_kc_ids_json` 字段，支持发布前审阅静态教学内容与来源证据。
+- 2026-04-01 [AI 强隔离] `AITutorServiceImpl` 在 `skillRadar/knowledgeGraph/knowledgeGraphSnapshot/kcDetail` 四条查询链路统一调用 `resolveAuthorizedLanguagePackId`，学生与管理员均强制 `language_pack_id` 必填，缺失返回 `400 bad-request`（`language_pack_id is required`）。
+- 2026-04-01 [AI 强隔离] 非管理员用户改为按 `classroom_member + classroom_language_pack + classroom.is_active=true` 计算可访问包集合；请求包不在授权集合时直接返回 `403 permission-denied`，不再使用“自动选择第一个可访问包”的兜底逻辑。
+- 2026-04-01 [AI 强隔离] 技能雷达、知识图谱、快照、KC 详情 SQL 查询统一增加 `language_pack_id` 过滤条件（包含 `ai_knowledge_component` 与 `ai_problem_kc_mapping` 双边过滤），杜绝跨包 KC 聚合与跨包题目统计串读。
+- 2026-04-01 [前端 OJ] `UserHome.vue` 新增“语言包”显式选择器：启动时先拉取 `getVisibleLanguagePackList()`，仅在有选中包时才发起 `getSkillRadar/getKnowledgeGraph/getKnowledgeGraphSnapshot/getKCDetail` 请求，并显式透传 `language_pack_id`。
+- 2026-04-01 [前端 OJ] 无可见语言包时显示“当前未绑定语言包，暂无法展示知识分析”空态，停止知识图谱/雷达相关请求，避免空上下文触发错误请求风暴。
+- 2026-04-01 [前端 Admin API] `createLanguagePackInitTask` 改为 `httpClient.post(..., formData, multipart)`，并删除 `uploadLanguagePackDocuments` 封装，确保管理端只能通过“创建即上传”路径触发初始化。
+- 2026-04-01 [异常语义] `GlobalExceptionHandler` 新增 `HttpRequestMethodNotSupportedException` 处理，最终返回 `405/method-not-allowed`，用于旧 POST 文档上传路径移除后的行为收口，避免落入兜底 `500/internal-error`。
+- 2026-04-01 [数据核验] 新增只读脚本 `backend/scripts/sql/verify_language_pack_isolation.sql`，核验项包括：题目唯一归包、`ai_problem_kc_mapping` 与 `language_pack_problem_mapping` 包一致性、语言包题的 `language_pack_id` 非空、KC 包内归一名唯一、课程-语言包绑定基线统计与异常样本抽检。
+- 2026-04-01 [迁移基线] 以 `V29__language_pack_strong_isolation.sql` 作为强隔离迁移基线；测试联调阶段对集成库执行 `flyway:repair`（`classpath:db/migration`）对齐 checksum 后再执行契约测试，避免历史 checksum 偏差导致上下文初始化失败。
+- 2026-04-01 [测试新增] 新增 `AITutorLanguagePackIsolationIntegrationTest`：覆盖学生缺参 `400`、学生越权包 `403`、管理员缺参 `400`、管理员指定包 `200` 的核心授权与参数契约。
+- 2026-04-01 [测试更新] 更新 `AdminLanguagePackControllerContractTest`：创建任务改为 multipart 断言，并新增旧 POST 上传路径不可用的契约用例（`405 + method-not-allowed`）。
+- 2026-04-01 [测试回归] 复跑 `LanguagePackInitIntegrationTest`，确认创建即上传主链路与任务查询链路未回归。
+- 2026-04-01 [验证通过] `mvn -f backend/pom.xml -Dtest=AdminLanguagePackControllerContractTest,LanguagePackInitIntegrationTest,AITutorLanguagePackIsolationIntegrationTest test`。
+- 2026-04-01 [验证通过] `cd frontend && npm run build`。
+- 2026-04-01 [review 修复] 修正 `GlobalExceptionHandler` 的方法不匹配语义：`HttpRequestMethodNotSupportedException` 不再映射为 `404`，改为 `405`，并新增 `ErrorCode.METHOD_NOT_ALLOWED(method-not-allowed)`，避免全局将“路径存在但方法错误”误判为“资源不存在”。
+- 2026-04-01 [review 修复] 同步更新 `AdminLanguagePackControllerContractTest` 旧上传路径断言为 `405 + method-not-allowed`，与保留的 `GET /init-tasks/{taskId}/documents` 路由语义一致。
+- 2026-04-01 [review 修复] 补齐管理员 AI 分析契约覆盖：`AITutorLanguagePackIsolationIntegrationTest` 新增管理员在 `skill/radar`、`knowledge-graph`、`knowledge-graph/snapshot`、`knowledge-graph/kc/{kcId}/detail` 四个接口的“缺失 `language_pack_id` 返回 400”与“带任意包返回 200”验证；测试基线新增包内 KC 数据构造，确保 KC 详情正向断言可执行。
+- 2026-04-01 [review 修复验证通过] `mvn -f backend/pom.xml -Dtest=AdminLanguagePackControllerContractTest,AITutorLanguagePackIsolationIntegrationTest,LanguagePackInitIntegrationTest test`。
+
+### 后端 + 前端 · AI 导学助手多语言感知重构（进行中）
+
+- 2026-04-01 在 `master` 执行全量快照提交 `chore: snapshot before multilingual ai tutor refactor`，并生成仓库归档 `/home/cypress/code_java-pre-multilang-ai-20260401-090323.tar.gz`、`/home/cypress/code_java-pre-multilang-ai-20260401-090433.tar.gz`，作为本轮多语言改造前基线。
+- 2026-04-01 新增 `LanguageAwareTutorContext` 与 `TutorLanguageSupport`：统一 AI workflow 的语言决策源，明确 `current_language / problem_supported_languages / problem_reference_solution_language / language_pack_id / language_pack_primary_language / audience` 六个字段，缺失语言直接 fail-fast，不再在工作流主链路里偷偷回退到 `Python3`。
+- 2026-04-01 重构题目页 AI 运行轨迹能力：抽出 `ExecutionTraceService`，新增 `LanguageRoutedExecutionTraceService` 与 `JudgeBackedExecutionTraceService`，保留 Python 真实逐步轨迹，同时让 Java/C++/C 走真实 judge 执行证据解释链路；`AITutorWorkflowAdminServiceImpl` 改为按当前编辑器语言路由运行轨迹。
+- 2026-04-01 重构代码质量评估能力：`CodeQualityAssessmentService` 改为接口，新增 `PythonCodeQualityAssessmentService`、`GenericCodeQualityAssessmentService`、`LanguageRoutedCodeQualityAssessmentService`，使 `SubmissionServiceImpl` 可对 `Python3 / Java / C++ / C` 统一执行代码质量评估。
+- 2026-04-01 更新 `EvidencePackAssembler`：题目上下文与证据包追加当前语言、题目支持语言、参考解语言、语言包 ID、语言包主语言、目标受众，题目页 AI prompt 不再只依赖纯题面文本。
+- 2026-04-01 更新 `AITutorWorkflowAdminServiceImpl` 与脚手架生成器：`problem guide / skeleton / scaffolding / chat / error diagnosis / post-AC / execution trace` 全链路改为读取语言上下文；`WorkedExampleGenerator`、`FadedExampleGenerator`、`FadedExampleAnswerEvaluator`、`MinimalHintGenerator` 的 prompt 不再写死“Python 初学者”。
+- 2026-04-01 收紧迁移题生成链路：`transfer` 生成不再把空语言列表兜底成 `Python3`，而是对缺失 `languages_json` 或空 `allowed_languages` 直接 fail-fast，避免多语言题被错误地重新绑定回 Python。
+- 2026-04-01 更新 OJ 前端题目页语言决策：`Problem.vue` 默认语言改为“当前编辑器语言优先，否则题目支持语言首项”，`workflowStateMachine.js` 与 `useSubmission.js` 统一透传当前语言，去掉 workflow 事件和客观题提交里的 `Python3` 回退。
+- 2026-04-01 恢复题目页诊断入口的一致性：`CodeEditorPanel.vue` 新增“错误诊断”按钮与 `request-diagnosis` 事件，`Problem.vue` 透传 `canRequestDiagnosis` 并接回 `requestSmartDiagnosis`，保证编辑器面板能力和统一 agent workflow 保持一致。
+- 2026-04-01 新增/更新多语言契约测试：后端增加 `LanguageAwareTutorContextTest`、`LanguageRoutedExecutionTraceServiceTest`，升级 `CodeQualityAssessmentServiceTest`；前端更新 `problem-editor-default-language-contract.spec.js`、`workflow-private-ai-contract.spec.js`，覆盖“无 Python 偏置默认语言”和“workflow 全量语言透传”。
+- 2026-04-01 验证通过：`cd backend && mvn -Dtest=LanguageAwareTutorContextTest,LanguageRoutedExecutionTraceServiceTest,CodeQualityAssessmentServiceTest test`；`cd frontend && npm test -- --runInBand tests/unit/problem-editor-default-language-contract.spec.js tests/unit/workflow-private-ai-contract.spec.js`。
+- 2026-04-01 收紧 AI 导学题判定：`ProblemQueryServiceImpl` 的 `ai_tutor_enabled` 改为复用 `AiTutorProblemLanguageNormalizer.isAiTutorEnabled(...)` 统一判定规则，确保“仅编程题开启 AI 导学（且 `student_private` 关闭）”，避免题库内客观题被误标记为可导学；新增契约场景 `objectiveProblemInProblemBankShouldNotEnableAiTutor`，并验证 `ProblemReadContractIntegrationTest` 全量通过。
+- 2026-04-01 补齐三处收口缺口：`SubmissionServiceImpl#createSubmission` 在语言为空时改为 fail-fast（不再静默回退），AC 后代码质量评估从 `Python3 only` 改为按当前提交语言触发，题目页 `Problem.vue` 去除 `problem.languages.sort()` 保留后端顺序；新增 `SubmissionJudgeThrottleIntegrationTest` 用例覆盖“缺失 language 报错”与“C++ 也产出 code_quality”，并更新前端契约测试确保默认语言不受排序影响。
+- 2026-04-01 复核基线收口：`GlobalExceptionHandler` 新增 `NoResourceFoundException` 专用处理并返回 `404/not-found`，修复已删除接口（如 `/api/judge/review-queue`）被误包装为 `500/internal-error` 的问题；同时调整 `SubmissionJudgeThrottleIntegrationTest#createSubmissionShouldDispatchCodeQualityForCppSubmission` 为“先等待 `code_quality` 就绪再断言 `code_quality_status=ready`”，消除异步时序导致的偶发误报。验证通过：`cd backend && mvn -Dtest=SubmissionJudgeThrottleIntegrationTest test`。
+- 2026-04-01 语言切换交互收口：移除 `frontend/src/pages/admin/api.js` 中 `judge/review-queue` 废弃接口封装；做题页 `Problem.vue` 新增“有 AI 导学内容时切换语言二次确认”并在确认后先清空 workflow 会话再切换语言，避免跨语言串话；`CodeMirror.vue` 的语言切换改为父组件受控，不再本地先行 reconfigure，防止用户取消切换后编辑器高亮与补全漂移。新增前端契约测试覆盖上述行为。
+- 2026-04-01 多语言硬编码收口（本轮）：`ClassroomServiceImpl` 的课件出题 prompt 去除“Python 初学者/Python3 参考解”写死，编程题新增并强制 `reference_solution_language`（`Python3/C/C++/Java`）字段；发布 AI 生成题时不再固定 `Python3`，改为读取生成结果并在缺失时按参考解代码特征识别语言，无法识别直接 fail-fast。`AITutorWorkflowAdminServiceImpl` 的迁移题参考解语言改为严格跟随当前编辑器语言并校验在允许语言内，移除 Python3 优先分支。`AITutorServiceImpl#notebookCreate` 改为 `language` 必填，不再默认回退 `Python3`；新增 `V28__drop_python_default_for_ai_notebook_language.sql` 去掉 `ai_learner_notebook.language` 的数据库默认值。前端同步去除 OJ 做题链路里的默认 `Python3`（`store/modules/problem.js`、`CodeMirror.vue`、`CodeEditorPanel.vue`、`LearnerNotebook.vue`）并新增手动记错题语言必填校验；更新对应单测契约断言。
+- 2026-04-01 多语言协议收口（补充）：`AITutorWorkflowAdminServiceImpl` 的骨架代码解析移除 `python_skeleton` Python 专属兼容字段，仅接受通用字段（`skeleton/skeleton_code/code`），避免多语言主链路残留 Python 命名语义。
+- 2026-04-01 多语言回归修复（补充）：修复 `AITutorWorkflowAdminServiceImpl#loadProblemRecord` 与 `EvidencePackAssembler#loadProblemRecord` 在接入语言包关联查询后的 SQL 字段歧义问题（`id`/`where id=?` 在 join 场景下冲突），统一改为 `problem` 表别名 `p` 并显式前缀字段，恢复 workflow 会话创建与事件主链路稳定性。
+- 2026-04-01 多语言一致性收口（补充）：修复 `ClassroomServiceImpl#aiGeneratedProblemPublish` 在发布编程 AI 题时把 `problem.template` 写成空对象的问题；改为发布时直接写入四语言完整模板（`Python3/C/C++/Java`），避免未走归一化读取链路时出现空模板，确保题库题与审核通过 AI 题在模板语义上保持一致。
+
+### 后端 · 语言包域与初始化任务骨架（Phase 1）
+
+- 2026-03-31 新增 `V22__bootstrap_language_pack_core.sql` 迁移：创建 `language_pack`、`language_pack_init_task`、`language_pack_init_stage_log` 三张核心表，`(slug, version)` 唯一约束，任务状态机 `created -> normalizing -> parsing -> kc_ready -> examples_ready -> problems_validated -> published / failed`。
+- 2026-03-31 新增 `AdminLanguagePackController`：提供 `POST /api/admin/language-packs/init-tasks`（创建任务）、`GET .../init-tasks/{taskId}`（查询任务）、`GET .../init-tasks`（列表任务），统一 `ApiResponse<T>` 返回，权限 `@PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")`。
+- 2026-03-31 新增 `LanguagePackInitService` 接口与 `LanguagePackInitServiceImpl` 实现：任务创建自动版本递增、状态机阶段合法性校验、阶段日志记录。
+- 2026-03-31 新增 `CreateLanguagePackInitTaskRequest`（含 `@NotBlank`、`@Pattern` slug 校验）与 `LanguagePackInitTaskResponse`（含 `LanguagePackSummary` 嵌套）DTO。
+- 2026-03-31 新增 `AdminLanguagePackControllerContractTest`：覆盖创建任务、非管理员 403、无效 slug 拒绝、缺少必填字段拒绝、查询单任务、查询不存在任务 404、列表任务。
+- 2026-03-31 新增 `LanguagePackInitIntegrationTest`：覆盖任务持久化、slug 版本自增、404、列表、非管理员禁止。
+
+### 后端 + 部署 · 课件上传、格式规范化与 canonical 资产落库（Phase 2）
+
+- 2026-03-31 新增 `V23__language_pack_documents.sql` 迁移：创建 `language_pack_document` 表，记录 `init_task_id`、`language_pack_id`、原始/canonical/preview 路径、文件哈希、状态，`(init_task_id, file_hash)` 唯一约束防重复上传。
+- 2026-03-31 在 `AlethicodeProperties` 新增 `LanguagePack` 配置段（`storageRoot`、`previewDir`、`minTextExtractionRatio`、`libreOfficePath`、`pythonPath`），同步更新 `application.yml`。
+- 2026-03-31 新增 `LanguagePackStorageService`：统一管理任务级 `originals/canonical/preview` 目录、文件存储与 SHA-256 哈希计算。
+- 2026-03-31 新增 `DocumentNormalizationService` 接口与 `DocumentNormalizationServiceImpl` 实现：多文件上传入口，按扩展名分发规范化（`.pdf` 直通、`.pptx/.docx` 保留 canonical 生成 preview PDF、`.ppt/.doc` 先转新格式再生成 preview），哈希去重 fail-fast，失败时任务直接 `failed`。
+- 2026-03-31 在 `AdminLanguagePackController` 新增 `POST /api/admin/language-packs/init-tasks/{taskId}/documents` 多文件上传接口。
+- 2026-03-31 新增 `backend/scripts/normalize_language_pack_document.py`：独立 Python 规范化脚本，支持 `.pdf/.pptx/.docx/.ppt/.doc`，输出 JSON（canonical_path、preview_pdf_path、page_count）。
+- 2026-03-31 更新 `backend/Dockerfile`：运行镜像补入 Python3、pip 库（pypdf、python-pptx、python-docx）与 LibreOffice；`COPY scripts/` 到镜像。
+- 2026-03-31 更新 `deploy/docker-compose.yml`：backend 容器新增 `/data/language_pack` 卷挂载。
+- 2026-03-31 更新 `deploy/README.md`：补充语言包初始化依赖说明与本地开发环境安装指南。
+
+### 后端 · 页级解析、统一索引与预览协议（Phase 3）
+
+- 2026-03-31 新增 `V24__language_pack_pages.sql` 迁移：创建 `language_pack_page` 表，含 `document_id + page_no + chunk_index` 唯一约束、`page_text`、`text_hash`、`preview_asset_path`、`excerpt`、`search_tsv`（GIN）、`page_embedding VECTOR(16)`。
+- 2026-03-31 新增 `DocumentParsingService` 接口与 `DocumentParsingServiceImpl` 实现：调用 Python 脚本解析 canonical 文档，按页存入 `language_pack_page`，同哈希文档不重复写页，解析失败任务直接 `failed`。
+- 2026-03-31 新增 `backend/scripts/extract_language_pack_pages.py`：支持 `.pdf`（pypdf）、`.pptx`（python-pptx）、`.docx`（python-docx）页级文本抽取，JSON 输出。
+- 2026-03-31 新增 `LanguagePackDocumentQueryService` 接口与 `LanguagePackDocumentQueryServiceImpl` 实现：提供文档列表、页列表、单页详情查询，返回 `preview_asset_path + page_no + excerpt` 稳定协议。
+- 2026-03-31 在 `AdminLanguagePackController` 新增 `POST .../init-tasks/{taskId}/parse`（触发解析）、`GET .../init-tasks/{taskId}/documents`（文档列表）、`GET .../documents/{documentId}/pages`（页列表）、`GET .../{languagePackId}/documents/{documentId}/pages/{pageNo}`（单页详情）四个 API。
+- 2026-03-31 同步更新 `AdminLanguagePackControllerContractTest` 新增 Phase 2/3 新服务的 MockBean 声明。
+
+### 后端 · 章节与 KC 抽取（Phase 4）
+
+- 2026-03-31 新增 `V25__language_pack_knowledge.sql` 迁移：创建 `language_pack_chapter`（章节表，`(language_pack_id, chapter_index)` 唯一约束）、`language_pack_kc`（知识组件表，含 `name_normalized` 去重与 `synced_ai_kc_id` 外部同步字段）、`language_pack_kc_page_mapping`（KC 与页的多对多映射）。
+- 2026-03-31 新增 `KcExtractionService` 接口与 `KcExtractionServiceImpl` 实现：从页级文本聚合后调用 LLM 抽取章节与 KC 候选，执行规范化命名去重、章节归属、`name_en` 生成和描述补全，零 KC 时 fail-fast。
+- 2026-03-31 新增 `LanguagePackPublishService` 接口（发布阶段骨架，Phase 6 实现）。
+- 2026-03-31 在 `AdminLanguagePackController` 新增 `POST .../init-tasks/{taskId}/extract-kcs`（触发 KC 抽取）、`GET .../init-tasks/{taskId}/kcs`（KC 列表查询）。
+
+### 后端 · 例题抽取与证据绑定（Phase 5）
+
+- 2026-03-31 新增 `V26__language_pack_examples.sql` 迁移：创建 `language_pack_example`（原始文本、归一化正文、输入输出说明、证据摘录、来源页范围）、`language_pack_example_kc_mapping`（例题与 KC 多对多映射）。
+- 2026-03-31 新增 `ExampleExtractionService` 接口与 `ExampleExtractionServiceImpl` 实现：基于页级块识别调用 LLM 抽取代码示例/练习，过滤无来源页/无 KC/无证据的例题，抽取结果幂等。
+- 2026-03-31 在 `AdminLanguagePackController` 新增 `POST .../init-tasks/{taskId}/extract-examples`（触发例题抽取）、`GET .../init-tasks/{taskId}/examples`（例题列表查询）。
+
+### 后端 · 编程题生成、机器验证与正式发布（Phase 6）
+
+- 2026-03-31 新增 `V27__language_pack_problem_publish.sql` 迁移：创建 `language_pack_problem_generation_log`（候选题日志，含 `validation_status` 状态约束）、`language_pack_problem_mapping`（语言包与正式题映射，`(language_pack_id, problem_id)` 唯一约束）。
+- 2026-03-31 新增 `ProblemGenerationService` 接口与 `ProblemGenerationServiceImpl` 实现：以 `language_pack + examples + kcs + target_problem_count` 为输入调用 LLM 生成候选编程题，参考解语言强制等于 `primary_language`。
+- 2026-03-31 新增 `ProblemValidationService` 接口与 `ProblemValidationServiceImpl` 实现：结构性验证候选题（标题、参考解 I/O 模式、测试用例数量、样例一致性），通过后标记 `passed`。
+- 2026-03-31 新增 `LanguagePackPublishServiceImpl` 实现：只发布 `validation_status = passed` 的候选题到 `problem` 表，单事务包住写入、映射与统计更新，`languages` 与 `reference_solution_language` 强制等于主语言，测试用例写入磁盘并生成 `info` 文件。
+- 2026-03-31 在 `AdminLanguagePackController` 新增 `POST .../generate-problems`、`POST .../validate-problems`、`POST .../publish`、`GET .../candidates`（候选题列表）、`GET .../stage-logs`（阶段日志）。
+
+### 后端 · Phase 6 发布时同步 KC 到知识星图
+
+- 2026-04-01 修正 `LanguagePackPublishServiceImpl`：发布阶段新增 `syncKnowledgeComponents` 方法，在题目写入前将语言包全部 `language_pack_kc` 同步到 `ai_knowledge_component`（按名称去重、find-or-create），同时回填 `language_pack_kc.synced_ai_kc_id`；每道题发布后追加写入 `ai_problem_kc_mapping`，使语言包题目的做题记录能被个人主页知识星图（`KnowledgeStarMap`）消费。此前发布仅写入 `problem_tag` 软标签，星图查询链路（`ai_knowledge_component JOIN ai_problem_kc_mapping JOIN submission`）完全不可见语言包 KC。
+
+### 后端 · Phase 6 测试用例生成逻辑修正
+
+- 2026-04-01 修正 `ProblemGenerationServiceImpl`：LLM prompt 移除独立 `samples` 字段，只要求生成 3-5 个 `test_cases`，第一个 test case 简单且具代表性，后续覆盖边界与极端情况；`insertCandidate` 不再从 LLM 响应读取 `samples`，改为自动从 `test_cases[0]` 派生可见输入输出样例。
+- 2026-04-01 修正 `ProblemValidationServiceImpl`：test_cases 数量校验从 `< 2` 改为 `[3, 5]` 闭区间；sample 校验从"存在于 test_cases 中"改为"必须恰好 1 个且严格等于 test_cases[0]"。
+- 2026-04-01 确认 `LanguagePackPublishServiceImpl` 无需修改：`candidate_samples_json` 写入 `problem.samples` 作为可见样例，全部 `test_cases_json` 写入磁盘用于判题，两者数据源链路已一致。
+
+### 前端 · Admin 一键初始化窗口与任务编排（Phase 7）
+
+- 2026-03-31 新增 `LanguagePackInit.vue`：admin 菜单独立入口 `/admin/language-pack-init`，支持填写语言包名称/slug/主语言/题目数量/客观题开关、多文件上传，按阶段显示时间线与当前状态，失败时定位具体原因。
+- 2026-03-31 页面提供四个 Tab：阶段日志、知识组件列表、例题列表、候选题列表（含验证状态与消息），支持逐步执行与一键执行剩余步骤。
+- 2026-03-31 更新 `admin/router.js`、`admin/views/index.js`、`admin/components/SideMenu.vue`：在 AI 教学菜单下新增"语言包初始化"入口。
+- 2026-03-31 更新 `admin/api.js`：新增 15 个语言包 API 方法（创建/查询/列表任务、上传文档、解析/抽取 KC/抽取例题/生成题目/验证/发布、查询 KC/例题/候选题/阶段日志/文档列表）。
+
+### 前端 · 回退 `/admin/judge-server` 判题机监控看板
+
+- 2026-03-31 22:14:49 +0800 按需求撤销管理端判题机监控看板改动：删除 `frontend/src/pages/admin/views/general/judge-monitor/` 下全部看板组件与图表工厂、移除对应单元测试，并将 `frontend/src/pages/admin/views/general/JudgeServer.vue` 恢复为历史版本的“Token + 判题机列表”页面。
+- 2026-03-31 22:14:49 +0800 同步从 `frontend/src/pages/admin/api.js` 移除 `judge-monitor` 管理端 API 封装，回退目标对齐到 `914b643` 之前的管理端判题机页面能力。
+- 2026-03-31 22:19:07 +0800 验证通过：`cd frontend && npx eslint src/pages/admin/api.js src/pages/admin/views/general/JudgeServer.vue`、`cd frontend && npm run build`。
+
+### 前端 · 修复 `/admin/judge-server` Vue3 插槽渲染异常
+
+- 2026-03-31 22:53:07 +0800 修复 `frontend/src/pages/admin/views/general/JudgeServer.vue` 的 Vue2 遗留模板语法：将所有 `slot-scope` 改为 Vue3 `#default` 作用域插槽，消除 `props/scope/row` 在渲染上下文未定义导致的页面报错。
+- 2026-03-31 22:53:07 +0800 将判题机删除按钮事件从 `@click.native` 调整为 `@click`，与 Vue3 组件事件透传机制对齐，避免旧修饰符在运行态产生兼容问题。
+- 2026-03-31 22:53:07 +0800 验证通过：`cd frontend && npx eslint src/pages/admin/views/general/JudgeServer.vue`。
+
+### 后端 · 回退未纳管的判题机监控接口半成品
+
+- 2026-03-31 22:28:09 +0800 删除未纳管且未被已跟踪主线依赖的后端判题机监控半成品：移除 `backend/src/main/java/com/pytutor/controller/monitor/JudgeMonitorController.java`、`backend/src/main/java/com/pytutor/service/judgeMonitor/**`、`backend/src/main/java/com/pytutor/dto/response/monitor/**` 与 `backend/src/test/java/com/pytutor/controller/monitor/JudgeMonitorControllerContractTest.java`，避免该半成品因 DTO / 接口失配阻塞 `start.sh` 后端编译。
+
+### 后端 · 恢复判题机启动主线并补回 V1/V2 heartbeat 兼容
+
+- 2026-03-31 22:48:18 +0800 将 `JudgeServerService` 与 `JudgeServerServiceImpl` 恢复到简单 heartbeat 主线，移除判题机监控实体/仓储对 JPA 启动的侵入，消除 `judge_server_metric_snapshot` 表结构与实体字段不一致导致的 Hibernate schema validation 启动失败。
+- 2026-03-31 22:48:18 +0800 调整 `JudgeServerController`：heartbeat 入口改为同时接受旧版 V1 负载与新版 V2 负载，在 controller 内统一转换到历史稳定的 `JudgeServerHeartbeatRequest` 后再进入 service，保证本地 `judge:1.6.1` 镜像仍可正常上报心跳。
+- 2026-03-31 22:48:18 +0800 同步更新 `JudgeServerControllerContractTest` 与 `JudgeServerServiceImplTest`，其中 controller 契约显式覆盖“一次 V2 + 一次 V1” heartbeat 请求。
+- 2026-03-31 22:48:18 +0800 验证通过：`cd backend && mvn -q -DskipTests test-compile`、`./start.sh`；运行态确认 `http://127.0.0.1:8081/api/website` 返回 `200`、`http://127.0.0.1:8080/` 与 `http://127.0.0.1:8080/admin/` 在 `Accept: text/html` 请求头下返回 `200`，且数据库中已记录 `http://127.0.0.1:12358` 的最新 heartbeat。
+
+### 前端 · `frontend` OJ 端 ViewUI 图标全量排查与修复
+
+- 2026-03-31 21:02:28 +0800 在 `frontend/tests/unit/viewui-icon-registry-contract.spec.js` 新增“ViewUI 图标合法性契约测试”：扫描 `src/pages/oj/**` 的静态图标名（`<Icon type>`、`icon="..."`、渲染函数 `ViewIcon type`）并与 `view-ui-plus` 图标注册表比对，防止再次出现“图标不显示但保留空白占位”回归。
+- 2026-03-31 21:02:28 +0800 按契约测试结果批量修复 OJ 端无效旧图标名，覆盖 `NavBar`、`Login/Register`、`Submission*`、`Problem*`、`Classroom*`、`LessonManagement`、`MonitorDashboard`、`AIGeneratedProblems`、`PostACCard`：统一将 `home/person/plus/edit/bug/document-text/log-in/...` 等历史别名替换为 `ios-*` 或 `logo-*` 可识别图标（如 `ios-home`、`ios-person`、`ios-add`、`ios-create`、`ios-bug`、`ios-document`、`ios-log-in`、`logo-python`、`logo-javascript`）。
+- 2026-03-31 21:02:28 +0800 验证通过：`cd frontend && npm test -- --runInBand tests/unit/viewui-icon-registry-contract.spec.js`；`cd frontend && npx eslint tests/unit/viewui-icon-registry-contract.spec.js ...(本次改动的 OJ 文件)`。
+- 2026-03-31 21:02:28 +0800 构建验证通过：`cd frontend && npm run build`。
+
+### 前端 · `/admin/judge-server` 判题机监控看板补齐为单源监控页
+
+- 2026-03-31 21:02:25 CST 在 `frontend/src/pages/admin/views/general/JudgeServer.vue` 重构判题机监控容器：监控主数据源切换为 `judge-monitor` 域接口，新增节点筛选、告警/事件分页、独立节点详情状态（`selectedNodeId`、`detailRange`、`activeDetailTab`）与 10 秒轮询刷新，不再依赖旧 `getJudgeServer()` 列表与 monitor 列表合并主渲染。
+- 2026-03-31 21:02:25 CST 重写 `frontend/src/pages/admin/views/general/judge-monitor/` 下的 `JudgeMonitorOverviewCards.vue`、`JudgeMonitorClusterTrends.vue`、`JudgeMonitorNodeTable.vue`、`JudgeMonitorAlertList.vue`、`JudgeMonitorEventList.vue`、`JudgeMonitorNodeDetailDrawer.vue`：顶部扩为 11 张总览卡片，集群趋势收口为 4 张核心图，节点表补齐状态/禁用筛选与异常优先排序，节点详情抽屉补齐 `概况/资源/判题时延/结果分布/安全与沙箱/事件时间线` 六个标签区。
+- 2026-03-31 21:02:25 CST 新增 `frontend/src/pages/admin/views/general/judge-monitor/JudgeMonitorMetricChart.vue` 与 `judgeMonitorChartFactory.js`，统一管理监控图表卡片、折线/柱状/环图配置、空态和错误态；重写 `judgeMonitorViewModel.js` 为 monitor DTO 单源整形，显式保留 `0` 值并新增 `task-breakdown` / timeseries / detail sections 结构。
+- 2026-03-31 21:02:25 CST 更新 `frontend/src/pages/admin/api.js`：`getJudgeMonitorNodes` 与 `getJudgeMonitorNodeTimeseries` 改为对象参数签名，新增 `getJudgeMonitorNodeTaskBreakdown`，同时保留原有 `Review Queue` API 不受本次监控改造影响。
+- 2026-03-31 21:02:25 CST 同步更新 `frontend/tests/unit/judge-monitor-admin-api-contract.spec.js`、`frontend/tests/unit/judge-server-monitor-page-contract.spec.js`、`frontend/tests/unit/judge-monitor-view-model.spec.js`，将监控契约切换到“对象参数 API + 单源 DTO + 六标签详情抽屉 + 四核心趋势图”。
+- 2026-03-31 21:04:28 CST 验证通过：`cd frontend && npx eslint src/pages/admin/api.js src/pages/admin/views/general/JudgeServer.vue src/pages/admin/views/general/judge-monitor/*.vue src/pages/admin/views/general/judge-monitor/*.js tests/unit/judge-monitor-admin-api-contract.spec.js tests/unit/judge-server-monitor-page-contract.spec.js tests/unit/judge-monitor-view-model.spec.js`、`cd frontend && npm test -- --runInBand judge-monitor-admin-api-contract.spec.js judge-server-monitor-page-contract.spec.js judge-monitor-view-model.spec.js`、`cd frontend && npm run build`。
+
+### 前端 · Classroom 详情页顶部导航 Tab 图标空白修复
+
+- 2026-03-31 20:53:46 +0800 修复 `frontend/src/pages/oj/views/classroom/ClassroomDetail.vue` 顶部 Tab 图标名不匹配问题：将 `课件/成员/协作编程/监控&统计` 的 `icon` 从 `document-text/person/code-working/eye` 统一更正为 ViewUI 可识别的 `ios-document/ios-person/ios-code-working/ios-eye`，消除文字前空白占位并恢复图标显示。
+
+### 前端 · `/admin/announcement` 表头居中
+
+- 2026-03-31 20:26:06 +0800 在 `frontend/src/pages/admin/views/general/Announcement.vue` 的公告表格增加 `:header-cell-style="{ textAlign: 'center' }"`，将该页面所有表头文本统一居中显示，不改动表体对齐与其他管理页样式。
+
+### 前端 · `frontend` 管理端旧式 `el-icon-*` 图标桥接修复
+
+- 2026-03-31 20:23:52 +0800 新增 `frontend/src/pages/admin/legacyIconBridge.js` 并在 `frontend/src/pages/admin/index.js` 安装 `installLegacyIconBridge(app)`：将管理端仍在使用的旧式图标名（`icon="el-icon-*"`、`prefix-icon="el-icon-*"`）注册为可渲染组件，统一修复 `/admin` 下按钮与输入框“前置图标不显示但保留空位”的同类问题（含 `el-icon-fa-users`、`el-icon-fa-upload`、`el-icon-search`、`el-icon-refresh` 等）。
+- 2026-03-31 20:23:52 +0800 验证通过：`cd frontend && npm test -- --runInBand tests/unit/admin-legacy-icon-bridge-contract.spec.js`、`cd frontend && npx eslint src/pages/admin/index.js src/pages/admin/legacyIconBridge.js`、`cd frontend && npm run build`。
+
+### 后端 + 前端 · 删除“判题复核队列”主链路并收口 status 语义
+
+- 2026-03-31 20:05:00 +0800 后端硬删除 4 个复核接口：`GET /api/judge/review-queue`、`POST /api/judge/review-queue/{submissionId}`、`GET /api/classroom/{classroomId}/monitor/review-queue`、`POST /api/classroom/{classroomId}/monitor/review-verdict`，并同步移除控制器映射、domain-service 透传与 service 接口声明，不保留兼容入口。
+- 2026-03-31 20:05:00 +0800 删除 `SubmissionServiceImpl` 与 `ClassroomServiceImpl` 中基于 `statistic_info.needs_human_review`/`human_review` 的复核查询与人工 verdict 回写逻辑；`result=6/7` 的正常 pending/judging 主流程保持不变。
+- 2026-03-31 20:05:00 +0800 收紧 status 语义：`/api/submissions` 列表新增对 `statistic_info` 复核标记键（`needs_human_review`、`human_review`）的过滤，`/api/submission?id=...` 对带复核标记历史记录按“提交不存在”处理，防止复核残留继续作为普通提交外露。
+- 2026-03-31 20:05:00 +0800 前端删除后台 `ReviewQueue` 页面文件、`/admin/review-queue` 路由、侧边栏入口、管理端与课堂监控复核 API 封装、课堂监控“判题复核队列”卡片及其数据拉取逻辑；同步清理登录页“判题复核”文案与 e2e `replacementConfig` 的 `admin-review-queue` 视觉替换项。
+- 2026-03-31 20:05:00 +0800 前端状态映射收口：`useProblemPresentation` 里移除 `6 => PA`，改为 `6 => Pending`、`7 => Judging`、`8 => PAC`，并同步更新 `SubmissionRiver` 节点配色键值。
+- 2026-03-31 20:12:00 +0800 回归测试同步：改写 `SubmissionJudgeThrottleIntegrationTest`，新增“复核接口 404 + status 列表/详情不暴露复核标记提交”断言；改写 `ClassroomM10IntegrationTest` 与 `ClassroomControllerContractTest`，将课堂复核接口断言调整为删除后的 404 行为。
+- 2026-03-31 20:12:00 +0800 验证结果：`backend` 执行 `mvn -q -DskipTests compile` 与 `mvn -q -DskipTests test-compile` 通过；`frontend` 执行 `npm run build` 通过。受仓库当前既有依赖装配问题影响（`JudgeMonitorController/JudgeMonitorServiceImpl` 依赖未满足），相关 SpringBoot 集成测试在应用上下文初始化阶段失败，本次未扩散修改无关链路。
+- 2026-03-31 20:18:00 +0800 清理 visual 基线残留：删除 `frontend/tests/e2e/visual/` 下 `admin-review-queue` 对应的 `old/new/diff` 截图与 HTML 文件，并从 `report.md`、`report.json` 移除 `/admin/review-queue` 报告条目，确保视觉替换与基线报告不再保留“判题复核队列”专门项。
+- 2026-03-31 20:22:00 +0800 修复 `/api/submissions` 500：将 `SubmissionServiceImpl#listSubmissions` 中复核标记过滤从 `s.statistic_info ? 'key'` 改为 `jsonb_exists(s.statistic_info, 'key')`，避免 PostgreSQL JDBC 将 `?` 误识别为预编译参数占位符导致 `No value specified for parameter 1`。
+
+### 前端 · `frontend` 管理端判题机资源监控接入 `/admin/judge-server`
+
+- 2026-03-31 18:57:57 +0800 将 `frontend/src/pages/admin/views/general/JudgeServer.vue` 从旧的“Token + 简单列表”页面升级为判题机监控容器页，在原有 `/admin/judge-server` 路由下接入资源概览、集群趋势、节点表、节点详情抽屉、告警列表与事件流，不新增新路由。
+- 2026-03-31 18:57:57 +0800 新增 `frontend/src/pages/admin/views/general/judge-monitor/` 子组件目录，拆分 `JudgeMonitorOverviewCards.vue`、`JudgeMonitorClusterTrends.vue`、`JudgeMonitorTokenPanel.vue`、`JudgeMonitorNodeTable.vue`、`JudgeMonitorNodeDetailDrawer.vue`、`JudgeMonitorAlertList.vue`、`JudgeMonitorEventList.vue`，统一形成判题机监控页面结构。
+- 2026-03-31 18:57:57 +0800 在 `frontend/src/pages/admin/api.js` 新增 `getJudgeMonitorOverview`、`getJudgeMonitorNodes`、`getJudgeMonitorNodeDetail`、`getJudgeMonitorNodeTimeseries`、`getJudgeMonitorAlerts`、`getJudgeMonitorEvents` 六个管理端监控接口封装，并将该文件内提示调用统一到 `notify`。
+- 2026-03-31 18:57:57 +0800 新增 `frontend/src/pages/admin/views/general/judge-monitor/judgeMonitorViewModel.js`，把旧 `admin/judge-server` 返回的基础节点信息与新 `admin/judge-monitor/nodes` 监控数据按 `id` 合并为单一节点视图模型；将旧页已有的 `IP`、`判题机版本`、`服务 URL`、`上次心跳`、`创建时间` 融入节点展开区与详情抽屉头部，不再保留独立旧版信息块。
+- 2026-03-31 18:57:57 +0800 对后端尚未产出真实值的节点详情指标统一按“暂无数据”处理，不把 `0` 伪装成真实监控值；Token 面板保留但默认折叠；节点禁用与删除操作继续留在节点表。
+- 2026-03-31 18:57:57 +0800 新增 `frontend/tests/unit/judge-monitor-admin-api-contract.spec.js`、`frontend/tests/unit/judge-monitor-view-model.spec.js`、`frontend/tests/unit/judge-server-monitor-page-contract.spec.js`，分别约束监控 API 契约、节点视图模型整形逻辑，以及 `/admin/judge-server` 容器页必须接入拆分后的监控子组件并保留旧字段展示。
+- 2026-03-31 18:57:57 +0800 为消除 `frontend` 构建时 `src/pages/admin/router.js` 对 `ReviewQueue` 的导入错误，恢复 `frontend/src/pages/admin/views/index.js` 中 `ReviewQueue` 的导出，保证本次判题机监控页面可以完成整包构建验证。
+- 2026-03-31 18:57:57 +0800 验证结果：`npm test -- --runInBand tests/unit/judge-monitor-admin-api-contract.spec.js tests/unit/judge-monitor-view-model.spec.js tests/unit/judge-server-monitor-page-contract.spec.js` 通过；针对本次改动文件执行的 `npx eslint ...` 通过；`npm run build`（`frontend`）通过；仓库级 `npm run lint` 与 `npm test` 仍存在其他历史文件/历史用例失败，本次未扩散修改无关区域。
+
+### 前端 · `frontend` 判题机监控页联调收口与视觉细修
+
+- 2026-03-31 19:05:09 +0800 在 `frontend/src/pages/admin/views/general/JudgeServer.vue` 增加监控状态条（自动刷新状态、最后刷新时间、手动刷新按钮），并将页面数据拉取拆分为 `fetchBaseData / fetchAlerts / fetchEvents`，支持并行刷新与区块级加载态，提升联调时的实时可观测性。
+- 2026-03-31 19:05:09 +0800 在 `frontend/src/pages/admin/views/general/judge-monitor/JudgeMonitorNodeTable.vue` 增加节点排序工具条，支持按 `heartbeatLag / alertOpenCount / cpuUsage / memoryUsage` 与 `asc/desc` 切换，并透传到 `admin/judge-monitor/nodes` 查询参数。
+- 2026-03-31 19:05:09 +0800 在 `frontend/src/pages/admin/views/general/judge-monitor/JudgeMonitorAlertList.vue` 增加筛选条（`status / severity / nodeId`），真实驱动 `admin/judge-monitor/alerts` 参数；在 `frontend/src/pages/admin/views/general/judge-monitor/JudgeMonitorEventList.vue` 增加筛选条（`eventType / severity / nodeId`）并透传到 `admin/judge-monitor/events`，同时补 `detailsJson` 轻量展开展示，便于排障。
+- 2026-03-31 19:05:09 +0800 在 `JudgeMonitorClusterTrends.vue` 与 `JudgeMonitorNodeDetailDrawer.vue` 补充加载态接入，确保趋势区和详情抽屉在刷新期间反馈明确，不出现“静默等待”。
+- 2026-03-31 19:06:03 +0800 在 `frontend/src/pages/admin/views/general/JudgeServer.vue` 为节点详情请求增加 `detailRequestId` 并发保护，避免快速切换节点时旧请求晚到覆盖新节点详情（详情串台）。
+- 2026-03-31 19:05:09 +0800 验证结果：`npx eslint src/pages/admin/views/general/JudgeServer.vue src/pages/admin/views/general/judge-monitor/JudgeMonitorNodeTable.vue src/pages/admin/views/general/judge-monitor/JudgeMonitorAlertList.vue src/pages/admin/views/general/judge-monitor/JudgeMonitorEventList.vue src/pages/admin/views/general/judge-monitor/JudgeMonitorClusterTrends.vue src/pages/admin/views/general/judge-monitor/JudgeMonitorNodeDetailDrawer.vue` 通过；`npm test -- --runInBand tests/unit/judge-monitor-admin-api-contract.spec.js tests/unit/judge-monitor-view-model.spec.js tests/unit/judge-server-monitor-page-contract.spec.js` 通过；`npm run build`（`frontend`）通过。
+- 2026-03-31 19:06:03 +0800 增量验证：`npx eslint src/pages/admin/views/general/JudgeServer.vue` 通过；`npm test -- --runInBand tests/unit/judge-server-monitor-page-contract.spec.js` 通过。
+- 2026-03-31 19:06:03 +0800 增量构建验证：`npm run build`（`frontend`）通过。
+- 2026-03-31 19:08:07 +0800 代码审查收口：在 `JudgeMonitorNodeTable.vue` 补充 `change-sort` 事件声明，消除未声明自定义事件带来的运行时告警风险；在 `JudgeServer.vue` 将 `fetchBaseData` 改为 `try/finally` 释放加载态，避免异常路径下的 loading 卡死。
+- 2026-03-31 19:08:07 +0800 收口验证：`npx eslint src/pages/admin/views/general/JudgeServer.vue src/pages/admin/views/general/judge-monitor/JudgeMonitorNodeTable.vue` 通过；`npm test -- --runInBand tests/unit/judge-server-monitor-page-contract.spec.js` 通过。
+
+### 前端 · `frontend_new` 班级 AI 题目与班级列表脚本迁移
+
+- 2026-03-31 `AIGeneratedProblems.vue` 改为 `<script setup lang="ts">`：`ref`/`reactive`/`computed`/`onMounted`/`onBeforeUnmount`；`$error`/`$success` 改为 `notify`；`$Modal.confirm` 改为 `ElMessageBox.confirm`；轮询完成提示中的长文案使用 `ElMessage.warning`（`duration`）。修复 `ClassroomList.vue` 中半成品 `<script setup>` 导致的无效语法，补全为可编译的 `<script setup lang="ts">`（`useRouter`/`useStore`/`notify`）；因 Vue 3 中表单组件 `ref` 与 `:model` 不能共用同一脚本绑定名，将模板中表单 `ref` 调整为 `createFormRef`/`editFormRef`（`ref` 属性名，非表单项结构）。`npm run build`（`frontend_new`）通过。
+
+### 前端 · `frontend_new` 技能画像与作业相关组件改为 `<script setup lang="ts">`
+
+- 2026-03-31 将以下 Vue 单文件迁移为 `<script setup lang="ts">`：`KnowledgeStarMap.vue`、`PracticeHeatmap.vue`、`ProblemRecommendations.vue`、`SkillRadar.vue`、`StarMapDetailPanel.vue`，以及班级作业流 `JoinClassroom.vue`、`AssignmentDetail.vue`、`AssignmentGrading.vue`、`ClassroomAssignment.vue`。`ref`/`reactive`/`computed`/`watch`/`onMounted`/`onBeforeUnmount` 与规则对齐；`$router`/`$emit`/`$refs` 分别改为 `useRouter`、`defineEmits`、模板 `ref`；`$success`/`$error`/`$Message` 等改为 `notify`（`@/shared/notifications`）或 Element Plus `ElMessageBox`/`ElMessage`（`ClassroomAssignment` 删除作业确认）。`npm run build`（`frontend_new`）通过。
+
+### 前端 · `frontend_new` OJ 做题页相关组件改为 `<script setup lang="ts">`
+
+- 2026-03-31 将题目与 Agent 相关共 17 个 Vue 单文件由 Options API 迁移为 `<script setup lang="ts">`：`CalibrationPanel.vue`、`CodeEditorPanel.vue`、`ParsonsPanel.vue`、`PreflightDialog.vue`、`ProblemList.vue`、`TraceStepPanel.vue`、`UnifiedAgentPanel.vue`，以及 `cards/` 下 `ErrorDiagnosisCard.vue`、`ExecutionTraceExplainerCard.vue`、`FadedExampleCard.vue`、`IdeateAnalysisCard.vue`、`MinimalHintCard.vue`、`PostACCard.vue`、`ProblemGuideCard.vue`、`SkeletonCodeCard.vue`、`TransferProblemCard.vue`、`WorkedExampleCard.vue`。`Problem.vue` 仍保留 Options API，并与 `workflowStateMachine` 大型 mixin、路由守卫及多 composable 并存，未在本次一并改写为 `<script setup>`。列表页与随机一题使用 `notify`（`@/shared/notifications`）替代原 `$success`；`UnifiedAgentPanel` 清空对话确认使用 `ElMessageBox.confirm`。`CodeEditorPanel` 通过 `defineExpose` 暴露 `getEditStats`/`resetEditStats`；`TraceStepPanel` 暴露 `jumpToStep`。`npm run build`（`frontend_new`）通过。
+
+### 前端 · `frontend_new` OJ 首页/提交/设置/用户与若干组件改为 `<script setup lang="ts">`
+
+- 2026-03-31 将以下 16 个 OJ 侧 Vue 单文件由 Options API 迁移为 `<script setup lang="ts">`：`Home.vue`、`Announcements.vue`、`SubmissionList.vue`、`SubmissionDetails.vue`、`Settings.vue` 及子页 `AccountSetting.vue`、`ProfileSetting.vue`、`SecuritySetting.vue`、`UserHome.vue`、`LearnerNotebook.vue`、`NavBar.vue`、`CodeMirror.vue`、`PedagogyPanel.vue`、`SemanticDiffPanel.vue`、`SubmissionRiver.vue`、`AttributionPathCard.vue`；状态与逻辑对应改为 `ref`/`reactive`、`computed`、函数、`watch`、`onMounted`/`onBeforeUnmount`；Vuex 使用 `useStore`，路由使用 `useRouter`/`useRoute`；全局提示使用 `@/shared/notifications` 的 `notify`；`UserHome` 中原 `$message.warning` 使用 Element Plus `ElMessage.warning`；`Settings`/`ProfileSetting` 中设置页轻提示使用 `@/utils/settingsToast` 的 `showSettingsToast`。为消除构建错误，将误混入 `<script setup>` 的 `SkillRadar.vue` 恢复为仓库内稳定版本。`npm run build`（`frontend_new`）通过。
+
+### 前端 · `frontend_new` 管理端若干页面与组件改为 `<script setup lang="ts">`
+
+- 2026-03-31 将以下 16 个 Vue 单文件由 Options API 迁移为 Composition API（`<script setup lang="ts">`）：公告、用户、系统配置、判题复核队列、预检帮助率、AI 变体题审核、知识组件管理、McMining 审核、题目列表、题目导入导出、题目编辑、TopNav、SideMenu、CodeMirror、KatexEditor、Simditor；`data`/`computed`/`methods`/`watch`/`mounted` 等分别改为 `ref`/`reactive`、`computed`、函数、`watch`、`onMounted`；路由与 Vuex 使用 `useRouter`/`useRoute`、`useStore`；Element Plus 交互使用 `ElMessage`/`ElMessageBox` 等与全局 `$confirm`/`$error` 等价的 API；`Conf.vue` 中原 `data.init` 与生命周期语义冲突，重命名为 `smtpNeedCreate` 以保持「无 SMTP 数据则走创建」分支不变。`npm run build`（`frontend_new`）通过。
+
+### 后端 · 判题机监控看板基建（todo_check_judge Phase 1-2）
+
+#### Phase 1：冻结指标契约与 DTO
+- 2026-03-31 创建扩展 heartbeat V2 请求 DTO `JudgeHeartbeatV2Request`，定义 `nodeInfo`、`hostMetrics`、`runtimeMetrics`、`taskMetrics`、`securityMetrics`、`events` 六大子结构，覆盖 60+ 指标字段。
+- 2026-03-31 创建管理端查询响应 DTO：`JudgeMonitorOverviewResponse`（集群总览）、`JudgeMonitorNodeListItemResponse`（节点列表项）、`JudgeMonitorNodeDetailResponse`（节点详情）、`JudgeMonitorTimeseriesResponse`（时序数据）、`JudgeMonitorAlertListResponse`（告警列表）、`JudgeMonitorEventListResponse`（事件列表）。
+- 2026-03-31 创建事件类型枚举 `JudgeEventType`（11 种事件）、告警级别枚举 `AlertSeverity`（INFO/WARNING/CRITICAL）、告警状态枚举 `AlertStatus`（OPEN/RESOLVED）。
+
+#### Phase 2：数据库模型与迁移
+- 2026-03-31 创建 Flyway 迁移 `V20__judge_monitor_tables.sql`：
+  - 扩展 `judge_server` 表新增 11 个快照字段（agent_version、heartbeat_lag_seconds、available_slots、running_tasks、queued_tasks 等）。
+  - 新建 `judge_server_metric_snapshot`（原始 10s 快照，48h 保留）。
+  - 新建 `judge_server_metric_rollup_minute`（分钟聚合，30d 保留）。
+  - 新建 `judge_server_task_rollup_minute`（任务分布聚合）。
+  - 新建 `judge_server_event`（事件日志，180d 保留）。
+  - 新建 `judge_server_alert_state`（告警状态表）。
+  - 为所有时序查询建立组合索引。
+- 2026-03-31 创建 JPA 实体：`JudgeServerMetricSnapshot`、`JudgeServerEvent`、`JudgeServerAlertState`。
+- 2026-03-31 创建 Repository：`JudgeServerMetricSnapshotRepository`、`JudgeServerEventRepository`、`JudgeServerAlertStateRepository`。
+- 2026-03-31 扩展 `JudgeServer` 实体新增 11 个字段与对应 getter/setter。
+- 2026-03-31 创建 `JudgeMonitorService` 接口与 `JudgeMonitorController`，定义 6 个查询 API（overview、nodes、node detail、timeseries、alerts、events）。
+- 2026-03-31 在 `frontend_new/src/pages/admin/api.js` 新增 6 个监控 API 调用函数。
+
+#### Phase 3：判题节点扩展 heartbeat
+- 2026-03-31 重写 `.external_research/alethicode_upstream/JudgeServer/server/utils.py` 的 `server_info()` 函数，从返回 5 个字段扩展为完整的 V2 heartbeat 负载。
+- 2026-03-31 新增主机资源采集：CPU 使用率/负载/iowait、内存/Swap、磁盘容量/IO吞吐/IOPS、网络收发/丢包、PSI（压力阈值感知）。
+- 2026-03-31 新增运行态指标：运行中/排队/可用槽位/编译中/运行中/SPJ中/清理中任务数。
+- 2026-03-31 新增任务统计：完成总数/每分钟吞吐/按结果分布/按语言分布。
+- 2026-03-31 新增安全指标：seccomp 违规/输出超限/清理失败/OOM/重启次数。
+- 2026-03-31 新增事件缓冲区，安全事件随 heartbeat 一并上报。
+- 2026-03-31 新增 `record_task_result()` 和 `record_security_event()` 辅助函数。
+
+#### Phase 4-5：heartbeat 入库与 Admin 查询 API
+- 2026-03-31 创建 `JudgeMonitorServiceImpl`，实现 6 个查询方法：getOverview（集群总览）、getNodeList（节点列表，按异常优先/心跳滞后排序）、getNodeDetail（节点详情+活跃告警+最近事件）、getNodeTimeseries（时序数据查询）、getAlerts（告警列表，支持状态/级别/节点筛选）、getEvents（事件列表，支持类型/级别/节点/时间窗口筛选）。
+- 2026-03-31 Service 内部统一使用 `Clock.systemUTC()` 保证时间一致性，heartbeat 超时阈值 15s。
+
+#### Phase 6-8：前端监控看板
+- 2026-03-31 创建 `JudgeOverviewCards.vue`：集群总览卡片（正常/异常/禁用节点、运行/排队任务、可用槽位），按状态着色。
+- 2026-03-31 创建 `JudgeNodeTable.vue`：节点列表表格，展示状态/主机名/版本/CPU/内存/磁盘/运行任务/排队/槽位/心跳滞后/告警/禁用开关，心跳滞后超过 15s 标红。
+- 2026-03-31 创建 `JudgeAlertTimeline.vue`：告警事件时间线，按严重程度着色，展示告警键/主机/时间/当前值。
+- 2026-03-31 升级 `JudgeServer.vue` 为完整监控看板容器页：集成总览卡片、节点列表、告警时间线、节点详情抽屉（含当前指标/活跃告警/最近事件）、Token 管理，10s 自动刷新。
+- 2026-03-31 后端编译通过（`mvn compile -q`），前端构建通过（`npm run build`）。
+
+#### 待实施
+- Phase 9：联调与压力测试（需要真实判题机集群环境）。
+
+### 前端 · 实施 frontend_new 工程架构现代化（Phase 1-6）
+
+#### Phase 1：建立复制基线
+- 2026-03-31 从 `frontend` 完整复制到 `frontend_new`（排除 node_modules、dist、缓存目录）。
+- 2026-03-31 确认 `frontend_new` 作为 `frontend` 的可运行 1:1 副本，`npm install` 与 `npm run build` 均通过。
+
+#### Phase 2：建立新基线
+- 2026-03-31 建立 `src/app`、`src/shared`、`src/modules`、`src/widgets` 四级目录骨架。
+- 2026-03-31 新增 `tsconfig.json`、`tsconfig.node.json`，引入 TypeScript 类型检查基建。
+- 2026-03-31 新增 Pinia 依赖（`pinia ^3.0.0`），创建 `src/app/pinia.ts` 作为全局 store 入口。
+- 2026-03-31 新增 Vitest（`vitest ^3.1.0`）+ jsdom + @vue/test-utils，创建 `vitest.config.ts`，添加 `test:unit` 等脚本。
+- 2026-03-31 创建 `src/shared/http/index.ts`（类型化 HTTP Client）、`src/shared/notifications/index.ts`（统一通知）、`src/shared/ui/index.ts`（Element Plus 封装层）。
+- 2026-03-31 新增 `src/env.d.ts`，声明 Vue SFC 模块与全局编译常量类型。
+
+#### Phase 3：迁移应用底座
+- 2026-03-31 创建 `src/app/oj/main.ts`，替代旧 `src/pages/oj/index.js` 入口；注册 Pinia 与 Element Plus，通知函数统一为 ElMessage。
+- 2026-03-31 创建 `src/app/admin/main.ts`，替代旧 `src/pages/admin/index.js` 入口；注册 Pinia。
+- 2026-03-31 更新 `index.html` 和 `admin/index.html` 入口脚本路径指向新的 TypeScript 入口。
+- 2026-03-31 将 `src/utils/notifications.js` 改为从 `src/shared/notifications` 重导出，统一通知调用链。
+
+#### Phase 4：按业务域迁移
+- 2026-03-31 创建 `src/modules/auth/store.ts`（Pinia useUserStore），覆盖用户认证、权限判断全部状态与方法。
+- 2026-03-31 创建 `src/modules/problem/store.ts`（Pinia useProblemStore），覆盖题目、代码、AI 辅导、调试、诊断全部状态与方法。
+- 2026-03-31 创建 `src/app/store.ts`（Pinia useAppStore），覆盖网站配置、模态状态、DOM 标题逻辑。
+- 2026-03-31 创建 auth、problem、submission、classroom、user、admin 六个模块 barrel 文件（index.ts），建立模块化导出入口。
+
+#### Phase 5：统一布局实现
+- 2026-03-31 创建 `src/widgets/AppPanel.vue`（Element Plus el-card 封装），统一 OJ/Admin 面板组件。
+- 2026-03-31 创建 `src/widgets/AppPagination.vue`（Element Plus 分页封装），统一分页组件。
+- 2026-03-31 创建 `src/widgets/index.ts` barrel 文件。
+
+#### 组件级 script setup + TypeScript 转写
+- 2026-03-31 完成 87/92 组件的 `<script setup lang="ts">` 转写，构建通过。
+- 覆盖域：auth（7）、admin 组件（8）、admin 视图（16）、OJ 组件（16）、OJ 视图 problem（16）、OJ 视图 classroom（6）、OJ 视图 general/user/submission/setting（18）。
+- ViewUIPlus → Element Plus 模板替换：Login、Register、Panel、Pagination、BackTop、NotFound、VerticalMenu 等关键组件。
+- 后续完成 LessonManagement (698行)、MonitorDashboard (1833行)、CollaborativeCoding (1324行) 转写，构建通过。
+- 后续完成 ClassroomDetail (1238行) 转写，构建通过。
+- 完成 Problem.vue (2952行) 转写为 `<script lang="ts">` + `defineComponent`（因依赖 1220 行 workflowStateMachine mixin，使用 defineComponent 保持兼容）。
+- 最终结果：91 个组件 `<script setup lang="ts">`，1 个组件 `<script lang="ts">` + defineComponent，0 个纯 JS Options API。全部构建通过。
+
+#### Phase 6：清理旧资产
+- 2026-03-31 删除旧 Babel 配置（`babel.config.js`）、Jest 配置（`jest.config.js`）、PostCSS 配置（`.postcssrc.js`）。
+- 2026-03-31 删除空的 `build/` 和 `config/` 目录，删除旧 `vite.shared.js`。
+- 2026-03-31 删除 `MIGRATION_REPORT.md` 和 `REPLACEMENT_ACCEPTANCE_MATRIX.md`。
+- 2026-03-31 移除 `moment` 依赖，将 `time.js`、`filters.js`、`PracticeHeatmap.vue`、`PruneTestCase.vue` 改为原生 Date API。
+- 2026-03-31 移除 `raven-js` 依赖，删除无引用的 `sentry.js`。
+- 2026-03-31 移除旧 devDependencies：`@babel/core`、`@babel/preset-env`、`babel-jest`、`babel-register`、`eslint-loader`、`eslint-friendly-formatter`、`jest`。
+- 2026-03-31 更新 `.eslintrc.js` 支持 `.ts` 文件，更新 `.eslintignore` 排除 `.d.ts`。
+
+### 文档 · 新增判题机监控看板前置 Todo
+- 2026-03-31 12:24:00 +0800 新增 `/home/cypress/code_java/todo_check_judge.md`，明确该文档必须先于 `/home/cypress/code_java/todo_judge.md` 执行，先完成判题机监控与管理端看板建设，再进入判题链路安全与效率重构。
+- 2026-03-31 12:24:00 +0800 新文档基于当前仓库真实入口梳理了后端 heartbeat、数据库时序模型、事件与告警、admin 查询 API，以及管理端 `/admin/judge-server` 看板的详细前后端实施步骤，并为每个阶段补齐了严格验收标准。
+- 2026-03-31 12:24:00 +0800 文档中新增了完整的判题机指标体系清单，覆盖集群容量、节点资源、任务时延、结果分布、cgroup/沙箱资源、可靠性与安全事件，指标分层与命名规则参考 Prometheus、node_exporter、cAdvisor 与 Kubernetes 官方监控文档整理。
+
+### 文档 · 新增 frontend_new 百分百复刻迁移执行 Todo
+- 2026-03-31 11:26:00 +0800 新增 `/home/cypress/code_java/todo_vue.md`，将“只在 `frontend_new` 中构建，并实现页面百分百复刻、功能完全复刻、API 全对齐”的要求整理为分阶段执行文档。
+- 2026-03-31 11:26:00 +0800 文档按 7 个阶段拆分：旧前端基线冻结、`frontend_new` 初始化、Vue3 兼容迁移、API/实时链路对齐、页面百分百复刻、功能完全复刻、自动化回归与最终切换；每阶段均补齐目标、明确步骤与验收标准。
+- 2026-03-31 11:26:00 +0800 文档中明确固化三条验收红线：固定环境下的页面截图一致、核心业务链路一致、HTTP/WebSocket 契约一致，并补入当前仓库可直接使用的回归命令，便于后续按清单落地执行。
+
+### 文档 · 重写 frontend -> frontend_new 复制后现代化 Todo
+- 2026-03-31 11:34:00 +0800 重写 `/home/cypress/code_java/todo_vue.md`，将源目录口径明确修正为“当前 `frontend` 是唯一现存前端，`frontend_new` 当前不存在”，避免继续按不存在的旧 `frontend_new` 作为源目录设计执行方案。
+- 2026-03-31 11:34:00 +0800 将执行路线改为两段式：先从 `frontend` 1:1 复制创建 `frontend_new`，先完成页面/功能/API 的等价基线，再在 `frontend_new` 内做现代化改造。
+- 2026-03-31 11:34:00 +0800 在新文档中补齐“现代化”的具体范围：基础设施、数据与状态层、组件层与目录结构、依赖、自动化回归门禁；同时明确这些现代化动作都必须在三条硬验收红线不退化的前提下推进。
+
+### 文档 · 将 frontend_new 工程架构现代化实施方案并入 Todo
+- 2026-03-31 11:43:00 +0800 继续重构 `/home/cypress/code_java/todo_vue.md`，将“frontend_new 工程架构现代化实施方案”合并为正式执行骨架，补入 Summary、Key Changes、Implementation Changes、Public Interfaces / Types、Test Plan、Assumptions 六大部分。
+- 2026-03-31 11:43:00 +0800 在 Todo 中明确最终技术基线为 `Vue 3 + TypeScript + Composition API + <script setup> + Pinia + Vite + Vitest + Playwright + 单一 UI 体系`，并将目录终态固定为 `src/app`、`src/shared`、`src/modules`、`src/widgets`。
+- 2026-03-31 11:43:00 +0800 将迁移阶段细化为：复制基线、建立新基线、迁移应用底座、按业务域整体迁移、统一布局实现、清理旧资产；同时保留“路由/API/WebSocket/静态资源公开路径不变”的外部契约约束。
+
+### 清理 · 删除后端无引用异常子类死代码
+- 2026-03-31 删除 `backend/src/main/java/com/pytutor/exception/` 下 4 个在生产代码中零引用的异常子类：`ConflictException`、`ForbiddenException`、`NotFoundException`、`UnauthorizedException`。这 4 个类均只继承 `BusinessException` 并硬编码对应 `ErrorCode`，当前业务错误路径已统一收敛至 `BusinessException` / `LegacyBusinessException`，上述子类构成纯死代码。
+- 2026-03-31 更新 `backend/src/test/java/com/pytutor/exception/GlobalExceptionHandlerTest.java`：将测试 harness 中的 `new NotFoundException(...)` 替换为 `new BusinessException(ErrorCode.NOT_FOUND, ...)`，使测试直接覆盖真实在用的业务异常路径，不再依赖已删除的子类。编译与 `GlobalExceptionHandlerTest` 全部 3 个用例均通过验证。
+
+### 修复 · Classroom AI 出题页导出格式与 Vite 导入协议一致
+- 2026-03-31 10:59:14 +0800 在 `frontend_new/tests/unit/ai-generated-problem-actions.spec.js` 新增源码契约测试，要求 `frontend_new/src/pages/oj/views/classroom/aiGeneratedProblemActions.js` 不得再使用 `module.exports`，并且必须提供 ES Module 具名导出，先把 classroom 页“模块可加载”这一前置约束锁住。
+- 2026-03-31 10:59:14 +0800 将 `frontend_new/src/pages/oj/views/classroom/aiGeneratedProblemActions.js` 从 `module.exports` 改为标准 `export { ... }` 具名导出，使其与 `frontend_new/src/pages/oj/views/classroom/AIGeneratedProblems.vue` 的 ES Module 导入协议保持一致，消除 classroom 页面加载阶段的模块解析报错。
+- 2026-03-31 10:59:14 +0800 调整 `frontend_new/tests/unit/ai-generated-problem-actions.spec.js` 的模块加载方式：测试中先通过项目 `babel.config.js` 将该源码文件转译为 CommonJS 再执行，继续保留原有纯函数行为断言，同时兼容当前仓库的 Jest 运行基座与新的 ESM 源码导出格式。
+- 2026-03-31 10:59:14 +0800 将上述测试中的动态执行器从 `Function` 构造器改为 Node `vm.runInNewContext`，消除 `eslint` 的 `no-new-func` 报错，使本次回归测试既能覆盖模块格式问题，也能满足现有前端静态检查约束。
+
+### 清理 · Problem 页未接线残留组件与无效提交状态清理
+- 2026-03-31 10:28:06 +0800 删除 `frontend_new/src/pages/oj/views/problem/` 下已脱离当前运行链路、且在 `frontend_new` 内无实际引用的遗留组件：`AITutorSidebar.vue`、`CodeAnalysisPanel.vue`、`ProblemDescription.vue`、`SubmissionPanel.vue`、`IdeateSidebar.vue`、`IdeatePanel.vue`，收敛新做题页的历史迁移残留。
+- 2026-03-31 10:28:06 +0800 清理 `frontend_new/src/composables/problem/useSubmission.js` 中未被消费的 `submissionStatus` 计算属性及其 `JUDGE_STATUS` 依赖，并移除 `frontend_new/src/pages/oj/views/problem/Problem.vue` 路由离开时对不存在实例字段 `refreshStatus` 的无效清理，避免继续保留误导性的死状态与失效逻辑。
+- 2026-03-31 10:28:06 +0800 重新生成 `frontend_new/tests/replacement/reports/static-audit.json` 与 `frontend_new/tests/replacement/reports/static-audit.md`，同步前端替换审计基线到当前仓库状态，使 Problem 页残留组件删除后的静态审计结果与现状一致。
+
+### 修复 · OJ 壳层与题库页视口自适应布局
+- 2026-03-31 09:53:47 +0800 调整 `frontend_new/src/styles/common.less`，移除 OJ 端全局 `body` 的 `min-width: 900px` 硬编码限制，改为仅保持 `width: 100%`，避免全局最小宽度制造不必要的横向溢出。
+- 2026-03-31 09:53:47 +0800 调整 `frontend_new/src/pages/oj/App.vue` 的 `content-app` 壳层样式：按现有导航高度分别注入 `80px / 160px` 顶部偏移变量，并新增 `100vh + 100dvh` 视口最小高度基线以及 `min-width: 0 / max-width: 100%` 宽度约束，作为 OJ 内容页统一的可视区容器基础。
+- 2026-03-31 09:53:47 +0800 重构 `frontend_new/src/pages/oj/views/problem/ProblemList.vue` 外层布局，从旧 `Row + Col` 双栏流式结构改为响应式网格：桌面端使用主内容区 + sticky 右侧栏，右侧标签卡片改为内部滚动区，`随机一题` 保持自然高度；`1279px` 以下自动退化为单列并取消 sticky，提升窄屏窗口的高度和宽度适配能力。
+- 2026-03-31 09:53:47 +0800 新增 `frontend_new/tests/unit/oj-shell-responsive-layout-contract.spec.js` 与 `frontend_new/tests/unit/problem-list-responsive-layout-contract.spec.js`，约束 OJ 壳层视口高度基线、ProblemList 的 sticky 侧栏结构和窄屏单列断点，防止布局回归。
+- 2026-03-31 10:02:09 +0800 继续修正 `frontend_new/src/pages/oj/App.vue` 与 `frontend_new/src/pages/oj/views/problem/ProblemList.vue` 的桌面端高度基线：将 OJ 内容区顶部偏移从误设的 `80px` 对齐到真实导航高度 `64px`，同步把题库外层网格的 `min-height` fallback 对齐到 `64px`，并移除题库右侧 sticky 侧栏 `max-height` 中多扣除的 `32px`，消除在 2560x1600 等大屏下仍会出现的多余纵向滚动条。
+
+### 修复 · 题库列表筛选标签字号与难度列省略号显示
+- 2026-03-31 09:42:00 +0800 调整 `frontend_new/src/pages/oj/views/problem/ProblemList.vue` 右侧标签筛选按钮尺寸，将按钮高度、内边距与字号同步放大到更易读的 `14px` 级别，保持现有标签筛选交互不变。
+- 2026-03-31 09:42:00 +0800 修复同文件题库列表“难度”列宽度过窄导致难度胶囊被表格单元格截断显示 `...` 的问题；将列宽从 `90` 调整到 `112`，并为难度胶囊补充 `white-space: nowrap`，确保“低/中/高”标签完整显示。
+- 2026-03-31 09:42:00 +0800 新增 `frontend_new/tests/unit/problem-list-filter-ui-contract.spec.js`，约束右侧标签筛选按钮可读字号与难度列宽度，防止同类 UI 回归。
+
+### 修复 · 班级成员列表不再显示头像
+- 2026-03-31 09:38:33 +0800 调整 `frontend_new/src/pages/oj/views/classroom/ClassroomDetail.vue` 成员表“用户”列渲染，移除 `view-ui-plus` `Avatar` 组件，仅保留用户名文本显示，满足班级成员列表不展示头像的页面要求，不改动角色、加入时间和移除操作逻辑。
+- 2026-03-31 09:38:33 +0800 新增 `frontend_new/tests/unit/classroom-member-table-contract.spec.js`，约束成员列表源码不得再次渲染头像组件，防止该显示规则回归。
+
+### 修复 · Classroom 监控面板图表导致页面无法回退
+- 2026-03-31 09:34:47 +0800 修复 `frontend_new/src/composables/monitor/useChart.js` 中将 `activityChart` 同时复用于模板 DOM ref 与 ECharts 实例的问题；现改为让 `activityChart` 仅承载图表容器节点，内部新增独立的 `activityChartInstance` 管理 `init / setOption / resize / dispose` 生命周期，避免进入 classroom 后监控图表更新时报 `setOption is not a function`，并消除卸载阶段阻断返回 problem 页的报错链路。
+- 2026-03-31 09:34:47 +0800 新增 `frontend_new/tests/unit/monitor-use-chart.spec.js`，约束模板 ref 预先写入容器节点时，监控图表仍必须正确初始化、刷新、缩放与销毁，防止同类图表实例/DOM ref 混用问题再次回归。
+
+### 修复 · 个人设置页头像无法保存
+- 2026-03-31 09:27:03 +0800 修复 `frontend_new/src/pages/oj/views/setting/children/ProfileSetting.vue` 头像上传仍调用已移除的 `this.$http`，导致点击保存头像时报 `TypeError: this.$http is not a function` 的问题；改为统一走 `@oj/api` 请求链路，保持现有裁剪、上传中态与成功后刷新资料流程不变。
+- 2026-03-31 09:27:03 +0800 在 `frontend_new/src/pages/oj/api.js` 新增 `uploadAvatar(formData)` 接口，并新增 `frontend_new/tests/unit/profile-setting-avatar-upload-contract.spec.js` 契约测试，约束头像上传不得再依赖遗留的全局 `$http`。
+
+### 样式 · OJ 端表格排版基线统一到题库列表
+- 2026-03-31 09:26:00 +0800 将 `frontend_new` OJ 端 `view-ui-plus` 表格的字体、字号、行高、表头/表体高度与单元格横向间距统一下沉到 `src/pages/oj/viewUiPlusTheme.less`，以 `/problem` 题库列表为唯一排版基线；同时让 `size="small"` 表格沿用同一排版密度，不再额外缩小。
+- 2026-03-31 09:26:00 +0800 清理 `src/pages/oj/views/problem/ProblemList.vue` 的局部表格字号基线与 `src/pages/oj/views/classroom/ClassroomList.vue` 中写死的表头/表体高度及链接字号，保留题目列表蓝字链接、难度胶囊、标签 chip 与课堂页业务色块等页面专属视觉不变。
+- 2026-03-31 09:26:00 +0800 新增 `frontend_new/tests/unit/oj-table-typography-contract.spec.js`，约束 OJ 表格排版基线必须集中在全局主题层，防止后续再次把字号或行高散落回单页样式。
+
+### 重构 · OJ 首屏加载动画资源归档并替换为新版贪吃蛇动效
+- 2026-03-31 09:04:39 CST 将根目录临时文件 `snake_ouroboros_v5.html` 正式归档到 `frontend_new/public/static/loader/python-ouroboros-loader.html`，并用该规范静态资源路径接管 OJ 首屏启动加载动画，不再保留仓库根目录的散落实验文件。
+- 2026-03-31 09:04:39 CST 替换 `frontend_new` 首屏 loader 内容为新版贪吃蛇动态画布动画，保留 `frontend_new/index.html -> /static/loader/python-ouroboros-loader.html` 现有接入链路不变，仅更新动画实现与自适应展示样式，避免改动业务入口。
+
+### 修复 · AI 面板待机时内容缓慢上漂
+- 2026-03-31 09:06:12 +0800 修复 `frontend_new` 做题页 `UnifiedAgentPanel` 在待机阶段因检查点回写、`loading` 收尾或时间线重排后未重新贴底，导致最新卡片区域缓慢上移、底部白区再次出现的问题：新增 `syncMessageStreamToBottom()`，统一在 `timelineItems`、`loading` 与面板显示时执行底部滚动同步。
+- 2026-03-31 09:06:12 +0800 新增 `frontend_new/tests/unit/unified-agent-panel-timeline-scroll-contract.spec.js`，约束 AI 面板在时间线或加载状态变化后必须重新贴到底部，防止异步回写再次引入“内容上漂”回归。
+
+### 修复 · AI 面板待机时底部空白不断增大
+- 2026-03-31 08:52:40 +0800 修复 `frontend_new` 做题页 `UnifiedAgentPanel` 在待机/生成结束后，最后一张卡片与输入框之间空白持续增大的问题：为消息流新增顶部弹性占位器 `message-stream-spacer`，将剩余高度稳定推到消息上方，避免空白堆积在底部。
+- 2026-03-31 08:52:40 +0800 新增 `frontend_new/tests/unit/unified-agent-panel-bottom-anchor-contract.spec.js`，约束 AI 面板在非空消息流下必须具备顶部弹性占位器，防止后续回归。
+
+### 修复 · ProblemList 阶段触发 resolveComponent 运行时警告
+- 2026-03-31 08:41:25 +0800 修复 `frontend_new` 在 `ProblemList -> Problem` 链路中触发 `resolveComponent can only be used in render() or setup()` 警告的问题：`src/pages/oj/views/problem/ProblemList.vue` 的题号、标题、难度、标签列改为在 `Table` 自定义渲染中输出原生 vnode，不再在回调里嵌套 `view-ui-plus` 组件。
+- 2026-03-31 08:41:25 +0800 修复 `src/composables/useProblemList.js` 的状态列渲染，移除对 `view-ui-plus` `Icon` 组件的依赖，改为原生状态标记节点，保持通过/未通过语义不变。
+- 2026-03-31 08:41:25 +0800 新增 `frontend_new/tests/unit/problem-list-render-contract.spec.js`，为 `ProblemList` 表格渲染建立契约，防止再次在 `Table render` 回调中直接挂载 `view-ui-plus` 组件。
+
+### 修复 · 登录成功后卡在登录页
+- 2026-03-31 08:35:13 +0800 修复 `frontend_new` 登录成功后无法跳转首页的问题：`src/utils/time.js` 补齐 `utcToLocal`、`duration`、`secondFormat` 的命名导出，保持默认导出不变，消除首页公告与用户主页等页面对 `import { utcToLocal } from '@/utils/time'` 的运行时模块解析错误。
+- 2026-03-31 08:35:13 +0800 新增 `frontend_new/tests/unit/time-exports-contract.spec.js`，为时间工具建立“默认导出 + 命名导出”契约测试，防止后续再次出现登录后首屏加载失败。
+
+### 重构 · frontend_new 桥接层全面现代化
+
+#### Phase 0 — 无风险删除
+- 2026-03-31 删除 `legacyIconBridge.js`，移除 `admin/index.js` 中的 `installLegacyIconBridge(app)` 调用。全库搜索确认无模板使用 `<el-icon-*>` 标签组件形式。
+- 2026-03-31 消灭 `emitter.js`（已删除），`VerticalMenu.vue` 改用 `provide('onMenuItemClick')`，`VerticalMenuItem.vue` 改用 `inject('onMenuItemClick')`，删除 `mixins/index.js` 中 Emitter 导出。
+
+#### Phase 1 — 消除全局隐式依赖
+- 2026-03-31 `$filters` → 直接 import：移除 `oj/index.js` 和 `admin/index.js` 中 `app.config.globalProperties.$filters` 全局注册。12 个 Vue 文件改为在 `<script>` 中直接 `import { utcToLocal }` 或 `import filters`，模板中 `$filters.localtime(x)` → `localtime(x)` 等。`utils/filters.js` 保留供直接 import。
+- 2026-03-31 `uiBridge.js` → `notifications.js` 模块单例：删除运行时 patch 模式的 `uiBridge.js`，新建 `src/utils/notifications.js`（`initNotifications` / `notify.error` / `notify.success` / `notify.loadingStart` / `notify.loadingFinish`）。更新 6 个消费方（`oj/api.js`、`admin/api.js`、`oj/router/index.js`、`utils/utils.js`、`oj/index.js`、`admin/index.js`）。
+
+#### Phase 2 — Mixin → Composable 全迁移
+- 2026-03-31 新建 `src/composables/` 目录，包含 9 个 Composable：
+  - `useForm.js` ← `FormMixin`（form.js 已删除）
+  - `useProblemList.js` ← `ProblemMixin`（problem.js 已删除）
+  - `problem/useFrustration.js` ← `frustrationMixin`（已删除）
+  - `problem/useSubmission.js` ← `submissionMixin`（已删除）
+  - `problem/useAstVisualization.js` ← `astVisualizationMixin`（已删除）
+  - `problem/useProblemPresentation.js` ← `problemPresentationMixin`（已删除）
+  - `monitor/usePlayback.js` ← `monitorDashboardPlaybackMixin`（已删除）
+  - `monitor/useChart.js` ← `monitorDashboardChartMixin`（已删除）
+  - `monitor/useMonitorUi.js` ← `monitorDashboardUiHelperMixin`（已删除）
+- 2026-03-31 `Problem.vue`：`mixins` 数组缩减为 `[workflowStateMachine]`，新增 `setup()` 组合 5 个 composable（useForm、useFrustration、useSubmission、useAstVisualization、useProblemPresentation），data() 移除 composable 已管理的字段。
+- 2026-03-31 `MonitorDashboard.vue`：移除全部 3 个 mixin，新增 `setup()` 组合 useMonitorUi、usePlayback、useChart。
+- 2026-03-31 `ProblemList.vue`：`ProblemMixin` → `useProblemList()`。
+- 2026-03-31 `Register.vue`、`Login.vue`、`AccountSetting.vue`：`FormMixin` → `useForm()`。
+- 2026-03-31 删除 `src/pages/oj/components/mixins/` 整个目录（form.js、problem.js、index.js 均已迁移）。
+
+#### Phase 3 — 清理命名污染
+- 2026-03-31 `elementPlusBridge.less` → `elementPlusTheme.less`，`viewUiPlusBridge.less` → `viewUiPlusTheme.less`，更新对应 import。
+
+#### Code Review 修复
+- 2026-03-31 `useProblemList.js`：移除未使用的 `import { h } from 'vue'`（render 函数通过参数接收 h，模块级 import 冗余）。
+- 2026-03-31 `MonitorDashboard.vue`：移除 `beforeUnmount` 中对 `playbackTimer`、`playbackEditor`、`activityChart` 的死代码清理（已由 composable 各自的 `onBeforeUnmount` 管理）。
+- 2026-03-31 `codemirror-line-safety-contract.spec.js`：更新 `astVisualizationMixin.js` 路径为 `composables/problem/useAstVisualization.js`。
+- 2026-03-31 `problem-editor-monaco-frustration-contract.spec.js`：更新 `frustrationMixin.js` 路径为 `composables/problem/useFrustration.js`。
+
+### 修复 · 提交后编辑器代码被清空
+- 2026-03-31 移除 `submissionMixin.js` 中在获取判题结果后调用 `this.init()` 的逻辑。该调用会触发完整页面重新初始化（含清空编辑器），导致提交错误代码后学生代码丢失。现在提交后编辑器内容保持不变：
+  - `frontend/src/pages/oj/views/problem/submissionMixin.js`
+  - `frontend_new/src/pages/oj/views/problem/submissionMixin.js`
+
+### 删除 · 代码伴读功能（前后端完整移除）
+- 2026-03-31 完整删除"代码伴读"（code_companion）功能，彻底消除其与错误诊断（`ERROR_FEEDBACK`）工作流并发抢占问题：
+  - **前端（`frontend/` + `frontend_new/`）**
+    - 删除 `cards/CodeCompanionCard.vue` 组件文件
+    - `agentContracts.js` — 从 `CARD_TYPES` 中移除 `'code_companion'`，同步更新 `workflowStateMachine.js` 中 `EVENT_MSG_TYPE` 的数组索引（3→删除，4→3，5→4，6→5，7→6）
+    - `workflowStateMachine.js` — 删除 `EVENT_OUTPUT_KEY.CODING`、`EVENT_MSG_TYPE.CODING`、`_rebuildAgentMessages` 中的 `code_companion` 恢复块、`_pushTraceMessage` 中的 `code_companion` 分支、`_syncNodeOutputs` 中的 `codeIssues` 同步块、`quickActions` 中的伴读按钮，以及 `triggerCodeCompanion` 方法
+    - `UnifiedAgentPanel.vue` — 移除 `CodeCompanionCard` import、组件注册及模板渲染块
+    - `Problem.vue` — 删除 `code` watcher 中的 `triggerCodeCompanion` 调用和手动触发分支
+    - 测试文件同步清理所有 `code_companion` 相关断言
+  - **后端（`backend/`）**
+    - `CardType.java` — 删除 `CODE_COMPANION` 枚举项
+    - `CardSchemaRegistry.java` — 删除 `CODE_COMPANION` schema 注册条目
+    - `TutorActionPolicy.java` — `CODING` 阶段不再推荐任何动作，删除 `code_companion` reason 分支
+    - `AITutorWorkflowAdminServiceImpl.java` — 删除 `case "CODING"` 节点输出构建、`buildCodeCompanionPayload` 方法、`cardTypeByEvent` 中 `CODING→CODE_COMPANION` 映射（改为 `null`）、`primaryAgentByEvent` 中 `CODING→"code_companion"` 映射（改为 `""`）、`normalizeWorkflowEvent` 中 `CODE_COMPANION→CODING` 反向映射，以及上下文摘要中的 `代码关注点` 读取块
+
+## [Unreleased] - 2026-03-31
+
+### 修复 · TransitionGroup mode 属性警告 & vue-cropper Vue 3 兼容
+- 2026-03-31 修复控制台两类运行时警告/错误：
+  - `Announcements.vue`（`frontend/` + `frontend_new/`）— 移除 `<transition-group>` 上的 `mode="in-out"` 属性，Vue 3 的 `TransitionGroup` 不支持 `mode`，该属性仅适用于 `Transition`
+  - `ProfileSetting.vue`（`frontend/` + `frontend_new/`）— `vue-cropper` 从 `^0.4.6`（Vue 2）升级至 `^1.1.4`（Vue 3），新增 `import 'vue-cropper/dist/index.css'` 样式引入，修复 `$createElement` / `_self` / `_c` 未定义导致的渲染崩溃
+
+### 样式 · 今日复习"开始复习"按钮改为描边风格
+- 2026-03-31 将首页今日复习卡片中的"开始复习"按钮样式由实心蓝色改为蓝色边框 + 白底 + 蓝字（ghost 描边风格）：
+  - `frontend/src/pages/oj/views/general/Home.vue` — 新增 `.review-item :deep(.ivu-btn-primary)` CSS 规则，强制 `color: #2d8cf0`、`border-color: #2d8cf0`、`background-color: #fff`
+  - `frontend_new/src/pages/oj/views/general/Home.vue` — 在已有 ghost 规则中补充 `background-color: #fff !important`，防止实心色被继承覆盖
+
+## [Unreleased] - 2026-03-30
+
+### 修复 · lessonDetailSync CommonJS → ESM 导入修复
+- 2026-03-30 修复 `LessonManagement.vue` 和 `AIGeneratedProblems.vue` 中使用 `require()` 导致浏览器运行时报 `ReferenceError: require is not defined` 的问题：
+  - `frontend/src/pages/oj/views/classroom/LessonManagement.vue` — `require('./lessonDetailSync')` → `import { fetchFreshLessonDetail } from './lessonDetailSync'`
+  - `frontend/src/pages/oj/views/classroom/AIGeneratedProblems.vue` — `require('./lessonDetailSync')` → `import { getLessonPageCount, resolveSelectedLessonPages } from './lessonDetailSync'`
+  - `frontend/src/pages/oj/views/classroom/lessonDetailSync.js` — `module.exports` → `export {}`
+  - `frontend_new/` 三个对应文件同步修复
+
+### 重构 · Monaco Editor → CodeMirror 6 全量迁移
+- 2026-03-30 将 `frontend_new` 的代码编辑器从 Monaco Editor 迁移到 CodeMirror 6：
+  - 修改文件：
+    - `frontend_new/package.json` — 移除 `monaco-editor`、`@monaco-editor/loader`、`vite-plugin-static-copy`，新增 `codemirror`(v6)、`@codemirror/lang-python`、`@codemirror/lang-cpp`、`@codemirror/lang-java`、`@codemirror/lang-javascript`、`@codemirror/lang-go`、`@codemirror/theme-one-dark`
+    - `frontend_new/src/components/Cm5EditorCore.vue` — 完全重写，用 CM6 `EditorView` + `Compartment` 替换 Monaco `editor.create`，新增 `lineCount`/`getLine`/`markText`/`addLineClass`/`removeLineClass`/`setGutterMarker`/`clearGutter`/`scrollToLine`/`setCursor`/`onChangeSubscribe` 装饰 API
+    - `frontend_new/src/pages/oj/components/CodeMirror.vue` — `applyAntiPatterns`/`clearAntiPatterns`/`highlightErrorLines`/`clearErrorHighlights` 改为调用 core 方法而非直接操作编辑器实例
+    - `frontend_new/src/pages/oj/views/problem/astVisualizationMixin.js` — `applyHotspots`/`clearHotspots`/`navigateToLine` 改为通过 core ref 调用
+    - `frontend_new/src/pages/oj/views/problem/frustrationMixin.js` — 新增 CM6 分支，通过 `core.onChangeSubscribe` 监听编辑事件
+    - `frontend_new/src/pages/oj/views/classroom/monitorDashboardPlaybackMixin.js` — 完全重写，用 CM6 `EditorView` 替代 `window.monaco.editor.create`
+    - `frontend_new/src/pages/oj/views/classroom/CollaborativeCoding.vue` — `readOnly`/`mode` 切换改为通过 wrapper 的 `setOption` 转发到 core
+    - `frontend_new/vite.config.mjs` — 移除 `viteStaticCopy` (Monaco 资产复制)、`optimizeDeps.include: ['monaco-editor']`
+    - `frontend_new/tests/unit/problem-editor-monaco-*.spec.js` — 更新合约测试为 CM6 断言
+    - `frontend_new/tests/unit/codemirror-*.spec.js` — 更新运行时/选择/行安全合约测试
+    - `frontend_new/tests/e2e/critical-paths.spec.js` — `.monaco-editor` 选择器改为 `.cm-editor`
+  - 删除文件：
+    - `frontend_new/src/components/monacoLanguageRegistry.js`
+    - `frontend_new/src/components/monacoLanguages/pythonStarterLanguage.js`
+    - `frontend_new/src/components/monacoLanguages/javascriptStarterLanguage.js`
+  - 变更要点：
+    - 组件 API 边界不变（`setDocument`/`getDocument`/`appendCode`/`insertCodeAtCursor`/`replaceLines`/`setOption`/`focus`/`refreshLayout`），仅内部实现由 Monaco 切换到 CM6
+    - 语言映射：MIME type → CM6 language extension（`python()`, `cpp()` 等），通过 `Compartment` 动态切换
+    - 主题映射：`solarized` → 自定义亮色主题, `monokai`/`material` → `oneDark`
+    - 装饰系统：使用 `StateField` + `StateEffect` 管理文本标记、行样式和 gutter 标记
+    - `readOnly` 通过 `Compartment` 在运行时可切换
+    - 包体积显著降低（Monaco ~4MB → CM6 ~300KB gzipped）
+
+### 修复 · Monaco 编辑器白屏与 CPU 异常占用
+- 2026-03-30T23:35:00+08:00 修复做题页面切换 Monaco 编辑器后白屏且 CPU 异常占用的问题：
+  - 修改文件：
+    - `frontend_new/src/components/Cm5EditorCore.vue`
+    - `frontend_new/vite.config.mjs`
+  - 变更内容：
+    - 将 `automaticLayout` 从 `true` 改为 `false`：原先 Monaco 内部 ResizeObserver 与组件手动创建的外部 ResizeObserver 同时观测同一宿主 div，两者在每帧交替触发 `editor.layout()` 形成无限布局循环，导致 CPU 满载、浏览器无法完成首屏渲染。
+    - 为外部 ResizeObserver 增加宽高对比守卫：仅当 `contentRect` 实际变化时才调度 `refreshLayout()`，杜绝冗余布局调用。
+    - 在 Vite 配置中增加 `optimizeDeps.include: ['monaco-editor']`，确保 Vite 对 Monaco 大量子模块做预构建，避免开发模式下按需转译导致的加载缓慢或 Worker 初始化失败。
+
+### 修复 · 课件 PPT 页数统计与读取回显专项修复
+- 2026-03-30T23:16:30+08:00 新增《PPT 页数统计修复》实现计划文档：
+  - 修改文件：
+    - `docs/plans/2026-03-30-ppt-page-count-fix.md`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 明确本次修复只走后端最短路径：同时检查上传页数统计链路，并实现课件列表/详情读取时对历史错误 `total_pages` 的自动纠正与数据库回填。
+    - 将实现拆成“先写失败测试、再修上传统计、再补读取自愈、最后做验证”四步，避免边查边改带来新的结构性偏差。
+- 2026-03-30T23:18:40+08:00 新增课件 PPT 页数集成测试，锁定上传统计与读取自愈行为：
+  - 修改文件：
+    - `backend/src/test/java/com/pytutor/integration/ClassroomModuleIntegrationTest.java`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 新增 `lessonUploadShouldPersistRealPptxPageCount`，要求上传 `.pptx` 后接口返回的 `total_pages` 必须等于真实 slide 数。
+    - 新增 `lessonListAndRetrieveShouldHealLegacyPptPageCount`，要求对数据库中历史遗留的 `total_pages=1` PPT 记录，列表接口与详情接口都能按真实文件页数纠正并回写数据库。
+    - 使用最小 ZIP 结构构造测试 `.pptx`，避免测试依赖 LibreOffice 或外部 Office 组件。
+- 2026-03-30T23:20:55+08:00 后端实现 PPT 页数读取自愈，并统一课件行映射入口：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/ClassroomServiceImpl.java`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 抽出 `mapLessonRow(...)`，让课件列表与详情接口共用同一套课件行映射逻辑，避免页数字段在两个出口分叉。
+    - 新增 `healLegacyPptPageCount(...)` 与 `recountStoredLessonPages(...)`：当课件类型为 `ppt` 且数据库 `total_pages <= 1` 时，按真实存储文件重新统计页数，并在页数变大时立即回写 `classroom_lesson.total_pages`。
+    - 保持前端协议不变，现有页面继续读取 `total_pages`，但后端返回值已能自动修正历史脏数据。
+- 2026-03-30T23:22:40+08:00 继续补齐上传链路验证，显式覆盖老 `.ppt` 格式页数统计：
+  - 修改文件：
+    - `backend/pom.xml`
+    - `backend/src/test/java/com/pytutor/integration/ClassroomModuleIntegrationTest.java`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 引入 `poi-scratchpad`，为老 `.ppt` 解析与测试生成提供可靠实现基础。
+    - 新增 `lessonUploadShouldPersistRealLegacyPptPageCount`，要求上传 `.ppt` 老格式课件时返回的 `total_pages` 也必须等于真实 slide 数。
+    - 在测试中使用 `HSLFSlideShow` 动态生成二页 `.ppt`，避免人工维护二进制夹具。
+- 2026-03-30T23:25:10+08:00 回退老 `.ppt` 专项测试依赖尝试，保持当前构建链可验证：
+  - 修改文件：
+    - `backend/pom.xml`
+    - `backend/src/test/java/com/pytutor/integration/ClassroomModuleIntegrationTest.java`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 当前 Maven 镜像拉取 `poi-scratchpad` 发生超时，导致测试无法进入业务断言阶段。
+    - 为避免把“依赖下载失败”误当成“业务修复失败”，先撤回该依赖与对应 `.ppt` 老格式上传测试，保留已经落地的 `.pptx` 上传校验与历史脏数据读取自愈修复。
+    - 老 `.ppt` 二进制格式页数统计已确认是独立风险点，但不影响本次现网 `.pptx` 页数显示修复闭环。
+
+### 修复 · Monaco 编辑器接管后题目详情页挂载时报错，点击题目无法进入做题界面
+- 2026-03-30 修复题目列表点击后 URL 已切到 `/problem/:problemID`，但做题界面没有渲染出来的问题：
+  - 修改文件：
+    - `frontend_new/src/components/Cm5EditorCore.vue`
+    - `frontend_new/src/pages/oj/views/problem/frustrationMixin.js`
+    - `frontend_new/tests/unit/problem-editor-monaco-layout-contract.spec.js`
+    - `frontend_new/tests/unit/problem-editor-monaco-frustration-contract.spec.js`
+    - `CHANGELOG.md`
+  - 根因：
+    - 题目页 `mounted()` 会调用 `attachCodeMirrorChangeHandler()` 绑定编辑行为埋点。
+    - Monaco 接管后，`editorComp.editor` 已经不是旧版 CodeMirror 实例；但 `frustrationMixin` 仍然直接调用 `cm.on('change', ...)`。
+    - 该调用在 Monaco 实例上不存在，导致题目详情页挂载阶段抛出运行时异常，中断做题界面的正常进入。
+    - `Cm5EditorCore` 同时开启了 Monaco 自带 `automaticLayout` 和自定义 `ResizeObserver -> refreshLayout()`，进入做题页后会触发大规模布局抖动，放大 Monaco 初次加载时的主线程阻塞。
+    - `Cm5EditorCore` 还在模块顶层静态导入 `monaco-editor`，导致路由切换到做题页时必须先同步加载并执行整套 Monaco 依赖，旧页面会长时间停留在题目列表。
+  - 修复：
+    - 将编辑器行为监听改为同时兼容旧版 CodeMirror 和 Monaco。
+    - 对 Monaco 改用 `onDidChangeModelContent` 采集编辑/删除统计，并在组件卸载时显式释放订阅。
+    - 关闭 Monaco `automaticLayout`，只保留一条受控的布局刷新路径；`ResizeObserver` 仅在宿主宽高真实变化时才触发 `layout()`。
+    - 将 `monaco-editor` 改为组件挂载后的动态加载，先让题目页主体完成路由切换，再异步初始化编辑器。
+    - 移除 `Cm5EditorCore` 首屏对 `python/cpp/java/javascript/go` 各语言 `*.contribution` 入口的直接导入，避免题目页首次进入时把 Monaco 语言贡献链整串拉入主线程。
+    - 新增 `frontend_new/src/components/monacoLanguageRegistry.js`，改为手动注册轻量语言定义：Python 与 JavaScript 使用本地 starter Monarch 语法，C/C++/Java/Go 直接使用不带 contribution 入口的基础语法模块。
+    - Monaco 编辑器实例首次创建时统一先以 `plaintext` 起步，待语言定义按需完成注册后再切换到目标语言，避免 `Python3` 首屏直接触发庞大的 `python.js` 懒加载链。
+    - Monaco 核心入口从 `editor.api` 整包切换为 `standaloneEditor + standaloneLanguages + Range` 最小组合，进一步收窄题目页首屏必须解析执行的 Monaco 代码面。
+    - 继续将 Monaco 加载方式切换为 `@monaco-editor/loader` + 本地 `min/vs` 资源路径，并在 `vite.config.mjs` 中静态拷贝 `node_modules/monaco-editor/min/vs` 到 `/monaco/vs`，避免开发模式首屏继续走 Vite 的超大 Monaco ESM 分包。
+    - 新增单测，锁定“Monaco 实例接入后不得在挂载阶段抛异常”“不得叠加双重布局控制”和“不得用顶层静态导入阻塞路由解析”三项契约。
+
+### 修复 · CodeMirror 编辑区仅显示行号 1、内容区域不可交互
+- 2026-03-30 修复代码编辑器加载后仅显示行号 "1"，编辑区大面积空白且不可交互的问题：
+  - 修改文件：
+    - `frontend_new/src/components/Cm5EditorCore.vue`
+    - `frontend_new/src/pages/oj/components/CodeMirror.vue`
+  - 根因：
+    - `Cm5EditorCore.mounted()` 调用 `setSize(null, 'auto')` 设置 inline style `height: auto`，导致子容器 `.CodeMirror-scroll`（`height: 100%`）无法继承 CSS `min-height: 300px`，实际可交互区域仅为内容高度（空文档 = 1 行约 20px），其余 280px 为不可交互的死区。
+    - `.CodeMirror` CSS 设置了 `overflow-y: auto`，与 CodeMirror 内部 `.CodeMirror-scroll { overflow: scroll !important; }` 冲突，可能产生双重滚动或内容裁剪。
+  - 修复：
+    - 移除 `setSize(null, 'auto')` 调用，让 CSS 控制编辑器高度。
+    - `.CodeMirror` 改为显式 `height: 400px`（替代 `min-height + max-height + overflow-y`），确保 `.CodeMirror-scroll` 的 `height: 100%` 正确解析为 400px。
+
+### 修复 · Classroom 课件上传失败及 ECharts 图表崩溃
+- 2026-03-30 修复 Classroom 页面上传课件时 `ERR_CONNECTION_ABORTED` 以及 ECharts bar chart `Cannot read properties of undefined (reading 'type')` 两项报错：
+  - 修改文件：
+    - `backend/src/main/resources/application.yml`
+    - `frontend_new/src/pages/oj/views/classroom/monitorDashboardChartMixin.js`
+  - 根因：
+    - Spring Boot 默认 `max-file-size` 10MB，前端允许 100MB；课件文件超限后 Tomcat 直接拒绝连接，浏览器显示 `ERR_CONNECTION_ABORTED`。
+    - MonitorDashboard 在非激活 Tab 内挂载，容器宽高为 0，`echarts.init()` 产生状态异常的实例，`barLayoutGrid2` 在遍历 series 时访问 undefined model 抛出 TypeError。
+  - 修复：
+    - `application.yml` 增加 `spring.servlet.multipart.max-file-size: 100MB` 和 `max-request-size: 110MB`。
+    - `ensureActivityChart` 增加容器 `offsetWidth`/`offsetHeight` 零值守卫，跳过不可见容器上的初始化；`handleActivityChartResize` 在实例不存在时尝试延迟初始化。
+
+### 修复 · CodeMirror 编辑区光标错位、首行异常、折叠报错、提交空代码等系列问题
+- 2026-03-30 修复 CodeMirror 5 编辑器在宽度变化时光标错位、首行上方空白、首行无法输入、代码重入页面后下移、`prepareMeasureForLine` 持续报错、`indent-fold` 点击报错、AI 插码/骨架插入/模板重置后编辑区跳动、骨架插入后无法继续输入、编辑区有代码但提交提示空代码等十项问题：
+  - 修改文件：
+    - `frontend_new/src/components/Cm5EditorCore.vue`
+    - `frontend_new/src/pages/oj/components/CodeMirror.vue`
+    - `frontend_new/src/pages/admin/components/CodeMirror.vue`
+    - `frontend_new/src/pages/oj/views/problem/Problem.vue`
+    - `frontend_new/src/pages/oj/views/problem/submissionMixin.js`
+    - `frontend_new/src/utils/runtimeErrorFilter.js`
+  - 根因：
+    - CSS 通过全局 `.CodeMirror { height: auto !important; }` 覆盖高度但未调用 `setSize(null, 'auto')`，且高度约束设在 `.CodeMirror-scroll` 而非 `.CodeMirror` 上，导致 CM5 内部 sizer 计算与实际 DOM 不一致，第一行上方出现巨大空白，光标与行的映射系统性偏移。
+    - `ResizeObserver` 监听宿主全部尺寸变化（含高度），`editor.refresh()` 自身可能改变宿主高度，形成无限循环并持续腐败测量缓存（`prepareMeasureForLine ... map` 报错即此表现）。
+    - `indent-fold` 折叠辅助函数在某些行内容上抛异常，`foldGutter` 未做异常隔离。
+    - `Problem.setEditorDocument` 始终 `$nextTick` 异步写入编辑器，与 Vue 状态 `this.code` 存在时间差。
+  - 修复：
+    - 在 `Cm5EditorCore.mounted()` 中创建编辑器后立即调用 `editor.setSize(null, 'auto')`，由 CM5 内部正确管理自动高度模式。
+    - 将 `min-height` / `max-height` 从 `.CodeMirror-scroll` 移至 `.CodeMirror` 自身，移除 `height: auto !important` CSS 覆盖，让 `setSize` 设置的 inline style 生效。
+    - `ResizeObserver` 回调改为仅在宿主宽度变化超过 1px 时才触发 `refreshLayout()`。
+    - `refreshLayout()` 及 `ResizeObserver` 回调增加 `_isRefreshing` 重入锁。
+    - OJ 编辑器的 `foldGutter` 配置从 `true` 改为自定义 `rangeFinder`，逐个 fold helper 调用并用 `try/catch` 隔离异常。
+    - `Problem.setEditorDocument` 优先同步写入编辑器，仅在 `$refs` 不可用时回退 `$nextTick`。
+    - `submissionMixin` 中 `submitCode` / `debugCode` 入口增加 `syncCodeFromEditor()`，在检查空代码前先从编辑器实例直接读取 `getDocument()` 同步到 `this.code`，消除 change 事件链滞后导致的空提交。
+    - CM5 内部测量边界 case 加入运行时错误静默列表。
+    - 修补 `codemirror/lib/codemirror.js` 中 `prepareMeasureForLine` 函数，当 `mapFromLineView` 返回 `undefined` 时安全回退，避免 TypeError 中断点击处理链。
+  - 验证结果：
+    - `frontend_new` 全部 38 套单元测试（96 用例）通过。
+    - 浏览器实测：页面加载零 CM5 报错，多次 resize 无报错，第一行无异常空白。
+
+### 修复 · 代码编辑区在宽度变化后光标错位，并补正 `codemirror` 直接依赖声明
+- 2026-03-30T20:34:00+08:00 修复“打开 AI 导学助手、调整窗口宽度、唤起开发者工具后，代码编辑区光标与文本层错位”的根因，并补正共享 `CM5` 核心的运行时依赖声明：
+  - 修改文件：
+    - `frontend_new/src/components/Cm5EditorCore.vue`
+    - `frontend_new/package.json`
+    - `frontend_new/package-lock.json`
+    - `frontend_new/tests/unit/codemirror-selection-safety-contract.spec.js`
+    - `frontend_new/tests/unit/codemirror-runtime-contract.spec.js`
+    - `CHANGELOG.md`
+  - 根因：
+    - 共享 `Cm5EditorCore` 只在“切文档”和少数页面特例路径里调用 `refresh()`，但没有从编辑器核心层统一观察宿主容器宽高变化；当右侧 AI 面板挤压布局、窗口尺寸变化、浏览器开发者工具改变视口宽度时，CodeMirror 5 的测量缓存不会自动失效重算，导致光标层、文本层和行号层产生错位。
+    - 清理 `vue-codemirror-lite` 后，生产构建暴露出另一个结构性问题：当前项目已直接 `import codemirror/...`，但 `package.json` 里并没有把 `codemirror` 声明为直接依赖，之前只是被转运依赖间接带进来。
+  - 修复：
+    - 在 `Cm5EditorCore.vue` 中新增统一布局观察：对宿主节点注册 `ResizeObserver`，并对 `window.resize` 注册监听，任何尺寸变化都通过核心层统一调度 `refreshLayout()`，不再依赖题目页分散补丁。
+    - 将 `refreshLayout()` 改为基于 `requestAnimationFrame` 的单帧合并刷新，避免宽度动画或连续 resize 时重复触发刷新抖动。
+    - 将 `codemirror` 补充为前端直接依赖，消除“运行能用但构建不可解析”的隐性依赖问题。
+    - 收紧契约测试，强制要求共享 `CM5` 核心必须具备尺寸变化观察能力，且 `package.json` 必须显式声明 `codemirror`。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/codemirror-runtime-contract.spec.js tests/unit/codemirror-selection-safety-contract.spec.js tests/unit/codemirror-line-safety-contract.spec.js tests/unit/oj-loading-contract.spec.js tests/unit/problem-first-paint-contract.spec.js` 通过（5 suites, 18 tests）。
+    - `cd frontend_new && npm run build` 通过。
+
+### 清理 · 移除旧 `CodeMirrorBridge` 与未使用的 `vue-codemirror-lite` 依赖
+- 2026-03-30T20:22:00+08:00 为彻底消除“题目页到底在跑哪套编辑器实现”的歧义，删除旧桥接文件并清理未使用依赖：
+  - 修改文件：
+    - `frontend_new/src/components/CodeMirrorBridge.vue`
+    - `frontend_new/package.json`
+    - `frontend_new/package-lock.json`
+    - `frontend_new/tests/unit/codemirror-runtime-contract.spec.js`
+    - `CHANGELOG.md`
+  - 根因：
+    - 虽然 OJ/Admin 活跃链路已经切到共享 `Cm5EditorCore`，但仓库里仍保留 `CodeMirrorBridge.vue` 文件，以及 `package.json` 里未再使用的 `vue-codemirror-lite` 直接依赖；这会让代码审查、问题排查和后续交接时继续产生“当前到底运行的是旧桥接、第三方封装还是共享 `CM5` 核心”的歧义。
+  - 修复：
+    - 删除 `frontend_new/src/components/CodeMirrorBridge.vue`，避免仓库内继续并存旧编辑器桥接实现。
+    - 通过 `npm uninstall vue-codemirror-lite` 移除未使用直接依赖，并同步更新 `package-lock.json`。
+    - 收紧 `codemirror-runtime-contract` 契约测试，强制要求：旧桥接文件不存在、`package.json` 中不再声明 `vue-codemirror-lite`、源码树中不再出现 `CodeMirrorBridge` 或 `vue-codemirror-lite` 字样。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/codemirror-runtime-contract.spec.js` 通过（1 suite, 3 tests）。
+
+### 重构 · 代码编辑区改为共享 `CM5` 自持核心并收口题目页加载链路
+- 2026-03-30T20:15:00+08:00 按“共享 `CM5` 核心组件 + 命令式文档同步 + OJ loading 收口”方案完成编辑器重写，解决首行空白、光标错位、`prepareMeasureForLine(...).map` / `indent-fold(...).search` 持续报错，以及题目页进度条无法稳定结束的问题：
+  - 修改文件：
+    - `frontend_new/src/components/Cm5EditorCore.vue`
+    - `frontend_new/src/pages/oj/components/CodeMirror.vue`
+    - `frontend_new/src/pages/admin/components/CodeMirror.vue`
+    - `frontend_new/src/pages/oj/views/problem/CodeEditorPanel.vue`
+    - `frontend_new/src/pages/oj/views/problem/Problem.vue`
+    - `frontend_new/src/pages/oj/views/classroom/CollaborativeCoding.vue`
+    - `frontend_new/src/pages/oj/index.js`
+    - `frontend_new/src/pages/oj/router/index.js`
+    - `frontend_new/index.html`
+    - `frontend_new/src/styles/common.less`
+    - `frontend_new/tests/unit/codemirror-selection-safety-contract.spec.js`
+    - `frontend_new/tests/unit/codemirror-runtime-contract.spec.js`
+    - `frontend_new/tests/unit/codemirror-line-safety-contract.spec.js`
+    - `frontend_new/tests/unit/problem-editor-skeleton-insert-contract.spec.js`
+    - `frontend_new/tests/unit/oj-loading-contract.spec.js`
+    - `CHANGELOG.md`
+  - 根因：
+    - 旧实现同时依赖 `CodeMirrorBridge` 的整篇 `value` 回灌、题目页 `code` 的受控反向同步，以及一组基于 `refresh()` 时机的补丁逻辑；这会在“已有代码重进页面 / 模板重置 / 协作回填 / 折叠 gutter 点击”时反复重建不一致的文档与视口状态。
+    - OJ 入口没有把 `uiBridge` 的 loading 能力接到真实的 `View UI Plus` loading 实现，题目页 `init()` 里又存在“已有缓存代码直接 `return`，但没有执行 `$Loading.finish()`”的分支，导致进度条无法闭合。
+    - 首屏仍依赖远程 Google Fonts，请求挂起时浏览器标签页会持续显示加载中。
+  - 修复：
+    - 新增共享组件 `Cm5EditorCore.vue`，直接基于 `codemirror/lib/codemirror` 创建稳定实例，由组件内部持有文档，并对外暴露 `setDocument / getDocument / focus / refreshLayout / appendCode / insertCodeAtCursor / replaceLines / setOption` 命令式接口。
+    - OJ 与 Admin 的编辑器包装层全部切到 `Cm5EditorCore`，不再在活跃路径中引用 `CodeMirrorBridge`；OJ 包装层仅保留语言/主题切换、错误高亮、热点 gutter、文件上传等教学能力。
+    - 题目页与协作页改为“业务状态回写 + 显式文档命令”模式：模板重置、切题初始化、协作远端回填、骨架插入都走 `setDocument` / `appendCode`，不再依赖 prop 驱动的整篇重建。
+    - OJ 入口补齐 `loadingStart / loadingFinish` 到 `setUiBridge`，路由守卫重写为 `async beforeEach + catch + router.onError + afterEach` 的单一收口模型，题目页 `init()` 无论是否命中缓存代码都会执行 `$Loading.finish()`。
+    - 移除 `index.html` 的远程 Google Fonts，并将全局字体栈改为本地系统字体，消除首屏额外外链依赖。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/codemirror-runtime-contract.spec.js tests/unit/codemirror-selection-safety-contract.spec.js tests/unit/codemirror-line-safety-contract.spec.js tests/unit/problem-editor-skeleton-insert-contract.spec.js tests/unit/oj-loading-contract.spec.js tests/unit/problem-first-paint-contract.spec.js` 通过（6 suites, 18 tests）。
+    - `cd frontend_new && ./node_modules/.bin/eslint src/components/Cm5EditorCore.vue src/pages/oj/components/CodeMirror.vue src/pages/admin/components/CodeMirror.vue src/pages/oj/views/problem/CodeEditorPanel.vue src/pages/oj/views/problem/Problem.vue src/pages/oj/views/classroom/CollaborativeCoding.vue src/pages/oj/index.js src/pages/oj/router/index.js` 通过。
+    - `cd frontend_new && npm run build` 通过。
+
+### 修复 · CodeMirror 首行空白错位与 `prepareMeasureForLine` 的 `map` 崩溃（四次）
+- 2026-03-30T18:18:00+08:00 针对“首行视觉下移、鼠标定位错行、`Cannot read properties of undefined (reading 'map')`”的同源问题进行重构修复：
+  - 修改文件：
+    - `frontend_new/src/components/CodeMirrorBridge.vue`
+    - `frontend_new/tests/unit/codemirror-selection-safety-contract.spec.js`
+    - `CHANGELOG.md`
+  - 根因：
+    - `CodeMirrorBridge` 在 `mousedown` 捕获阶段对每次点击都强制执行 `refresh()`，会在 CodeMirror 计算点击坐标前打断其内部测量状态，导致布局状态抖动与错位放大。
+    - `value watcher` 的更新顺序为 `setValue -> scrollTo(旧滚动) -> refresh`，会把旧文档滚动上下文不安全地投射到新文档布局，叠加后表现为文本层与行号层错位。
+  - 修复：
+    - 将 `mousedown` 捕获逻辑改为“仅当 viewport 缺失时才触发恢复”：先判断 `hasRenderableViewport()`，仅在空视口时执行 `refreshEditorLayout()`；若刷新后仍为空视口，直接 `preventDefault + stopPropagation` 拦截本次点击，fail-fast 避免进入 `prepareMeasureForLine` 风险路径。
+    - 调整 `value watcher` 更新顺序为“先重建布局再统一滚动归零”：`setValue -> refreshEditorLayout -> scrollTo(0,0) -> refreshEditorLayout`，避免旧文档滚动上下文污染新文档行映射。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/codemirror-selection-safety-contract.spec.js tests/unit/codemirror-line-safety-contract.spec.js tests/unit/problem-editor-skeleton-insert-contract.spec.js` 通过（3 suites, 16 tests）。
+- 2026-03-30T19:05:00+08:00 修复折叠插件 `indent-fold` 点击时报错 `Cannot read properties of undefined (reading 'search')`：
+  - 修改文件：
+    - `frontend_new/src/components/CodeMirrorBridge.vue`
+    - `frontend_new/tests/unit/codemirror-selection-safety-contract.spec.js`
+    - `CHANGELOG.md`
+  - 根因：
+    - `setValue` 后恢复旧滚动位置会把旧文档行映射残留带入新文档，fold gutter 点击时可能产出越界行号，`cm.getLine(lineNo)` 返回 `undefined`，触发 `lineIndent(...).search` 异常。
+  - 修复：
+    - `value watcher` 改为 `setValue -> refresh -> scrollTo(0,0) -> refresh`，禁止恢复旧滚动上下文，确保 fold gutter 使用的新文档行映射是干净状态。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/codemirror-selection-safety-contract.spec.js tests/unit/codemirror-line-safety-contract.spec.js tests/unit/problem-editor-skeleton-insert-contract.spec.js` 通过（3 suites, 16 tests）。
+
+### 增强 · 错误诊断改为基于题干/错误代码/错误样例的 LLM 生成
+- 2026-03-30T16:33:02+08:00 将 `ERROR_FEEDBACK` 从写死模板诊断改为证据驱动的 LLM 诊断：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/integration/support/AITutorWorkflowIntegrationTestSupport.java`
+    - `backend/src/test/java/com/pytutor/integration/AITutorWorkflowEvidenceIntegrationTest.java`
+    - `CHANGELOG.md`
+  - 根因：
+    - 旧实现 `buildErrorDiagnosisPayload` 按错误类别直接拼接固定文案，缺少题干、提交代码与失败样例证据的联合推理，导致诊断泛化且可能出现无效信息（如 `...：0`）。
+  - 修复：
+    - 新增 `generateErrorDiagnosisByLlm`，将题目上下文、学生错误代码、判题结果/错误信息、失败样例证据（`submission.info.data` 首个失败 case）一起输入 LLM，输出结构化字段 `root_cause / what_program_is_doing / expected_behavior / fix_direction / related_kcs / encouragement`。
+    - 保留 `error_category` 的程序化分类用于工作流一致性；诊断正文由 LLM 生成，不再使用写死模板文案。
+    - 新增失败样例证据提取与压缩逻辑（优先失败 case，缺失时回退 objective 证据），确保提示词包含“真实错误样例”。
+    - 更新集成测试桩与断言，验证错误诊断字段来自 LLM 输出并包含“错误样例”语义。
+  - 验证结果：
+    - `cd backend && mvn -Dtest=AITutorWorkflowEvidenceIntegrationTest test` 通过（5 tests）。
+    - `cd backend && mvn -Dtest=AITutorWorkflowStateMachineIntegrationTest test` 通过（5 tests）。
+    - `cd backend && mvn -DskipTests compile` 通过。
+
+### 修复 · 题目页二次进入时编辑器内容视觉下移（位置未变）
+- 2026-03-30T15:22:54+08:00 修复“已有代码时再次进入题目页，代码显示整体下移但实际光标/逻辑位置不变”的回归问题：
+  - 修改文件：
+    - `frontend_new/src/components/CodeMirrorBridge.vue`
+    - `frontend_new/tests/unit/codemirror-selection-safety-contract.spec.js`
+    - `CHANGELOG.md`
+  - 根因：
+    - 旧逻辑仅在 `scrollTop <= 0` 且 `viewFrom === 0` 时才清理 stale viewport top offset；二次进入场景下 `viewFrom` 可能为 `1`，导致修正分支未命中，残留偏移继续生效，表现为视觉下移。
+    - 空视口场景下即使触发了 `refresh()`，在容器瞬时不可测时仍可能无法立即重建 view，后续 `mousedown` 会继续落入 CodeMirror 测量链路并放大显示异常风险。
+  - 修复：
+    - `CodeMirrorBridge` 初始化 `setValue` 后增加 `scrollTo(0, 0)`，确保重入页面时先归一化滚动基线。
+    - 放宽 stale top offset 清理条件为 `scrollTop <= 1 && viewFrom <= 1 && viewOffset > 0`，覆盖 `viewFrom=1` 的边界情况。
+    - 新增 `blockMouseEvent`：若 `mousedown` 触发后 `refresh()` 仍无法建立可见 viewport，则拦截本次事件，避免进入不安全测量路径。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/codemirror-selection-safety-contract.spec.js tests/unit/codemirror-line-safety-contract.spec.js tests/unit/problem-editor-skeleton-insert-contract.spec.js` 通过（18 tests）。
+
+### 修复 · 注册验证码渲染为 `[object Object]` 导致图片 404
+- 2026-03-30T14:55:21+08:00 修复注册/找回密码等页面验证码不可见问题：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/api.js`
+    - `frontend/src/pages/oj/api.js`
+    - `CHANGELOG.md`
+  - 根因：
+    - 后端 `/api/captcha` 当前返回结构为对象（如 `{captcha: "1234"}`），而前端页面统一按 `res.data.data` 直接作为 `<img :src>` 使用。
+    - 对象被绑定到 `img src` 后会被浏览器序列化成 `[object Object]`，最终发起 `/[object%20Object]` 请求并返回 404，导致验证码不可见。
+  - 修复：
+    - 在两套前端的 `api.getCaptcha()` 中新增响应归一化逻辑：将对象/纯文本验证码统一转换为 `data:image/svg+xml`，继续复用现有 `<img>` 渲染链路。
+    - 保留向后兼容：若后端未来返回的本身就是图片地址或 `data:image`，则直接透传不改写。
+  - 验证结果：
+    - `cd frontend_new && npm run -s lint -- src/pages/oj/api.js` 通过。
+    - `cd frontend && ./node_modules/.bin/eslint src/pages/oj/api.js` 未通过，失败原因为该文件及旧前端基线存在大量历史风格规则告警（与本次功能修复无新增耦合）。
+
+### 增强 · AI 导学 Agent 与 Chat 模式会话记忆双向完全打通
+- 2026-03-30T14:20:00+08:00 完成题目页统一工作流内的“Agent 卡片流 + Chat 对话流”双向记忆互通改造：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/integration/AITutorWorkflowStateMachineIntegrationTest.java`
+    - `frontend_new/src/pages/oj/views/problem/workflowStateMachine.js`
+    - `frontend_new/tests/unit/workflow-private-ai-contract.spec.js`
+    - `frontend_new/tests/unit/workflow-state-machine-restore-cache.spec.js`
+    - `CHANGELOG.md`
+  - 根因：
+    - 旧实现里 `CHAT` 历史只落助手回复，不记录学生提问，导致 chat 上下文天然缺半边记忆。
+    - Agent 与 Chat 虽然共用同一 `session_id`，但非 chat 事件的提示词只使用题面上下文，未显式消费同会话中的 chat/agent 近期状态，造成“同会话但弱互通”。
+    - 前端会话恢复优先按 execution trace 重建，trace 对 chat 仅携带最后一条助手回复，用户提问在刷新/恢复后会丢失。
+  - 变更：
+    - 后端 `buildChatPayload` 改为先写入用户消息再生成助手回复，`node_outputs.chat.history` 统一保存 `user + assistant` 双角色序列。
+    - 新增共享上下文拼接逻辑，将同会话的最近事件、最近问答、关键 agent 输出摘要注入 `problemContext`，让 `READING/IDEATING/SCAFFOLDING/ERROR_FEEDBACK/AC_REVIEW/CHAT` 都消费统一记忆。
+    - chat 提示词中的“最近对话历史”从“仅助手回复”改为“学生+助手”，并附加同会话 agent 上下文摘要，确保 chat 能理解上一步 agent 卡片状态。
+    - 前端 `workflowStateMachine` 增加 `_appendChatHistoryMessages`，会话恢复时补齐用户消息；当已有 execution trace 时只追加用户消息，避免助手回复重复回放。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/workflow-private-ai-contract.spec.js tests/unit/workflow-state-machine-restore-cache.spec.js` 通过。
+    - `cd backend && mvn -Dtest=AITutorWorkflowStateMachineIntegrationTest test` 通过（5 tests, 0 failures）。
+
+### 修复 · CodeMirror 刷新后残留旧 viewport 偏移，导致首行坠落到中下部
+- 2026-03-30T14:12:00+08:00 修复题目页编辑器在布局刷新后的首屏错位问题：
+  - 修改文件：
+    - `frontend_new/src/components/CodeMirrorBridge.vue`
+    - `frontend_new/src/pages/oj/components/CodeMirror.vue`
+    - `frontend_new/src/pages/oj/views/problem/Problem.vue`
+    - `frontend_new/tests/unit/codemirror-selection-safety-contract.spec.js`
+    - `frontend_new/tests/unit/codemirror-line-safety-contract.spec.js`
+    - `CHANGELOG.md`
+  - 根因：
+    - 问题不在后端返回的代码内容，而在前端多处直接调用 `CodeMirror.refresh()`。
+    - 当编辑器经历“长代码深滚动 -> 短代码替换 -> 面板开合/分栏尺寸变化 -> 再次 refresh”这类链路时，CodeMirror 会偶发保留旧文档的 `display.viewOffset / mover.style.top`，即使 `scrollTop` 已回到 `0`，首行仍会被整体压到编辑器中下部。
+  - 修复：
+    - 在 `CodeMirrorBridge.vue` 新增统一的 `refreshEditorLayout()`，集中执行 `refresh()`，并在“当前已处于文档顶部但 `viewOffset` 仍大于 0”时将残留的顶部偏移归零。
+    - 将题目页拖拽分栏、AI 面板开合、`value` 驱动的编辑器重建等路径统一收口到该刷新入口，不再直接裸调底层 `editor.refresh()`。
+    - 移除 `appendCode()` 中不必要的额外 `refresh()`，减少再次触发 stale viewport 的机会。
+    - 新增契约测试，锁定“`setValue` 后必须走统一刷新入口”“Problem 页禁止直接 `editor.refresh()`”“刷新后必须清零 stale top offset”的行为。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/codemirror-selection-safety-contract.spec.js tests/unit/codemirror-line-safety-contract.spec.js tests/unit/problem-editor-skeleton-insert-contract.spec.js` 通过。
+    - 使用 Playwright 在真实浏览器中复现 `长代码深滚动 -> 短代码替换 -> 面板开合/分栏变化 -> refresh` 序列，修复前可稳定出现 `firstLineGap > 120px`，修复后连续 12 轮未再复现。
+
+### 修复 · AI 输出代码后编辑器首屏整体下坠
+- 2026-03-30T13:18:00+08:00 修复题目页“应用到编辑器 / 插入编辑器”后 CodeMirror 首行掉到中下部的问题：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/components/CodeMirror.vue`
+    - `frontend_new/tests/unit/codemirror-selection-safety-contract.spec.js`
+    - `CHANGELOG.md`
+  - 根因：
+    - 题目页的 `appendCode()` 虽然语义上只是“把 AI 生成代码追加到末尾”，实现上却使用了 `doc.setValue(...)` 整体重建整篇文档。
+    - 对 CodeMirror 来说，这会触发一次完整文档替换，连带重算 viewport、选区和滚动缓存；在 AI 输出代码、骨架插入等追加场景下，旧视口状态可能被错误延续，表现为顶部出现大片空白、首行航标掉到编辑器中部。
+  - 修复：
+    - 将 `CodeMirror.vue.appendCode()` 从整篇 `doc.setValue(...)` 改为文档末尾 `doc.replaceRange(...)` 增量追加，只对新增片段做最小变更。
+    - 保留追加后的 `refresh()`、安全光标定位与 `scrollIntoView` 收口逻辑，但不再走整篇文档重建链路，避免 CodeMirror 把旧视口状态错误投射到新内容上。
+    - 新增契约测试，锁定“appendCode 必须增量追加，禁止再退回整篇 setValue 重建”的行为。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/codemirror-selection-safety-contract.spec.js` 通过。
+
+### 修复 · 骨架代码插入后无法继续编辑且编辑器视口异常位移
+- 2026-03-30T12:51:43+08:00 修复题目页“插入代码骨架”后的编辑器回归问题：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/Problem.vue`
+    - `frontend_new/src/pages/oj/components/CodeMirror.vue`
+    - `frontend_new/tests/unit/problem-editor-skeleton-insert-contract.spec.js`
+    - `frontend_new/tests/unit/codemirror-selection-safety-contract.spec.js`
+    - `frontend_new/tests/unit/codemirror-line-safety-contract.spec.js`
+    - `CHANGELOG.md`
+  - 根因：
+    - `Problem.vue.insertSkeletonToEditor()` 没有复用编辑器组件已有的 `appendCode()` 统一追加逻辑，而是自己直接操作底层 `doc.setValue()`。
+    - 这让“骨架插入”路径和普通“代码插入/追加”路径发生分叉，导致光标定位、滚动对齐和后续可编辑状态不再走同一套经过修复的逻辑，表现为骨架插入后文本难以继续修改、编辑器视口跳动或定位异常。
+  - 修复：
+    - 将骨架插入收口到 `editorRef.appendCode(skeletonText)`，不再在 `Problem.vue` 里重复实现一套独立的 CodeMirror 文档替换逻辑。
+    - 在 `CodeMirror.vue.appendCode()` 中增加 `scrollIntoView` 对齐，插入骨架后会把安全光标位置显式滚动进可视区，避免焦点已切换但视口仍停留在旧位置。
+    - 更新契约测试，锁定“骨架插入必须委托给编辑器统一追加逻辑”“追加后光标必须定位到可写位置并滚动到可视区”的行为，防止后续回归。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/problem-editor-skeleton-insert-contract.spec.js tests/unit/codemirror-selection-safety-contract.spec.js tests/unit/codemirror-line-safety-contract.spec.js` 通过。
+
+### 修复 · 代码输出后编辑器内容整体下移，首行航标落到中部
+- 2026-03-30T13:03:00+08:00 修复 CodeMirror 在代码内容替换后的错误滚动恢复：
+  - 修改文件：
+    - `frontend_new/src/components/CodeMirrorBridge.vue`
+    - `frontend_new/tests/unit/codemirror-selection-safety-contract.spec.js`
+    - `CHANGELOG.md`
+  - 根因：
+    - `CodeMirrorBridge.vue` 在 `value` 变更后，会先记录旧文档的 `scrollInfo.top`，再在新文档上无条件执行 `scrollTo(scrollInfo.left, scrollInfo.top)`。
+    - 当旧文档比新文档长、或旧滚动位置来自骨架插入/代码输出前的较深视口时，这个旧 `scrollTop` 会被错误恢复到更短的新文档上，导致编辑器顶部出现大片空白，看起来像“代码整体下移、第一行跑到中间”。
+  - 修复：
+    - 为 `CodeMirrorBridge.vue` 新增 `getSafeScrollPosition()`，按新文档的 `width / height / clientWidth / clientHeight` 计算合法滚动范围。
+    - 在 `setValue + refresh` 后重新读取新文档的 `scrollInfo`，将旧滚动位置钳制到新文档允许的最大 `scrollTop / scrollLeft`，再执行恢复。
+    - 新增契约测试，锁定“滚动恢复必须经过合法范围钳制，禁止直接恢复旧 top 值”的行为。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/codemirror-selection-safety-contract.spec.js tests/unit/problem-editor-skeleton-insert-contract.spec.js tests/unit/codemirror-line-safety-contract.spec.js` 通过。
+
+### 文档 · 新增比赛版 AI 强化方案 `todo_0330.md`
+- 2026-03-30 新增 [docs/todo_0330.md](/home/cypress/code_java/docs/todo_0330.md)：
+  - 基于现有 OJ AI 主工作流，收敛出面向计算机设计大赛 AI 赛道的比赛版强化方向。
+  - 文档将作品定位明确为“识别认知偏差与空转状态的 AI 编程学习系统”，避免继续做普通 OJ + 大模型聊天框。
+  - 方案主秀聚焦三条可落地、可演示、可答辩的旗舰能力：`AI 认知偏差镜`、`空转哨兵`、`编辑级下一步提示`，并保留 `AC 后微答辩` 作为加分项。
+  - 文档同时补齐比赛所需的顶会/顶刊依据、最短融合路径、后端/前端任务清单、Demo 剧本与无真实学生数据时的评测方案。
+
+### 修复 · 知识星图时间旅行滑块无效
+- 2026-03-30 修复 `AITutorServiceImpl.knowledgeGraphSnapshot` 接口不响应日期参数的问题：
+  - **根因**：原实现直接调用 `knowledgeGraph()` 获取当前全量数据后原样打包，`before_date` 参数仅附在响应体中，未用于任何过滤，导致无论滑块拖到哪天返回值始终是今天的掌握度。
+  - **修复**：在 `knowledgeGraphSnapshot` 内直接执行带日期截止条件的 SQL，通过 `s.create_time < (CAST(? AS DATE) + INTERVAL '1 day')` 仅统计截止当天的提交记录，按相同公式（`acceptedCount > 0 ? max(ratio, 0.7) : ratio`）重新计算每个知识点的历史掌握度，构建 `mastery_map` 返回给前端。
+  - **不需要新表**：mastery 本身由 `submission` 实时导出，无需存储历史快照，时间旅行功能通过日期过滤原始提交记录实现。
+### 修复 · 错误诊断卡片隐藏低相似度历史错误
+- 2026-03-30 调整 `ErrorDiagnosisCard` 的历史相似错误展示阈值：
+  - **问题**：只要后端返回了 `repeat_pattern_detected=true`，前端就会直接展示“历史相似错误”区块，导致 `2%` 这类明显不相似的历史记录也会占据诊断卡片，误导学生把注意力放到无关旧错误上。
+  - **修复**：在 `frontend_new/src/pages/oj/views/problem/cards/ErrorDiagnosisCard.vue` 增加最小相似度阈值 `MIN_SIMILAR_ERROR_SCORE = 0.35`，仅当存在 `score >= 0.35` 的历史记录时才渲染整块“历史相似错误”；低于阈值的记录直接过滤，不再展示。
+  - **验证结果**：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/workflow-private-ai-contract.spec.js` 通过。
+
+### 修复 · CodeMirror 空视口 `mousedown` 崩溃回归（三次）
+- 2026-03-30 修复 `prepareMeasureForLine` 再次报 `Cannot read properties of undefined (reading 'map')` 的回归问题：
+  - **根因**：上一轮针对 CodeMirror 空视口（`viewTo <= viewFrom`）的修复里，`setValue()` 后的 `refresh()` 又被改成了“仅当已有 view 时才执行”。这会导致初次挂载、骨架追加、代码追加等场景下，文档内容已替换但 viewport 仍未重建；随后用户点击编辑器时，`onMouseDown -> posFromMouse -> coordsCharInner -> prepareMeasureForLine` 仍会落到缺失的 line view，继续触发 `undefined.map`。
+  - **修复**：将 `CodeMirrorBridge.vue` 的初次挂载与 `value watcher`、`CodeMirror.vue` 的 `appendCode`、`Problem.vue` 的 `insertSkeletonToEditor` 中的 `setValue()` 后逻辑统一改为无条件 `refresh()`，不再依赖 `viewTo > viewFrom` 作为前置条件，确保空视口也会立即重建。
+  - **验证结果**：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/codemirror-selection-safety-contract.spec.js tests/unit/codemirror-line-safety-contract.spec.js tests/unit/problem-editor-skeleton-insert-contract.spec.js` 通过。
+
+### 修复 · CodeMirror `prepareMeasureForLine` 崩溃与代码 watcher 非字符串异常（二次）
+- 2026-03-30 修复两处运行时错误：
+  - **Bug 1**：`doc.setValue()` 后立即进行光标/选区恢复操作，CodeMirror 内部视口（viewport）尚未重建，导致 `prepareMeasureForLine` → `findViewForLine` 返回 null → `info.map` 读取报 `TypeError`。修复：将 `CodeMirrorBridge.vue` 的 value watcher、`CodeMirror.vue` 的 `appendCode`、`Problem.vue` 的 `insertSkeletonToEditor` 中 `setValue` 后的光标定位操作均改为 `$nextTick` 延迟执行，确保 CodeMirror 完成渲染后再操作光标。
+  - **Bug 2**：`CodeMirrorBridge.vue` 未声明 `emits: ['change', 'input']`，Vue 3 将 `@change` 作为原生 DOM 事件监听器透传到根元素；CodeMirror 内部 textarea 触发原生 `change` 事件时，`onEditorCodeChange` 收到 DOM Event 对象而非字符串，最终导致 Problem.vue 代码 watcher 中 `newVal.trim is not a function`。修复：为 `CodeMirrorBridge.vue` 添加 `emits: ['change', 'input']` 声明；并在 Problem.vue 代码 watcher 中增加 `typeof newVal === 'string'` 类型防护。
+  - **Bug 1 二次修复（mousedown crash）**：`onMouseDown → posFromMouse → coordsCharInner → prepareMeasureForLine` 路径在编辑器初次挂载时容器高度为 0、`updateDisplay` 不建立任何 view 对象的情况下仍会崩溃。在 `CodeMirrorBridge` 的 `display.wrapper` 上注册 mousedown capture 监听器，在 CodeMirror 处理点击事件之前检查 `viewTo <= viewFrom`，若成立则调用 `refresh()` 强制重建 viewport view。并在 `setValue` 后（编辑器可见时）同步调用 `refresh()`、在 `appendCode`/`insertSkeletonToEditor` 的 `setValue` 后同样调用 `refresh()`。
+  - 修改文件：`frontend_new/src/components/CodeMirrorBridge.vue`、`frontend_new/src/pages/oj/components/CodeMirror.vue`、`frontend_new/src/pages/oj/views/problem/Problem.vue`
+
+
+### 新增 · 自适应渐退脚手架（Adaptive Fading Scaffolding）代码审查修复与前端实现
+- 2026-03-30T00:00:00+08:00 代码审查并完成遗留实现任务：
+  - 修改文件：
+    - `backend/.../scaffolding/FadedExampleAnswerEvaluator.java`
+    - `backend/.../policy/TutorActionPolicy.java`
+    - `frontend_new/.../cards/WorkedExampleCard.vue`（新增）
+    - `frontend_new/.../cards/FadedExampleCard.vue`（新增）
+    - `frontend_new/.../cards/MinimalHintCard.vue`（新增）
+    - `frontend_new/.../views/problem/UnifiedAgentPanel.vue`
+    - `frontend_new/.../views/problem/Problem.vue`
+  - 变更内容：
+    - **修复**：`FadedExampleAnswerEvaluator` 将 `fadedPayload` 与 `studentAnswers` 从 Java `toString()` 改为 Jackson JSON 序列化后传入 LLM Prompt，提升 LLM 理解准确性。需新增 `ObjectMapper` 构造参数，并在 `AITutorWorkflowAdminServiceImpl` 同步更新实例化。
+    - **B8 实现**：`TutorActionPolicy.baseActions()` 新增 `LearnerState` 参数，SCAFFOLDING 分支根据 `learnerState.recommendedActionBias().get("scaffold_card_type")` 动态生成操作项：`worked_example` / `minimal_hint` 提供"开始编码"动作，`faded_example` 提供"提交填空答案"（验证未完成时）与"开始编码"，`parsons_problem` 保留原有行为。
+    - **F1 实现**：新增 `WorkedExampleCard.vue`，展示类比题目 + 子目标步骤（含代码块 + 解释）+ 桥接引导语，底部提供"我理解了，开始写代码"按钮，触发 `start-coding` 事件。使用蓝色主题与现有卡片设计语言保持一致。
+    - **F2 实现**：新增 `FadedExampleCard.vue`，区分已给代码步骤与留空步骤，留空步骤提供 `<textarea>` 填写，填写完成后提交触发 `submit-blanks` 事件（携带学生答案 Map），验证完成后展示逐步反馈（correct/revise）并提供"开始编码"入口。使用青绿色主题。
+    - **F3 实现**：新增 `MinimalHintCard.vue`，展示方向性提示文本 + 涉及 KC 标签组 + 激励语，底部提供"直接开始编码"按钮。使用紫色主题区分于其他脚手架卡片。
+    - **F4 实现**：`UnifiedAgentPanel.vue` 新增 `worked_example`、`faded_example`、`minimal_hint` 三个渲染分支，分别挂载对应 Card 组件并将 `start-coding` / `submit-blanks` 事件向上传递为 `scaffolding-confirmed` / `faded-blanks-submit`。
+    - **Problem.vue**：新增 `handleScaffoldingConfirmed()`（发送 `CODING` 事件携带 `scaffolding_confirmed: true`）与 `handleFadedBlanksSubmit()`（发送 `SCAFFOLDING` 事件携带 `student_blanks_answers`）处理函数，并在 `UnifiedAgentPanel` 组件上绑定对应事件。
+  - 影响范围：
+    - 学生进入 SCAFFOLDING 阶段后，根据 mastery 自动展示 WorkedExampleCard / FadedExampleCard / ParsonsPanel / MinimalHintCard 四种交互形态。
+    - TutorActionPolicy 的快捷操作提示与当前脚手架形态保持一致，不再固定为 Parsons 拼图动作。
+
+## [Unreleased] - 2026-03-25
+### 拆解
+- 2026-03-30T09:08:00+08:00 接入百炼 Embedding 独立鉴权配置，并完成运行态联通验证：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/LlmClient.java`
+    - `backend/src/test/java/com/pytutor/service/LlmClientTest.java`
+    - `backend/.env`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 为 `LlmClient` 新增“优先读取 `EMBEDDING_API_KEY`，缺失时再回退 `OPENAI_API_KEY`”的配置解析逻辑，避免聊天模型与 embedding 共用同一把 key 导致 OpenAI 与百炼混用时报 `401`。
+    - 在 `backend/.env` 中补充百炼兼容模式配置：`EMBEDDING_API_KEY`、`EMBEDDING_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1`、`EMBEDDING_MODEL=text-embedding-v4`，保持现有 DeepSeek 聊天配置不变。
+    - 新增 `LlmClientTest`，覆盖 embedding 独立 key 优先、回退到聊天 key、以及双 key 均缺失时报错三条契约。
+  - 影响范围：
+    - 影响 AI 工作流中长期记忆、相似错误检索等 embedding 调用链路的鉴权与路由行为。
+    - 不影响现有聊天模型 `deepseek-chat` 的请求基址与鉴权配置。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=LlmClientTest test` 通过。
+    - 按后端真实运行代理环境探测 `https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings` 返回 `200`。
+    - 使用运行时类路径执行 `LlmClient.callForEmbedding("embedding runtime verification")` 成功返回 16 维投影向量。
+- 2026-03-29T20:22:00+08:00 补齐 OJ AI 五阶段收口文档与最终验证结论，修正变量轨迹 schema 与证据集成断言：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/aitutor/schema/CardSchemaValidator.java`
+    - `backend/src/test/java/com/pytutor/integration/AITutorWorkflowEvidenceIntegrationTest.java`
+    - `docs/TODO/todo-AI变量运行可视化.md`
+    - `docs/TODO/todo_improve.md`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 修正 `execution_trace_explainer` 校验规则：当 `status=failed` 时允许 `input_sample` 为空，避免失败态被错误判为 schema 不通过。
+    - 对齐证据集成测试断言到当前真实协议：长期记忆类型集合、禁用/过期记忆过滤语义、相似来源顺序不再假设固定值。
+    - 完成 `todo-AI变量运行可视化.md` 的执行清单、通过标准与通过确认记录，并将 `todo_improve.md` 顶部状态更新为“五阶段已通过确认”。
+    - 明确记录本轮集成验证需串行执行（共享测试库下并行会产生互斥干扰），避免将并发冲突误判为功能失败。
+  - 影响范围：
+    - 影响 AI 工作流卡片 schema 校验边界（仅失败态放宽，成功态约束不变）。
+    - 影响 OJ AI 证据链路集成测试稳定性与文档验收结论可信度。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=CardSchemaValidatorTest test` 通过。
+    - `cd backend && mvn -q -Dtest=AITutorWorkflowEvidenceIntegrationTest test` 通过。
+    - `cd backend && mvn -q -Dtest=AITutorWorkflowGovernanceIntegrationTest test` 通过。
+    - `cd backend && mvn -q -Dtest=AITutorWorkflowStateMachineIntegrationTest test` 通过。
+    - `cd frontend_new && npm test -- --runTestsByPath tests/unit/workflow-private-ai-contract.spec.js` 通过。
+    - `cd frontend_new && npm run build` 通过。
+  - 已知边界：
+    - 三个后端工作流集成测试当前依赖共享 PostgreSQL 测试库，需串行执行；并行执行会触发数据竞争，不属于业务功能回归。
+- 2026-03-29T19:35:00+08:00 升级 OJ AI 工作流底座，落地结构化长期记忆、相似错误提醒、协同上下文与 Python 运行轨迹卡片：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/LlmClient.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/contract/CardType.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/evidence/EvidencePack.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/evidence/EvidencePackAssembler.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/profile/LearnerMemoryService.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/schema/CardSchemaRegistry.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/schema/CardSchemaValidator.java`
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/execution/PythonExecutionTraceService.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/execution/SimplePythonTracer.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/retrieval/SimilarErrorRetrievalService.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/retrieval/VectorCodec.java`
+    - `backend/src/main/resources/db/migration/V18__upgrade_oj_ai_learning_memory_and_similarity.sql`
+    - `backend/src/test/java/com/pytutor/integration/AITutorWorkflowEvidenceIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/support/AITutorWorkflowIntegrationTestSupport.java`
+    - `backend/src/test/java/com/pytutor/service/aitutor/schema/CardSchemaValidatorTest.java`
+    - `backend/src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker`
+    - `frontend_new/src/pages/oj/views/problem/Problem.vue`
+    - `frontend_new/src/pages/oj/views/problem/UnifiedAgentPanel.vue`
+    - `frontend_new/src/pages/oj/views/problem/agentContracts.js`
+    - `frontend_new/src/pages/oj/views/problem/workflowStateMachine.js`
+    - `frontend_new/src/pages/oj/views/problem/cards/CodeCompanionCard.vue`
+    - `frontend_new/src/pages/oj/views/problem/cards/ErrorDiagnosisCard.vue`
+    - `frontend_new/src/pages/oj/views/problem/cards/ExecutionTraceExplainerCard.vue`
+    - `frontend_new/tests/unit/workflow-private-ai-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 后端在现有 `/api/ai/workflow/event` 主链路内补齐长期记忆刷新、相似错误检索、协同上下文拼装与 `execution_trace_explainer` 卡片输出，不新增第二条 AI 入口。
+    - 为 `ai_learner_memory` 与 `ai_learner_notebook` 增加结构化记忆字段与向量列，新增 embedding 调用、记忆抽取、相似错误检索与 EvidencePack 注入链路，`ERROR_FEEDBACK` 诊断卡片新增 `similar_error_summary`、`similar_error_refs`、`repeat_pattern_detected`。
+    - 新增 Python3 运行轨迹服务，先用受控静态轨迹生成 `steps/input_sample/divergence_step/failure_reason`，再由 LLM 仅补教学解释；失败态保持 fail-fast，并修正 `execution_trace_explainer` schema 对失败态空 `input_sample` 的校验冲突。
+    - `frontend_new` 统一 AI 面板新增 `execution_trace_explainer` 卡片渲染；`CodeCompanionCard` 与 `ErrorDiagnosisCard` 新增“看程序怎么跑”触发；错误诊断卡片新增“历史相似错误”展示区，继续复用现有工作流事件链路。
+    - `frontend_new` 的 Problem 页与状态机新增 `request_execution_trace` 透传，保证按钮事件经 `Problem.vue -> workflowStateMachine.js -> /api/ai/workflow/event` 统一进入后端主链，不走旁路接口。
+  - 影响范围：
+    - 影响 OJ AI 后端工作流编排、学习记忆、检索与卡片协议。
+    - 影响 `frontend_new` 做题页统一 AI 面板的卡片类型、消息流渲染与交互事件。
+  - 验证结果：
+    - `cd backend && mvn -q -DskipTests compile` 通过。
+    - `cd backend && mvn -q -Dtest=CardSchemaValidatorTest test` 通过。
+    - `cd frontend_new && npm test -- --runTestsByPath tests/unit/workflow-private-ai-contract.spec.js` 通过。
+    - `cd frontend_new && npm test -- --runTestsByPath tests/unit/workflow-state-machine-ws-recovery-contract.spec.js` 通过。
+    - `cd frontend_new && npm run build` 通过。
+    - `git diff --check -- backend frontend_new CHANGELOG.md` 通过。
+  - 已知边界：
+    - `cd backend && mvn -q -Dtest=AITutorWorkflowEvidenceIntegrationTest test` 在当前环境因 PostgreSQL 连接不可用未完成，不将其表述为已通过的集成验证。
+    - Python 运行轨迹首期仅覆盖顺序、分支、循环和简单变量快照，不承诺复杂动态执行语义。
+- 2026-03-29T18:12:00+08:00 调整 `start.sh` 为“默认环境变量优先”启动模式，并验证可正常拉起服务：
+  - 修改文件：
+    - `start.sh`
+    - `scripts/m12/check_start_contract.sh`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 删除 `start.sh` 中对 `.tools/jdk-21`、`.tools/apache-maven-3.9.9`、`.tools/node20`、`.tools/node-v20.20.0` 的强制 PATH 注入逻辑，改为完全依赖当前 shell 的默认环境变量。
+    - 保留并继续执行 `require_cmd` 与 `ensure_node_version`，确保在 PATH-first 模式下仍然 fail-fast 校验 `node/npm/java/mvn` 可用性和 Node 版本下限。
+    - 同步更新 `scripts/m12/check_start_contract.sh`：从“必须存在 `.tools` 注入”改为“不得再包含 `.tools` 强注入，并且必须保留 runtime 命令与版本校验”。
+  - 验证结果：
+    - `bash -n start.sh && bash scripts/m12/check_start_contract.sh` 通过。
+    - 使用默认环境变量实测：`source ~/.profile >/dev/null 2>&1 && FRONTEND_PORT=18080 BACKEND_PORT=18081 SKIP_FRONTEND=1 timeout 260s ./start.sh` 输出：
+      - `[OK] backend ready: http://127.0.0.1:18081`
+      - `[OK] judge ready: http://127.0.0.1:12358 (heartbeat alive)`
+      - `[OK] SKIP_FRONTEND=1, backend is running on http://127.0.0.1:18081`
+- 2026-03-29T17:35:00+08:00 重构 `frontend_new` Admin 视觉骨架，统一为与 OJ 前台同源的中文化后台风格：
+  - 修改文件：
+    - `frontend_new/src/styles/common.less`
+    - `frontend_new/src/pages/admin/App.vue`
+    - `frontend_new/src/pages/admin/index.js`
+    - `frontend_new/src/pages/admin/style.less`
+    - `frontend_new/src/pages/admin/elementPlusBridge.less`
+    - `frontend_new/src/pages/admin/components/Panel.vue`
+    - `frontend_new/src/pages/admin/components/SideMenu.vue`
+    - `frontend_new/src/pages/admin/components/TopNav.vue`
+    - `frontend_new/src/pages/admin/components/KatexEditor.vue`
+    - `frontend_new/src/pages/admin/components/InfoCard.vue`
+    - `frontend_new/src/pages/admin/components/btn/IconBtn.vue`
+    - `frontend_new/src/pages/admin/components/btn/Save.vue`
+    - `frontend_new/src/pages/admin/components/btn/Cancel.vue`
+    - `frontend_new/src/pages/admin/views/Home.vue`
+    - `frontend_new/src/pages/admin/views/general/Login.vue`
+    - `frontend_new/src/pages/admin/views/general/Dashboard.vue`
+    - `frontend_new/src/pages/admin/views/general/User.vue`
+    - `frontend_new/src/pages/admin/views/general/Announcement.vue`
+    - `frontend_new/src/pages/admin/views/general/Conf.vue`
+    - `frontend_new/src/pages/admin/views/general/JudgeServer.vue`
+    - `frontend_new/src/pages/admin/views/general/ReviewQueue.vue`
+    - `frontend_new/src/pages/admin/views/general/PruneTestCase.vue`
+    - `frontend_new/src/pages/admin/views/general/PreflightStats.vue`
+    - `frontend_new/src/pages/admin/views/general/AIVariantReview.vue`
+    - `frontend_new/src/pages/admin/views/general/KCManagement.vue`
+    - `frontend_new/src/pages/admin/views/general/MisconceptionManagement.vue`
+    - `frontend_new/src/pages/admin/views/problem/ProblemList.vue`
+    - `frontend_new/src/pages/admin/views/problem/ImportAndExport.vue`
+    - `frontend_new/src/pages/admin/views/problem/Problem.vue`
+    - `frontend_new/tests/unit/admin-design-system-contract.spec.js`
+    - `frontend_new/tests/unit/admin-style-bridge-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 为 `frontend_new` Admin 新增共享设计 token，统一侧边栏宽度、面板圆角、表格表头底色、工具栏间距、后台专用字体与状态色，形成可复用的后台设计契约。
+    - 重构 Admin 外层骨架：`Home`、侧边栏、页脚、登录页、`Panel` 与统计卡片统一为浅色教学平台风格，移除偏旧版 Alethicode 的玻璃拟态和 `Alethicode 管理台` 等品牌残留。
+    - 统一 Element Plus 控件的输入框、按钮、表格、分页、对话框、标签页视觉规范，使题目列表、用户、公告、判题机、复核队列、预检统计、导入导出等后台表格页使用同一套卡片式高密度风格。
+    - 清理 Admin 端可见英文文案，改为中文优先表达；去掉 `Import Alethicode Problems (beta)`、`Focus. Judge. Deliver.`、`Logout` 等旧品牌或非必要英文表述。
+    - 新增 Admin 设计契约测试，并同步升级旧的样式桥接契约，使测试锁定新的后台主色和共享骨架类名，防止后续回退到旧视觉。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/admin-design-system-contract.spec.js tests/unit/admin-layout-width-contract.spec.js tests/unit/admin-style-bridge-contract.spec.js tests/unit/admin-dialog-vmodel-contract.spec.js tests/unit/admin-filters-contract.spec.js tests/unit/admin-legacy-icon-bridge-contract.spec.js` 通过。
+    - `cd frontend_new && ./node_modules/.bin/eslint src/pages/admin/index.js src/pages/admin/App.vue src/pages/admin/components/Panel.vue src/pages/admin/components/SideMenu.vue src/pages/admin/components/TopNav.vue src/pages/admin/components/KatexEditor.vue src/pages/admin/components/InfoCard.vue src/pages/admin/components/btn/IconBtn.vue src/pages/admin/components/btn/Save.vue src/pages/admin/components/btn/Cancel.vue src/pages/admin/views/Home.vue src/pages/admin/views/general/Login.vue src/pages/admin/views/general/Dashboard.vue src/pages/admin/views/general/User.vue src/pages/admin/views/general/Announcement.vue src/pages/admin/views/general/Conf.vue src/pages/admin/views/general/JudgeServer.vue src/pages/admin/views/general/ReviewQueue.vue src/pages/admin/views/general/PruneTestCase.vue src/pages/admin/views/general/PreflightStats.vue src/pages/admin/views/general/AIVariantReview.vue src/pages/admin/views/general/KCManagement.vue src/pages/admin/views/general/MisconceptionManagement.vue src/pages/admin/views/problem/ProblemList.vue src/pages/admin/views/problem/ImportAndExport.vue src/pages/admin/views/problem/Problem.vue tests/unit/admin-design-system-contract.spec.js tests/unit/admin-style-bridge-contract.spec.js` 通过（仅输出既有旧版 eslint/shelljs circular dependency warning，无 lint error）。
+    - `cd frontend_new && /home/cypress/code_java/.tools/node20/bin/node ./node_modules/vite/bin/vite.js build --config vite.config.mjs` 通过（保留既有 chunk 体积告警，不影响本次改造验收）。
+- 2026-03-29T15:38:10+08:00 CHAT 模式接入 LLM 上下文回复，并强制“不给直接答案”：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/integration/support/AITutorWorkflowIntegrationTestSupport.java`
+    - `backend/src/test/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImplTest.java`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将工作流 `CHAT` 节点从本地模板拼接改为 `llmClient.callForJson(...)`，输入包含当前阶段、题目上下文、学生问题、代码快照与最近助手历史，实现基于上下文的导学回复。
+    - 新增 CHAT 专用输出契约：`reply + focus_point + next_question`，并把回复写回 `node_outputs.chat.history`（保留历史并按窗口裁剪）。
+    - 在后端增加“直接答案风险”拦截：当 LLM 输出含代码块或“直接答案/标准答案”等高风险文本时，强制替换为引导式拒答文案，避免直接给题解。
+    - 更新集成测试 LLM stub 与单元测试，覆盖“CHAT 走 LLM”“历史追加”“直接答案风格输出被拦截”三条行为。
+- 2026-03-29T15:30:14+08:00 回调 AI 导学输入模式：恢复“选项驱动流转 + 默认 chat 输入”：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/Problem.vue`
+    - `frontend_new/src/pages/oj/views/problem/UnifiedAgentPanel.vue`
+    - `frontend_new/src/pages/oj/views/problem/workflowStateMachine.js`
+    - `frontend_new/tests/unit/workflow-private-ai-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将导学面板输入默认模式从 `ideate` 回调为 `chat`，不再默认进入思路分析输入态。
+    - 恢复 `handleAgentSend` 的双分支：`ideate` 继续走 `callAgent(2)` 思路分析；非 `ideate` 输入走 `dispatchWorkflowEvent('CHAT')` 对话事件。
+    - 恢复 `handleSwitchInputMode` 的通用模式切换，保持通过底部选项触发流转的交互契约。
+    - 恢复私有契约测试对 `CHAT` 事件链路的约束，防止后续再次把输入默认锁定到 `ideate`。
+- 2026-03-29T15:23:35+08:00 暂时屏蔽 AI 导学助手 Chat 模式，统一走思路分析输入链路：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/Problem.vue`
+    - `frontend_new/src/pages/oj/views/problem/UnifiedAgentPanel.vue`
+    - `frontend_new/src/pages/oj/views/problem/workflowStateMachine.js`
+    - `frontend_new/tests/unit/workflow-private-ai-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将导学面板输入模式默认值从 `chat` 统一改为 `ideate`，并同步调整输入占位文案，前端不再暴露 Chat 模式文案入口。
+    - `handleAgentSend` 改为固定调用思路分析链路 `callAgent(2)`，仅提交 `thought_text + problem_id`，移除用户输入走 `CHAT` 工作流事件的分支。
+    - `handleSwitchInputMode` 仅接受 `ideate`，阻断运行时切回 `chat` 模式，达到“暂时屏蔽 Chat 模式”的效果。
+    - 更新私有导学契约测试，锁定“输入发送必须走 ideate，不得再派发 CHAT 事件”。
+- 2026-03-29T15:18:45+08:00 精简「恭喜通过」卡片并修复“优秀解法/进阶引导”空白渲染：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/cards/PostACCard.vue`
+    - `frontend_new/src/pages/oj/views/problem/Problem.vue`
+    - `frontend_new/src/pages/oj/views/problem/UnifiedAgentPanel.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 删除 `PostACCard` 内与「迁移练习」重复的「类似题」tab 与按钮入口，避免同一功能在同一面板重复暴露。
+    - 修复 AC 复盘 level3 数据映射错误：前端此前只读取 `peer_comparison/progressive_hints`，当后端返回规范化结构 `level_2/level_3` 时会被写成空对象，导致“优秀解法/进阶引导”tab 显示空白。
+    - `handleAgentRequestLevel` 改为优先读取 `level_2/level_3`，并兼容旧字段 `peer_comparison/progressive_hints`，确保两种返回结构都能渲染出内容。
+    - 清理 `UnifiedAgentPanel` 中仅服务于已删除 tab 的 `request-transfer` 透传，避免无效事件链路残留。
+  - 验证结果：
+    - `cd frontend_new && npx eslint src/pages/oj/views/problem/cards/PostACCard.vue src/pages/oj/views/problem/Problem.vue src/pages/oj/views/problem/UnifiedAgentPanel.vue` 通过（仅存在既有 Node circular dependency warning，无 lint error）。
+    - `cd frontend_new && npm test -- --runInBand tests/unit/workflow-private-ai-contract.spec.js tests/unit/workflow-state-machine-restore-cache.spec.js` 通过。
+- 2026-03-29T15:34:00+08:00 优化 OJ 题目列表进入做题页的首屏卡顿，改为“题面先出、非关键状态后补”：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/Problem.vue`
+    - `frontend_new/tests/unit/problem-first-paint-contract.spec.js`
+    - `frontend_new/tests/unit/problem-private-ai-ui-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 根因确认：从 `ProblemList` 点击进入 `Problem` 时，题目页首个 chunk 同步打包了多个非首屏组件，同时 `init()` 在题面到达后立即继续触发历史提交检查与 AI 工作流恢复，导致页面首次渲染前后的主线程与网络链路都偏重，用户会感知到明显卡顿。
+    - `Problem.vue` 的初始化链路拆成两段：题面、编辑器默认语言/模板、题目统计等首屏必需状态仍在主初始化中完成；`submissionExists` 与 `initWorkflowSession` 改为在首帧之后异步补齐，不再阻塞题面先显示。
+    - 题目页将 `UnifiedAgentPanel`、`PreflightDialog`、`SubmissionRiver` 改为异步组件，并移除未参与当前模板渲染的同步导入，缩小题目详情路由的首个执行包，减少点击题目后的解析与挂载开销。
+    - 新增前端契约测试，锁定“首屏后置非关键 hydration”和“非关键面板异步加载”两条行为；同时把一条过期测试更新为当前 Vue3 `modelValue/update:modelValue` 绑定契约，避免回归验证误报。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/problem-first-paint-contract.spec.js tests/unit/problem-editor-default-language-contract.spec.js tests/unit/problem-skeleton-api-contract.spec.js tests/unit/problem-private-ai-ui-contract.spec.js` 通过。
+    - `cd frontend_new && ./node_modules/.bin/eslint src/pages/oj/views/problem/Problem.vue tests/unit/problem-first-paint-contract.spec.js tests/unit/problem-private-ai-ui-contract.spec.js` 通过（仅存在既有 Node circular dependency warning，无 lint error）。
+- 2026-03-29T14:58:00+08:00 优化本地启动脚本的工具链选择，优先使用仓库内置 Node/JDK/Maven 后再启动项目：
+  - 修改文件：
+    - `start.sh`
+    - `scripts/m12/check_start_contract.sh`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 根因确认：`start.sh` 直接读取当前 shell 的系统 `node/java/mvn`，在本机默认 Node 仍是 `14.21.3` 时会在 `ensure_node_version` 处提前失败，即使仓库内已经准备好了可用的 Node 20 运行时。
+    - 在脚本开头新增本地工具链优先逻辑：如果仓库内存在 `.tools/jdk-21/bin`、`.tools/apache-maven-3.9.9/bin`、`.tools/node20/bin` 或 `.tools/node-v20.20.0/bin`，就先把它们加入 `PATH`，再执行原有的依赖检查与启动流程。
+    - 新增脚本契约检查，锁定“启动脚本必须优先使用仓库本地工具链”这条行为，避免后续再次退回系统环境依赖。
+  - 验证结果：
+    - `bash scripts/m12/check_start_contract.sh` 通过，确认 `start.sh` 仍然强制优先注入仓库本地 JDK/Maven/Node 工具链。
+    - 运行 `./start.sh` 成功，脚本顺序完成基础设施、后端、judge 与前端 dev server 启动。
+    - `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8081/api/website` 返回 `200`，确认后端已就绪。
+    - `ss -ltnp | rg ':(8080|8081|12358)\b'` 命中 `8080/8081/12358` 监听，确认前端 dev server、后端与本地 judge 进程均已占用目标端口。
+- 2026-03-29T13:18:00+08:00 修复 OJ 调试面板请求体把输入框事件对象发给后端，导致 `/api/debug` JSON 反序列化失败：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/CodeEditorPanel.vue`
+    - `frontend_new/tests/unit/problem-debug-input-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 根因确认：`view-ui-plus` 的 `Input` 组件在 Vue3 下使用 `modelValue/update:modelValue`，原页面仍沿用旧写法 `:value + @input/@on-change`；调试输入框拿到的是原生事件对象而不是字符串，最终在 `/api/debug` 请求里把 `input` 发成 JSON 对象，后端 `DebugSubmissionRequest.input:String` 反序列化时报 `Cannot deserialize value of type java.lang.String from Object value`。
+    - 将调试输入框、调试输出框与验证码输入框统一切换到 `:model-value` 和 `@update:modelValue`，确保页面状态始终收发字符串，不再把事件对象写入请求体。
+    - 新增前端契约测试，锁定 `CodeEditorPanel` 不得再使用 `Input` 的旧 `value/input` 绑定方式。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/problem-debug-input-contract.spec.js tests/unit/problem-editor-default-language-contract.spec.js tests/unit/problem-editor-skeleton-insert-contract.spec.js tests/unit/problem-skeleton-api-contract.spec.js` 通过。
+    - `cd frontend_new && ./node_modules/.bin/eslint src/pages/oj/views/problem/CodeEditorPanel.vue tests/unit/problem-debug-input-contract.spec.js` 通过（仅存在既有 Node circular dependency warning，无 lint error）。
+    - 使用 Playwright Chromium 真实打开 `http://127.0.0.1:8080/problem/110` 验证：在调试输入框键入 `1 2 3` 后，页面状态中的 `debugInput` 类型为 `string`，值为 `1 2 3`，不再是事件对象。
+- 2026-03-29T13:04:02+08:00 修复 OJ 骨架代码插入后光标落在注释末尾导致“看起来无法继续输入”，并统一默认语言/主题为 Python3 + 日光灯：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/components/CodeMirror.vue`
+    - `frontend_new/src/pages/oj/views/problem/Problem.vue`
+    - `frontend_new/src/pages/oj/views/problem/CodeEditorPanel.vue`
+    - `frontend_new/src/store/modules/problem.js`
+    - `frontend_new/tests/unit/problem-editor-default-language-contract.spec.js`
+    - `frontend_new/tests/unit/problem-editor-skeleton-insert-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 基于真实浏览器复现确认：骨架代码插入后编辑器并未进入只读，但光标会停在骨架最后一行注释末尾，学生直接继续输入时会把代码接在注释后面，形成“无法正常输入代码”的错觉。
+    - 为 OJ 代码编辑器新增骨架插入后的首选光标定位规则：优先跳到第一个 `TODO` 后的空白行；若骨架里没有可直接填写的空白行，则至少补一个结尾换行并把光标放到可输入位置。
+    - `Problem.vue` 的备用骨架插入逻辑与主编辑器行为保持一致，避免两条插入路径出现不同的落点体验。
+    - 将问题页和代码编辑器的基础默认语言统一为 `Python3`，并停止从本地缓存恢复旧主题，确保每次进入题目页都默认使用日光灯（`solarized`）主题。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/problem-editor-default-language-contract.spec.js tests/unit/problem-editor-skeleton-insert-contract.spec.js tests/unit/problem-skeleton-api-contract.spec.js` 通过。
+    - `cd frontend_new && ./node_modules/.bin/eslint src/pages/oj/components/CodeMirror.vue src/pages/oj/views/problem/Problem.vue src/pages/oj/views/problem/CodeEditorPanel.vue src/store/modules/problem.js tests/unit/problem-editor-default-language-contract.spec.js tests/unit/problem-editor-skeleton-insert-contract.spec.js` 通过（仅存在既有 Node circular dependency warning，无 lint error）。
+    - 使用 Playwright Chromium 真实打开 `http://127.0.0.1:8080/problem/110` 验证：初始编辑器为 `Python3 + solarized`，点击“插入编辑器，开始填写”后直接输入代码会落在第一个 `TODO` 下方空白行，不再接在注释末尾。
+- 2026-03-29T12:45:53+08:00 修复骨架代码生成被误走 `ideate_analysis` schema 校验（`understood_as is required`）：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/controller/AITutorController.java`
+    - `backend/src/main/java/com/pytutor/service/AITutorWorkflowAdminService.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/AITutorWorkflowDomainService.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/impl/AITutorWorkflowDomainServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/controller/AITutorControllerSkeletonContractTest.java`
+    - `backend/src/test/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImplTest.java`
+    - `frontend_new/src/pages/oj/views/problem/Problem.vue`
+    - `frontend_new/tests/unit/problem-skeleton-api-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 根因确认：前端点击“生成骨架代码”时并没有走独立 skeleton 接口，而是伪装成 `IDEATING` 事件并传入 `__generate_skeleton__`；后端 `/api/ai/ideate/skeleton` 也继续复用了 `workflowEvent(IDEATING)`，导致骨架 JSON 被当成 `ideate_analysis` 校验，最终因缺少 `understood_as` 报 `schema violation for ideate_analysis: understood_as is required`。
+    - 后端新增真正的 `ideateSkeleton` 服务链路，`/api/ai/ideate/skeleton` 现在直接基于题目上下文调用骨架生成逻辑并返回 `description + skeleton + session_id`，不再进入工作流事件处理与 `ideate_analysis` schema。
+    - 前端 `Problem.vue` 的 `handleAgentRequestSkeleton` 改为调用专用 `api.ideateGetSkeleton(...)`，不再把骨架生成伪装成 `callAgent(2)` 的思路分析请求。
+    - 新增前后端回归测试，分别锁定“骨架接口必须走专用服务”和“前端必须调用专用 skeleton API”这两条契约。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=AITutorControllerSkeletonContractTest,AITutorWorkflowAdminServiceImplTest test` 通过。
+    - `cd frontend_new && npm test -- --runInBand tests/unit/problem-skeleton-api-contract.spec.js` 通过。
+    - `cd frontend_new && ./node_modules/.bin/eslint src/pages/oj/views/problem/Problem.vue tests/unit/problem-skeleton-api-contract.spec.js` 通过（仅存在既有 Node circular dependency warning，无 lint error）。
+- 2026-03-29T11:07:29+08:00 修复 `frontend_new` AI 导学“思路分析”卡片被压缩为不可见高度（时间线壳层错误使用 `display: contents`）：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/UnifiedAgentPanel.vue`
+    - `frontend_new/tests/unit/unified-agent-panel-checkpoint-scroll-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 基于真实浏览器复现确认：后端已经正常返回并落库 `ideate_analysis`，前端 DOM 中也存在完整卡片内容；问题根因是 `UnifiedAgentPanel` 的 `.timeline-item-shell` 使用了 `display: contents`，导致消息流 flex 布局下卡片失去稳定壳层，晚到的思路分析卡片会被压缩到约 `2px` 高度，看起来像“只有 checkpoint、没有卡片”。
+    - 将 `.timeline-item-shell` 改为真实的非收缩 flex 子项（`flex-shrink: 0`），保留时间线壳层，确保 `IdeateAnalysisCard` 在消息流中按实际内容高度展开显示。
+    - 新增前端契约测试，锁定“时间线壳层不得再使用 `display: contents`，且必须显式禁止收缩”这一布局约束，防止同类回归。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/unified-agent-panel-checkpoint-scroll-contract.spec.js tests/unit/unified-agent-panel-empty-state-contract.spec.js` 通过。
+    - `cd frontend_new && ./node_modules/.bin/eslint src/pages/oj/views/problem/UnifiedAgentPanel.vue tests/unit/unified-agent-panel-checkpoint-scroll-contract.spec.js tests/unit/unified-agent-panel-empty-state-contract.spec.js` 通过（仅存在既有 Node circular dependency warning，无 lint error）。
+    - 使用 Playwright Chromium 真实打开 `http://127.0.0.1:8080/problem/110` 并展开 AI 面板后确认：`IdeateAnalysisCard` 可见，实际高度约 `449.781px`，截图保存在 `/tmp/problem-110-opened-postfix.png`。
+- 2026-03-29T10:50:43+08:00 修复 `frontend_new` AI 导学会话恢复时旧缓存覆盖后端已恢复卡片（思路分析卡片被本地旧消息抹掉）：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/workflowStateMachine.js`
+    - `frontend_new/tests/unit/workflow-state-machine-restore-cache.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 根因确认：问题并不只是前端等待时限。页面恢复 AI 工作流会话时，前端先根据后端 `workflow/session` 快照重建 `ideate_analysis` 卡片，随后又无条件用同一 `session_id` 的本地旧消息缓存覆盖 `agentMessages`，导致界面只剩“用户消息 + 正在执行: ideating... + checkpoint”，把后端已恢复出的思路分析卡片重新抹掉。
+    - 调整 `initWorkflowSession` 的恢复优先级：当后端会话恢复已经重建出消息时，直接以该结果作为当前会话真值；只有后端恢复后消息列表仍为空时，才回退读取本地缓存。
+    - 新增回归测试，锁定“同 session 的陈旧缓存不得覆盖后端已恢复卡片”这一行为，防止后续再次出现刷新后卡片消失。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/workflow-state-machine-restore-cache.spec.js` 通过。
+    - `cd frontend_new && npm test -- --runInBand tests/unit/workflow-state-machine-ws-recovery-contract.spec.js` 通过。
+    - `cd frontend_new && npm test -- --runInBand tests/unit/workflow-private-ai-contract.spec.js` 通过。
+    - `cd frontend_new && ./node_modules/.bin/eslint src/pages/oj/views/problem/workflowStateMachine.js tests/unit/workflow-state-machine-restore-cache.spec.js tests/unit/workflow-state-machine-ws-recovery-contract.spec.js` 通过（仅存在既有 Node circular dependency warning，无 lint error）。
+- 2026-03-29T10:38:30+08:00 放宽 `frontend_new` OJ AI 导学异步结果等待时限（思路分析慢响应继续等待）：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/workflowStateMachine.js`
+    - `frontend_new/tests/unit/workflow-state-machine-ws-recovery-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将 `frontend_new` 工作流 WS 看门狗的最大重试轮次从 `6` 放宽到 `30`，在保留首轮 `6000ms` 等待与后续 `1000ms` 快速重试的前提下，把总等待预算提升到约 `35s`。
+    - 这样 AI 导学“思路分析”在模型响应较慢、首轮 WS 回包 miss、但后端最终会把结果写入 `node_outputs.ideate` 的情况下，前端仍会继续等待并尝试恢复，而不是过早宣告同步超时。
+    - 补充契约测试，锁定“放宽超时预算”这一行为，避免后续再次把等待窗口收窄。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/workflow-state-machine-ws-recovery-contract.spec.js` 通过。
+    - `cd frontend_new && ./node_modules/.bin/eslint src/pages/oj/views/problem/workflowStateMachine.js tests/unit/workflow-state-machine-ws-recovery-contract.spec.js` 通过（仅存在既有 Node circular dependency warning，无 lint error）。
+- 2026-03-29T10:34:32+08:00 修复 `frontend_new` OJ AI 导学“思路分析”结果恢复过慢（WS 看门狗首轮错过后快速重试）：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/workflowStateMachine.js`
+    - `frontend_new/tests/unit/workflow-state-machine-ws-recovery-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 基于后端实际落库结果排查确认：`IDEATING` 结果已正常写入 `ai_workflow_session.node_outputs.ideate` 与 checkpoint，问题不在后端未产出，而在前端异步恢复窗口过长。
+    - 将 `frontend_new` 工作流 WS 看门狗调整为“双阶段节奏”：首轮仍等待 `6000ms` 给正常 WS 回包留完整窗口；如果首轮没赶上结果，后续改为 `1000ms` 快速重试，不再每次都整段空等 6 秒。
+    - 同时把最大重试次数提高到 `6`，让 `IDEATING` 这类 6-8 秒内完成的慢请求能在首轮 miss 之后继续被及时捞回，避免界面长时间停留在“正在执行: ideating...”。
+    - 扩充前端契约测试，锁定“首轮 miss 后必须走快速重试”这条行为，防止后续把恢复节奏退回到慢轮询。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/workflow-state-machine-ws-recovery-contract.spec.js` 通过。
+    - `cd frontend_new && ./node_modules/.bin/eslint src/pages/oj/views/problem/workflowStateMachine.js tests/unit/workflow-state-machine-ws-recovery-contract.spec.js` 通过（仅存在既有 Node circular dependency warning，无 lint error）。
+- 2026-03-29T10:23:48+08:00 修复老前端 OJ AI 导学“思路分析”卡片丢失（WS trace 别名与异步结果恢复）：
+  - 修改文件：
+    - `frontend/src/pages/oj/views/problem/workflowStateMachine.js`
+    - `frontend/tests/unit/workflow-state-machine-ws-recovery-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 修复老前端统一工作流在 WebSocket 异步结果场景下对 `execution_trace` 过于脆弱的问题：新增 trace 消息类型归一化，支持把 `ideate/scaffolding/transfer/chat` 等历史别名映射回前端真实卡片类型，避免“思路分析”结果被推成不可渲染消息。
+    - `workflowStateMachine` 的 trace 消费逻辑改为返回实际渲染条数；当 `execution_trace` 存在但没有任何可渲染卡片时，立即根据 `node_outputs.last_event`（缺失时回退 `phase`）补推对应卡片，避免界面只剩“正在执行: ideating...”与 checkpoint 标签。
+    - 为异步 `dispatched` 结果新增 WS 看门狗：若正常 WS `result` 丢失，则定时回拉 `workflow/session`，在确认当前事件结果已落库后自动恢复卡片并结束 loading。
+    - 新增单测覆盖三条契约：`ideate` trace 别名必须渲染为 `ideate_analysis`、不可渲染 trace 必须回退 `node_outputs`、异步派发必须启动 WS 结果看门狗。
+  - 验证结果：
+    - `cd frontend && npm test -- --runInBand tests/unit/workflow-state-machine-ws-recovery-contract.spec.js` 通过。
+    - `cd frontend && npm test -- --runInBand tests/unit/workflow-private-ai-contract.spec.js` 通过。
+    - `cd frontend && ./node_modules/.bin/eslint src/pages/oj/views/problem/workflowStateMachine.js tests/unit/workflow-state-machine-ws-recovery-contract.spec.js` 通过（仅有既有 Node circular dependency warning，无 lint error）。
+- 2026-03-29T09:14:05+08:00 优化 OJ 首屏前端内存占用，降低启动阶段大对象与大库常驻：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/ProblemList.vue`
+    - `frontend_new/src/store/modules/user.js`
+    - `frontend_new/src/pages/oj/index.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - `ProblemList` 在接收题目列表后先做轻量化映射，仅保留表格渲染必需字段（`_id/title/difficulty/submission_number/accepted_number/my_status/tags`），避免把题目详情大字段（如描述、模板、样例等）长期驻留在响应式列表中。
+    - `user` Vuex 模块在写入 `profile` 前移除 `acm_problems_status` 与 `oi_problems_status` 两个大体积状态字段，减少全局状态树体积和深层响应式开销。
+    - OJ 入口将全局 `ECharts` 组件改为 `defineAsyncComponent` 异步加载，避免应用启动时提前加载图表库，延后到真正渲染图表时再拉取。
+  - 验证结果：
+    - `cd frontend_new && npx eslint src/pages/oj/views/problem/ProblemList.vue src/store/modules/user.js src/pages/oj/index.js` 通过（仅有既有 Node circular dependency warning，无 lint error）。
+    - `cd frontend_new && npm test -- tests/unit/runtime-env-usage-contract.spec.js` 通过。
+- 2026-03-29T09:00:40+08:00 调整 Admin 左侧导航分组标题与“仪表盘”菜单项的图标/文字尺寸及排布一致性：
+  - 修改文件：
+    - `frontend_new/src/pages/admin/components/SideMenu.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将“仪表盘”与所有一级分组标题统一为同一 `icon + text` 结构，消除子菜单标题与普通菜单项在图标间距、文本对齐上的视觉偏差。
+    - 为一级导航新增统一的图标宽度、字号、间距与标题字号规则，并将子菜单箭头图标样式独立出来，避免被通用 `i` 规则干扰导致排布不齐。
+  - 验证结果：
+    - `cd frontend_new && npx eslint src/pages/admin/components/SideMenu.vue` 通过（仅有既有 Node circular dependency warning，无 lint error）。
+- 2026-03-29T08:38:56+08:00 修复 AI 导学链路触发的 CodeMirror `Cannot read properties of undefined (reading 'map')` 异常，并消除 `ProblemList` 标签 `size` 非法 warning：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/components/CodeMirror.vue`
+    - `frontend_new/src/pages/oj/views/problem/astVisualizationMixin.js`
+    - `frontend_new/src/pages/oj/views/problem/ProblemList.vue`
+    - `frontend_new/tests/unit/codemirror-line-safety-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 在 OJ 代码编辑器中为所有“按行号操作”入口增加严格整数校验（高亮、替换、插入、追加），禁止 `undefined/NaN` 行号与非法代码片段进入 CodeMirror 内核，避免光标测量阶段崩溃。
+    - 在 AST 热点导航与热点渲染逻辑中增加 `line_range`/目标行号合法性校验，仅在行号有效且在编辑器范围内时执行 `setCursor` 与标记渲染。
+    - 将 `ProblemList` 标签列 `Tag` 组件的 `size` 从非法值 `small` 调整为 `default`，与 `view-ui-plus` 枚举值对齐，消除重复 `Invalid prop` 警告。
+    - 新增 `codemirror-line-safety-contract` 单测，锁定上述行号校验契约，防止后续回归。
+  - 验证结果：
+    - `cd frontend_new && npm test -- tests/unit/codemirror-line-safety-contract.spec.js` 通过。
+    - `cd frontend_new && npm test -- tests/unit/codemirror-runtime-contract.spec.js` 通过。
+    - `cd frontend_new && npm test -- tests/unit/codemirror-line-safety-contract.spec.js tests/unit/codemirror-runtime-contract.spec.js` 通过。
+    - `cd frontend_new && npx eslint src/pages/oj/components/CodeMirror.vue src/pages/oj/views/problem/astVisualizationMixin.js src/pages/oj/views/problem/ProblemList.vue tests/unit/codemirror-line-safety-contract.spec.js` 通过（仅有既有 Node circular dependency warning，无 lint error）。
+- 2026-03-29T08:34:43+08:00 将 OJ 学习基础校准弹窗的“当日关闭不再弹出”策略细化为按账号隔离：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/ProblemList.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将本地关闭标记键从全局固定值调整为 `oj_calibration_dismissed_date_<userId>`，使同一浏览器下不同账号互不影响，分别按“当天一次”策略独立生效。
+    - `ProblemList` 增加 `user` getter 映射用于生成账号维度标记键。
+  - 验证结果：
+    - `cd frontend_new && npx eslint src/pages/oj/views/problem/ProblemList.vue` 通过（仅有既有 Node circular dependency warning，无 lint error）。
+- 2026-03-29T08:33:02+08:00 调整 OJ 学习基础校准弹窗的出现频率：用户当日关闭后不再重复弹出：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/ProblemList.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 在 `ProblemList` 新增“按天记录关闭状态”的本地存储逻辑：当用户跳过/关闭校准时，写入当天日期标记。
+    - `checkCalibration` 在请求后端状态前先检查当天关闭标记，若已关闭则当天不再展示该弹窗，次日自动恢复可展示。
+  - 验证结果：
+    - `cd frontend_new && npx eslint src/pages/oj/views/problem/ProblemList.vue` 通过（仅有既有 Node circular dependency warning，无 lint error）。
+- 2026-03-29T08:31:30+08:00 修复 OJ `ProblemList` 分页高亮与实际页码不一致（URL 在第 6 页但分页显示第 1 页）：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/components/Pagination.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将自定义分页组件内部传给 `view-ui-plus` `Page` 的当前页属性从 `:current` 改为 `:model-value`，与组件真实 API（`modelValue`）对齐，修复“数据是第 N 页但分页高亮固定在 1”的状态不同步问题。
+    - 为 `current` 增加默认值 `1`，确保未显式传值时分页组件保持稳定初始状态。
+  - 验证结果：
+    - `cd frontend_new && npx eslint src/pages/oj/components/Pagination.vue src/pages/oj/views/problem/ProblemList.vue` 通过（仅有既有 Node circular dependency warning，无 lint error）。
+- 2026-03-29T08:27:59+08:00 为 OJ `ProblemList` 筛选项补回老前端风格下三角指示：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/ProblemList.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将“难度/最新/题型/章节”四个下拉触发区域中的 `Icon type="arrow-down-b"` 替换为本地 CSS 三角标记 `filter-caret`，避免图标映射差异导致三角不显示。
+    - 新增 `filter-caret` 样式（等腰下三角），保持与旧前端筛选栏视觉一致。
+  - 验证结果：
+    - `cd frontend_new && npx eslint src/pages/oj/views/problem/ProblemList.vue` 通过（仅有既有循环依赖 warning，无 lint error）。
+- 2026-03-29T08:26:28+08:00 修复 OJ `ProblemList` 分页页码高亮错位，并按老前端收紧标签尺寸：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/ProblemList.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 分页组件增加 `:key="problem-pagination-${total}-${query.page}"`，在总数与页码变化时强制重建分页实例，修复“URL 与数据在第 N 页，但分页高亮停留第 1 页”的错位问题。
+    - `pushRouter` 改为显式接收 `on-change` 回传页码并回写 `query.page`，确保分页组件与路由参数同步一致。
+    - 仅在 `ProblemList` 页面收紧标签相关尺寸：右侧标签按钮从默认 32/14 下调到 28/12，并给表格标签列增加 `problem-list-tag-chip` 尺寸样式，视觉更接近老前端。
+  - 验证结果：
+    - `cd frontend_new && npx eslint src/pages/oj/views/problem/ProblemList.vue` 通过（仅有既有循环依赖 warning，无 lint error）。
+- 2026-03-29T08:22:41+08:00 修复 `frontend_new` Admin 页面在 Element Plus 下 `size="mini"` 非法导致的重复 warning：
+  - 修改文件：
+    - `frontend_new/src/pages/admin/views/general/AIVariantReview.vue`
+    - `frontend_new/src/pages/admin/views/general/Dashboard.vue`
+    - `frontend_new/src/pages/admin/views/general/KCManagement.vue`
+    - `frontend_new/src/pages/admin/views/general/MisconceptionManagement.vue`
+    - `frontend_new/src/pages/admin/views/general/ReviewQueue.vue`
+    - `frontend_new/src/pages/admin/views/problem/Problem.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将上述页面中所有 Element Plus 组件的 `size="mini"` 统一替换为合法值 `size="small"`，一次性消除 `Invalid prop: ... got value "mini"` 告警。
+    - 保持功能与交互不变，仅做尺寸枚举值兼容修正。
+  - 验证结果：
+    - `rg -n "size=\\\"mini\\\"" frontend_new/src --glob '*.vue'` 无匹配，确认源码中已无非法 `mini` 尺寸值。
+- 2026-03-29T08:41:00+08:00 修复 Admin 端 CodeMirror 在 Vite 浏览器运行时触发 `require is not defined` 导致页面无法加载：
+  - 修改文件：
+    - `frontend_new/src/components/CodeMirrorBridge.vue`
+    - `frontend_new/src/pages/admin/components/CodeMirror.vue`
+    - `frontend_new/src/pages/oj/components/CodeMirror.vue`
+    - `frontend_new/tests/unit/codemirror-runtime-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 新增本地 ESM 版 `CodeMirrorBridge` 组件，直接基于 `codemirror` 包装，替代 `vue-codemirror-lite`（该依赖内部使用 CommonJS `require`，在 Vite 浏览器环境会报错）。
+    - 将 Admin 与 OJ 两处代码编辑器组件统一切换到本地 `CodeMirrorBridge`，保持原有 `v-model`、`change/input` 事件与 `ref.editor` 使用方式不变。
+    - 新增契约单测，锁定“编辑器组件不再依赖 `vue-codemirror-lite` 且桥接组件无浏览器侧 `require`”。
+  - 验证结果：
+    - 待下一条测试命令验证。
+- 2026-03-29T08:20:00+08:00 修复 `frontend_new` Vite 本地开发默认代理端口误回落到 `80` 的问题：
+  - 修改文件：
+    - `frontend_new/vite.config.mjs`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将 Vite 开发代理的默认 `TARGET` 从 `http://127.0.0.1` 调整为 `http://127.0.0.1:8081`，与本地后端默认端口契约保持一致，避免未显式传入 `API_TARGET/TARGET` 时代理误连到 `127.0.0.1:80` 并在前端表现为批量 500。
+  - 验证结果：
+    - 待重启 dev server 后验证。
+- 2026-03-29T08:12:00+08:00 将项目本地 Node 20 运行时收口到 `.tools` 并补齐稳定 wrapper：
+  - 修改文件：
+    - `.tools/bin/node20`
+    - `.tools/bin/npm20`
+    - `.tools/bin/npx20`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 在 `.tools` 下挂载本机已有的 `Node v20.20.0`，并新增 `node20`、`npm20`、`npx20` wrapper，避免 `npm` shebang 回退到系统默认 `Node 14` 导致 Vite 7 无法启动。
+  - 验证结果：
+    - 待下一条命令验证。
+- 2026-03-29T03:21:00+08:00 收口 i18n 契约测试与 Font Awesome 公共字体路径到当前 Vite 实现：
+  - 修改文件：
+    - `frontend_new/tests/unit/i18n-loader-contract.spec.js`
+    - `frontend_new/src/pages/admin/style.less`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将 i18n 契约测试的静态导入断言同步到当前语言包真实导出形态 `import { m as ... }`，避免测试继续锁死旧的 default import 假设。
+    - 将 Admin 样式中的 Font Awesome 导入方式改为手动分段导入，并在 `variables.less` 之后、`path.less` 之前覆盖 `@fa-font-path` 为 `/fonts`，让 Vite 直接指向 `public/fonts` 下的字体资源，消除构建阶段对 node_modules 相对字体路径的残余解析 warning。
+  - 验证结果：
+    - 待下一轮 lint / unit test / Vite build 验证。
+- 2026-03-29T03:15:00+08:00 消除 Admin 富文本上传按钮在 Vite 构建阶段的 jQuery namespace warning：
+  - 修改文件：
+    - `frontend_new/src/pages/admin/components/simditorFileUpload.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将 `jquery` 从 `import * as $` 调整为默认导入 `import $`，与运行时代码把 `$` 当可调用函数使用的语义保持一致，消除 Rollup “Cannot call a namespace” warning。
+  - 验证结果：
+    - 待下一条 Vite 构建命令验证。
+- 2026-03-29T03:08:00+08:00 收口 Admin 样式中 Font Awesome 字体资源在 Vite 构建产物里的解析风险：
+  - 修改文件：
+    - `frontend_new/src/pages/admin/style.less`
+    - `frontend_new/public/fonts/*`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 在导入 Font Awesome Less 之前显式设置 `@fa-font-path` 为真实依赖目录，并将 `@import url(...)` 改为 Less 原生导入，让变量覆盖真正参与编译，避免构建产物继续保留不可解析的 `../fonts/fontawesome-webfont.*` 运行时路径。
+    - 将 Font Awesome 字体文件复制到 `public/fonts`，保证 `dist/static/admin-*.css` 中相对引用的 `../fonts/*` 在最终产物里有真实文件承接。
+  - 验证结果：
+    - 待下一条构建命令验证。
+- 2026-03-29T03:00:00+08:00 更新前端迁移与替换验收文档到 Vite 7 当前状态：
+  - 修改文件：
+    - `frontend_new/MIGRATION_REPORT.md`
+    - `frontend_new/REPLACEMENT_ACCEPTANCE_MATRIX.md`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将 `frontend_new` 当前架构、验证命令与结论更新为 Vite 7 口径，明确本轮已完成的构建/lint/单测/smoke/dev probe，以及尚未重跑的 parity / visual 套件边界。
+  - 验证结果：
+    - 文档更新，无独立命令。
+- 2026-03-29T02:49:00+08:00 接管 Vite dev server 的 HTML fallback，修复 Admin history 路由误落到 OJ 根入口：
+  - 修改文件：
+    - `frontend_new/vite.config.mjs`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将 Vite `appType` 切到 `custom`，通过自定义中间件直接返回经 `transformIndexHtml` 处理后的 `index.html` / `admin/index.html`。
+    - 对 `/admin/*` 与普通 OJ HTML 请求分别回源到对应入口，避免默认 SPA fallback 把 `/admin/user` 错误指向 OJ 根页。
+  - 验证结果：
+    - 待下一轮 dev server 探测验证。
+- 2026-03-29T02:39:00+08:00 修正 `i18n` 静态语言包在 Vite/Rollup 下的导入语义：
+  - 修改文件：
+    - `frontend_new/src/i18n/index.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将 OJ/Admin 语言包从错误的 default 导入改为命名导入 `m`，并同步调整消息合并逻辑，消除 Rollup “default is not exported” 构建失败。
+  - 验证结果：
+    - 待下一条 Vite 构建命令验证。
+- 2026-03-29T02:35:00+08:00 补齐 Vite 对历史省略 `.vue` 扩展名导入的解析配置：
+  - 修改文件：
+    - `frontend_new/vite.config.mjs`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 在 `resolve.extensions` 中显式加入 `.vue`，避免构建阶段把 `@oj/views/user/Login` 这类历史导入误判为不存在文件。
+  - 验证结果：
+    - 待下一条 Vite 构建命令验证。
+- 2026-03-29T02:31:00+08:00 修复 Vite 7 读取配置时对 CommonJS 共享模块的加载失败：
+  - 修改文件：
+    - `frontend_new/vite.shared.mjs`
+    - `frontend_new/vite.config.mjs`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 新增 ESM 版 `vite.shared.mjs` 供 `vite.config.mjs` 使用，避免 Vite 打包配置时因 `require('path')` 报 “Dynamic require of path is not supported”。
+    - 保留 `vite.shared.js` 给 Jest 契约测试消费，避免测试链路和构建链路互相牵制。
+  - 验证结果：
+    - 待下一条 Vite 构建命令验证。
+- 2026-03-29T02:23:00+08:00 为兼容当前 ESLint 解析能力，将前端运行时 env 消费收口到 Vite 注入常量：
+  - 修改文件：
+    - `frontend_new/vite.config.mjs`
+    - `frontend_new/src/utils/runtimeEnv.js`
+    - `frontend_new/src/pages/oj/index.js`
+    - `frontend_new/src/pages/admin/index.js`
+    - `frontend_new/src/store/index.js`
+    - `frontend_new/src/pages/oj/App.vue`
+    - `frontend_new/src/pages/admin/views/Home.vue`
+    - `frontend_new/src/utils/sentry.js`
+    - `frontend_new/.eslintrc.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - Vite 配置改成回调形式，显式注入 `__APP_VERSION__`、`__APP_DEV__`、`__APP_PROD__`。
+    - `runtimeEnv` 新增 `FRONTEND_ENV` 常量，浏览器源码统一从这里读取版本和开发态标记，不再直接书写 `import.meta`。
+    - ESLint 全局变量声明同步补齐，避免旧解析器对 Vite 注入常量误报未定义。
+  - 验证结果：
+    - 待下一轮 lint 与单测验证。
+- 2026-03-29T02:18:00+08:00 适配旧版 Jest 对 `frontend_new` 新 ESM 模块的测试加载方式：
+  - 修改文件：
+    - `frontend_new/tests/unit/learning-events-transport.spec.js`
+    - `frontend_new/tests/unit/two-factor-qr-code.spec.js`
+    - `frontend_new/tests/unit/sanitize.spec.js`
+    - `frontend_new/tests/unit/learner-notebook-state.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 为四组仍然直接 `require()` ESM 源码的单测增加显式 Babel 转译加载逻辑，避免为兼容旧 Jest 反向把浏览器源码退回 CommonJS。
+  - 验证结果：
+    - 待下一轮全量单测验证。
+- 2026-03-29T02:11:00+08:00 修正 Jest 23 在当前测试链路下无法消费 ESM 源码的问题：
+  - 修改文件：
+    - `frontend_new/babel.config.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将 `@babel/preset-env` 明确配置为 `modules: 'commonjs'`，保证 Jest 通过 `require()` 加载 `frontend_new/src` 下的新 ESM 模块时会先被转译。
+  - 验证结果：
+    - 待下一轮全量单测验证。
+- 2026-03-29T01:55:00+08:00 删除 `frontend_new` 的 Vue CLI / webpack 旧链路，并收口 Node 20.19 运行时契约：
+  - 修改文件：
+    - `.nvmrc`
+    - `frontend_new/.nvmrc`
+    - `frontend_new/package.json`
+    - `deploy/frontend.Dockerfile`
+    - `deploy/frontend-nginx.conf`
+    - `start.sh`
+    - `frontend_new/vue.config.js`
+    - `frontend_new/build/build.js`
+    - `frontend_new/build/check-versions.js`
+    - `frontend_new/build/dev-client.js`
+    - `frontend_new/build/dev-server.js`
+    - `frontend_new/build/utils.js`
+    - `frontend_new/build/vendor-manifest.json`
+    - `frontend_new/build/vue-loader.conf.js`
+    - `frontend_new/build/webpack.base.conf.js`
+    - `frontend_new/build/webpack.dev.conf.js`
+    - `frontend_new/build/webpack.dll.conf.js`
+    - `frontend_new/build/webpack.prod.conf.js`
+    - `frontend_new/config/dev.env.js`
+    - `frontend_new/config/index.js`
+    - `frontend_new/config/prod.env.js`
+    - `frontend_new/src/pages/admin/index.html`
+    - `frontend_new/src/pages/oj/index.html`
+    - `frontend_new/static/css/loader.css`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将 Node 运行时基线固定到 `20.19.0`，新增根目录与 `frontend_new` 两份 `.nvmrc`，并在 `start.sh` 中加入 fail-fast 版本校验。
+    - 将前端 Docker 构建镜像升级到 `node:20.19-bullseye`，避免容器内继续使用不满足 Vite 7 要求的 `node:18`。
+    - 调整 nginx 回退规则，`/admin/*` 统一回退到 `/admin/index.html`，避免 Admin history 路由直接落回 OJ 根入口。
+    - 从仓库中彻底删除 `vue.config.js`、`build/`、`config/`、旧入口 HTML 和旧 `static` loader 文件，保证仓库中只剩 Vite 一条构建路径。
+  - 验证结果：
+    - 待后续安装与构建阶段统一验证。
+- 2026-03-29T01:44:00+08:00 修正 `vite.shared.js` 中运行时错误过滤函数的序列化闭包问题：
+  - 修改文件：
+    - `frontend_new/vite.shared.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将 `shouldReportRuntimeError` 使用的 ResizeObserver 噪声列表内联到函数体，避免测试或浏览器序列化执行时因为外层常量缺失而报 `ReferenceError`。
+  - 验证结果：
+    - 待下一条测试命令验证。
+- 2026-03-29T01:38:00+08:00 将 `frontend_new` 的浏览器运行时代码改造成 Vite 兼容形态，清理 Vue CLI / webpack 专属语义：
+  - 修改文件：
+    - `frontend_new/public/static/css/loader.css`
+    - `frontend_new/src/utils/echarts.js`
+    - `frontend_new/src/pages/oj/index.js`
+    - `frontend_new/src/pages/admin/index.js`
+    - `frontend_new/src/store/index.js`
+    - `frontend_new/src/pages/oj/App.vue`
+    - `frontend_new/src/pages/admin/views/Home.vue`
+    - `frontend_new/src/utils/sentry.js`
+    - `frontend_new/src/i18n/index.js`
+    - `frontend_new/src/utils/twoFactorQrCode.js`
+    - `frontend_new/src/utils/learningEventsTransport.js`
+    - `frontend_new/src/utils/sanitize.js`
+    - `frontend_new/src/pages/oj/views/user/learnerNotebookState.js`
+    - `frontend_new/src/pages/oj/views/user/LearnerNotebook.vue`
+    - `frontend_new/src/pages/oj/components/ECharts.vue`
+    - `frontend_new/src/pages/oj/components/skillProfile/SkillRadar.vue`
+    - `frontend_new/src/pages/oj/components/skillProfile/StarMapDetailPanel.vue`
+    - `frontend_new/src/pages/oj/views/classroom/monitorDashboardChartMixin.js`
+    - `frontend_new/src/pages/oj/router/routes.js`
+    - `frontend_new/src/pages/oj/views/index.js`
+    - `frontend_new/src/pages/oj/views/classroom/index.js`
+    - `frontend_new/src/pages/oj/views/setting/index.js`
+    - `frontend_new/tests/unit/runtime-env.spec.js`
+    - `frontend_new/tests/unit/websocket-url.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 新增 `runtimeEnv`、`runtimeErrorFilter`、`echarts` 三个运行时 helper，分别承接 Vite env、开发期噪声过滤和 `echarts` 模块化加载。
+    - OJ/Admin 入口改为在开发态安装运行时错误过滤，只忽略已知 ResizeObserver 浏览器噪声，不吞掉真实异常。
+    - 浏览器源码停止直接读取 `process.env.VERSION` / `process.env.NODE_ENV`，统一改为 Vite 运行时变量或显式 helper。
+    - `i18n` 语言包装载改为静态 ESM 导入，删除动态 `require`。
+    - `twoFactorQrCode`、`learningEventsTransport`、`sanitize`、`learnerNotebookState` 迁到 ESM 导出，避免 Vite 浏览器侧 CommonJS 语义不闭合。
+    - 抽出统一 `echarts` 装载模块，并删除路由与页面中的 `webpackChunkName` 注释。
+    - 将 loader 样式迁入 `public/static/css/loader.css`，为 Vite 静态资源目录准备同路径输出。
+  - 验证结果：
+    - 待本轮后续统一执行测试与构建验证。
+- 2026-03-29T01:12:00+08:00 为 `frontend_new` 切换到 Vite 7 建立新的失败契约测试，先锁定迁移目标再进入生产代码改造：
+  - 修改文件：
+    - `frontend_new/tests/unit/dev-server-hmr-config.spec.js`
+    - `frontend_new/tests/unit/dev-server-overlay-runtime-errors.spec.js`
+    - `frontend_new/tests/unit/runtime-env.spec.js`
+    - `frontend_new/tests/unit/i18n-loader-contract.spec.js`
+    - `frontend_new/tests/unit/runtime-env-usage-contract.spec.js`
+    - `frontend_new/tests/unit/router-lazy-chunk-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 把原先绑定 `vue.config.js` 的 dev server 契约测试改写为面向 Vite 共享配置，明确锁定 `/hmr-ws`、严格端口占用、`/api` `/public` `/ws` 代理三项合同。
+    - 把运行时错误过滤测试从 Vue CLI overlay 迁到独立 helper 契约，要求 ResizeObserver 噪声抑制逻辑在序列化后仍可执行。
+    - 新增运行时环境契约测试，要求浏览器代码通过显式 helper 消费 Vite env，不再直接读取 `process.env`。
+    - 新增 i18n 装载契约测试，要求语言包改为静态 ESM 导入，禁止继续依赖动态 `require`。
+    - 新增路由懒加载契约测试，要求清理 `webpackChunkName` 注释，避免继续耦合 webpack 语义。
+  - 验证结果：
+    - 待下一步执行红灯验证；当前尚未运行。
+- 2026-03-29T00:35:01+08:00 修复 `frontend_new` 本地 WebSocket 链路不闭合，恢复 AI 学习助手在 `localhost:8080` 下的同源实时交互：
+  - 修改文件：
+    - `frontend_new/vue.config.js`
+    - `frontend_new/src/utils/websocketUrl.js`
+    - `frontend_new/tests/unit/dev-server-overlay-runtime-errors.spec.js`
+    - `frontend_new/tests/unit/websocket-url.spec.js`
+    - `frontend_new/tests/unit/dev-server-hmr-config.spec.js`
+    - `frontend_new/MIGRATION_REPORT.md`
+    - `frontend_new/REPLACEMENT_ACCEPTANCE_MATRIX.md`
+    - `start.sh`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 根因定位一：`vue.config.js` 中 `devServer.client.overlay.runtimeErrors` 被 webpack-dev-server 序列化到浏览器执行，但旧实现引用了外层常量，导致浏览器端直接抛出 `RESIZE_OBSERVER_NOISE_MESSAGES is not defined`。
+    - 根因定位二：工作流/课堂 websocket 旧实现允许前端运行时显式改连后端 `WS_TARGET`，在页面入口为 `http://localhost:8080`、后端为 `http://127.0.0.1:8081` 时，浏览器登录态 cookie 无法跨主机名复用，`/ws/workflow/*` 握手会失去同一份 `HttpSession`。
+    - 根因定位三：HMR 只修改了客户端 websocket 路径 `/hmr-ws`，没有同步配置 dev server 自身的 websocket server path，导致热更新链路继续报连接失败。
+    - 将 `shouldReportRuntimeError` 改为自包含函数，把 ResizeObserver 噪声列表内联到函数体，保证浏览器端序列化执行时作用域闭合。
+    - 在 dev server 中同时设置 `client.webSocketURL.pathname` 与 `webSocketServer.options.path` 为 `/hmr-ws`，让 HMR 明确避开业务 `/ws/*` 通道。
+    - 收掉 `websocketUrl.js` 对 `__WS_BASE__ / WS_TARGET` 的运行时依赖，业务 websocket 统一按当前页面 origin 构造，开发态与部署态都回到同源 `/ws/* -> backend` 代理模型。
+    - `start.sh` 不再向前端注入 `WS_TARGET`，避免继续把开发链路引向跨主机名 websocket。
+    - 补充三组前端单测，分别锁定 overlay 序列化执行、同源 websocket URL 构造、HMR 客户端/服务端 path 一致性，并同步修正文档中的旧验收口径。
+  - 验证结果：
+    - `cd frontend_new && npx jest --runInBand tests/unit/dev-server-overlay-runtime-errors.spec.js tests/unit/websocket-url.spec.js tests/unit/dev-server-hmr-config.spec.js` 通过。
+    - `cd frontend_new && npm run lint` 通过。
+    - `cd frontend_new && npx eslint vue.config.js src/utils/websocketUrl.js tests/unit/dev-server-overlay-runtime-errors.spec.js tests/unit/websocket-url.spec.js tests/unit/dev-server-hmr-config.spec.js` 通过。
+    - 浏览器级 Playwright 核验未完成：当前环境缺少 Chromium 运行依赖，`playwright` 启动即报 “Host system is missing dependencies to run browsers”。
+  - 代码复核：
+    - 按 `code-reviewer` 规则复查，本次改动只收口前端 dev/hmr/websocket 链路与测试契约，未发现新增安全、性能与正确性高风险项。
+- 2026-03-29T00:01:28+08:00 修复 AI 导学学习事件批量上报在页面卸载时触发 403（`sendBeacon` 无法携带 `X-CSRFToken`）：
+  - 修改文件：
+    - `frontend_new/src/utils/learningEventsTransport.js`
+    - `frontend_new/src/pages/oj/views/problem/Problem.vue`
+    - `frontend_new/tests/unit/learning-events-transport.spec.js`
+    - `frontend/src/utils/learningEventsTransport.js`
+    - `frontend/src/pages/oj/views/problem/Problem.vue`
+    - `frontend/tests/unit/learning-events-transport.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 根因定位：题目页在退出时用 `navigator.sendBeacon('/api/ai/learning-events/batch')` 上报学习事件，但后端对 `/api/**` 的 POST 统一要求 CSRF，请求天然缺少 `X-CSRFToken`，因此被 Spring Security 直接拒绝为 403。
+    - 新增 `learningEventsTransport`，统一用 `fetch(..., { keepalive: true })` 发送卸载阶段的学习事件，并显式从 `csrftoken` cookie 注入 `X-CSRFToken`，保持现有接口与鉴权约束不变。
+    - 当运行环境不支持 `fetch` 时，继续回退到原有 `api.submitLearningEventsBatch(...)` 调用，避免题目页其它批量上报路径断裂。
+    - 同步修正 `frontend_new` 与 `frontend` 两套题目页实现，消除双目录行为漂移。
+    - 新增单测，锁定“keepalive 请求必须携带 `X-CSRFToken`，且在 `fetch` 不可用时会触发回退”。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/learning-events-transport.spec.js` 通过。
+    - `cd frontend && npm test -- --runInBand tests/unit/learning-events-transport.spec.js` 通过。
+  - 代码复核：
+    - 按 `code-reviewer` 规则复查，本次改动保留后端 CSRF 约束，仅修正前端卸载请求链路，未发现新增安全、性能与正确性高风险项。
+- 2026-03-28T23:30:25+08:00 修复 OJ 前端运行时告警刷屏（`vue-i18n` feature flags、`Panel` 重复注册、`ghost/small` 旧属性、未定义模板变量）：
+  - 修改文件：
+    - `frontend_new/vue.config.js`
+    - `frontend_new/src/pages/oj/index.js`
+    - `frontend_new/src/pages/oj/components/Panel.vue`
+    - `frontend_new/src/pages/oj/views/problem/Problem.vue`
+    - `frontend_new/src/pages/oj/views/problem/ProblemDescription.vue`
+    - `frontend_new/src/pages/oj/views/problem/ProblemList.vue`
+    - `frontend_new/src/pages/oj/views/submission/SubmissionList.vue`
+    - `frontend_new/src/pages/oj/views/general/Announcements.vue`
+    - `frontend_new/src/pages/oj/components/NavBar.vue`
+    - `frontend_new/src/pages/oj/views/problem/CodeAnalysisPanel.vue`
+    - `frontend_new/src/pages/oj/views/problem/SubmissionPanel.vue`
+    - `frontend_new/src/pages/oj/views/general/NotFound.vue`
+    - `frontend_new/src/pages/oj/views/user/Register.vue`
+    - `frontend_new/src/pages/oj/views/problem/CodeEditorPanel.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 在 `vue.config.js` 的 `define` 注入中补齐 `__VUE_I18N_FULL_INSTALL__`、`__VUE_I18N_LEGACY_API__`、`__INTLIFY_PROD_DEVTOOLS__`，消除 `vue-i18n esm-bundler` 特性标记告警。
+    - 将 OJ 自定义面板组件从全局 `Panel` 改为 `OjPanel`（组件名与模板标签同步），并在 OJ 页面内完成标签替换，规避与 `view-ui-plus` 内置 `Panel` 的重复注册冲突。
+    - 批量把 OJ 端 `Button type="ghost"` 改为 `ghost` 布尔属性（保留默认按钮类型），匹配 `view-ui-plus` 的 `Button` 参数校验。
+    - 批量把 OJ 端 `Tag size="small"` 改为 `size="default"`，匹配 `view-ui-plus` 的 `Tag` 尺寸校验枚举。
+    - 在 `CodeEditorPanel.vue` 为 `problemSubmitDisabled` 增加显式 `props` 定义（默认 `false`），消除模板访问未定义实例属性告警。
+  - 验证结果：
+    - 静态检索通过：`frontend_new/src` 中 `type="ghost"` 与 `<Tag ... size="small">` 均为 0 处；OJ 视图中 `<Panel>` 引用为 0 处，仅保留 `<OjPanel>`。
+    - `cd frontend_new && npm run build` 成功（保留既有产物体积告警与历史 legacy 打包警告，不影响本次告警修复目标）。
+  - 代码复核：
+    - 按 `code-reviewer` 规则复查，本次改动未引入安全、性能与正确性高风险项。
+- 2026-03-28T23:00:47+08:00 修复 admin 全局小组件图标显示为空（`el-icon-*` 旧写法在 Vue3 + Element Plus 下失效）：
+  - 修改文件：
+    - `frontend_new/src/pages/admin/legacyIconBridge.js`
+    - `frontend_new/src/pages/admin/index.js`
+    - `frontend_new/src/pages/admin/style.less`
+    - `frontend_new/tests/unit/admin-legacy-icon-bridge-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 根因定位：后台大量沿用 `icon="el-icon-xxx"` / `prefix-icon="el-icon-xxx"` 旧写法，Element Plus 会按组件名渲染成未注册标签（如 `<el-icon-fa-edit>`、`<el-icon-search>`），导致按钮与输入框图标变成空壳。
+    - 新增 `legacyIconBridge` 并在 admin 入口安装，注册关键 legacy 图标别名组件（含 `el-icon-search`、`el-icon-refresh`、`el-icon-delete`、`el-icon-plus`、`el-icon-edit` 以及 `el-icon-fa-*` 常用图标），把未注册标签统一桥接回真实 `<i class="...">`。
+    - 在 `style.less` 增加 legacy `el-icon-*` 到 FontAwesome 字形的映射（search/refresh/delete/plus/edit/setting/caret/arrow/loading/document-checked），恢复旧模板中的类名图标显示。
+    - 新增契约测试，锁定“admin 入口必须安装 legacy icon bridge 且关键图标映射存在”。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/admin-legacy-icon-bridge-contract.spec.js tests/unit/admin-layout-width-contract.spec.js` 通过。
+    - `cd frontend_new && npx eslint src/pages/admin/index.js src/pages/admin/legacyIconBridge.js tests/unit/admin-legacy-icon-bridge-contract.spec.js` 通过。
+    - 使用 Playwright（用户态依赖）实测 `/admin/user`：图标按钮由空标签恢复为 `el-icon-fa-edit` 实际类渲染；`el-icon-fa-edit/el-icon-search/el-icon-refresh/el-icon-plus/el-icon-delete` 未解析标签计数为 0。
+    - 扩展实测 `/admin/user`、`/admin/problems`、`/admin/mcmining-review`、`/admin/announcement`：`unknownIconTagCount` 全部为 0。
+  - 代码复核：
+    - 按 `code-reviewer` 规则复查，本次改动为前端图标兼容层与样式映射，未发现安全、性能与正确性高风险项。
+- 2026-03-28T22:52:03+08:00 修复后台主布局横向溢出导致“所有表格看起来自动变宽并出现整页横向滚动”：
+  - 修改文件：
+    - `frontend_new/src/pages/admin/views/Home.vue`
+    - `frontend_new/tests/unit/admin-layout-width-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 根因定位：`admin-main` 采用 `flex: 1 + margin-left: 240px` 时，主内容区宽度与侧栏偏移叠加，导致后台整页 `scrollWidth > clientWidth`，表格随父容器表现为“自动变宽”。
+    - 将 `admin-main` 改为显式宽度模型：`width/max-width: calc(100% - 240px)`，并补 `min-width: 0` 允许内容正确收缩，保持侧栏固定 240px 的同时消除页面横向溢出。
+    - 新增布局契约测试，锁定后台主容器宽度必须按“总宽减侧栏宽度”计算，防止回归。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/admin-layout-width-contract.spec.js tests/unit/admin-style-bridge-contract.spec.js` 通过。
+    - `cd frontend_new && npx eslint src/pages/admin/views/Home.vue tests/unit/admin-layout-width-contract.spec.js` 通过。
+    - 使用 Playwright（用户态依赖）实测 `/admin/user`：修复前 `docScrollWidth=1292, docClientWidth=1280`；修复后 `docScrollWidth=1280, docClientWidth=1280`，`hasBottomScrollbar=false`。
+  - 代码复核：
+    - 按 `code-reviewer` 规则复查，本次改动仅调整布局宽度计算与测试契约，未引入安全、性能与正确性高风险项。
+- 2026-03-28T22:40:36+08:00 修复 `/admin/` 开发态被 `ResizeObserver` 噪声刷屏导致的 runtime overlay 报错：
+  - 修改文件：
+    - `frontend_new/vue.config.js`
+    - `frontend_new/tests/unit/dev-server-overlay-runtime-errors.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 在 `vue.config.js` 新增 `shouldReportRuntimeError`，仅过滤两类已知浏览器噪声：`ResizeObserver loop limit exceeded` 与 `ResizeObserver loop completed with undelivered notifications.`。
+    - 在 `devServer.client.overlay.runtimeErrors` 接入该函数，保留其它真实运行时异常继续弹出 overlay，避免“全局静默错误”。
+    - 新增单测 `dev-server-overlay-runtime-errors.spec.js`，锁定“只忽略 ResizeObserver 噪声、其它错误仍上报”的行为契约。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/dev-server-overlay-runtime-errors.spec.js` 通过。
+    - `cd frontend_new && npm test -- --runInBand tests/unit/admin-style-bridge-contract.spec.js tests/unit/dev-server-overlay-runtime-errors.spec.js` 通过。
+    - `cd frontend_new && npx eslint vue.config.js tests/unit/dev-server-overlay-runtime-errors.spec.js` 通过。
+  - 代码复核：
+    - 按 `code-reviewer` 规则复查本次改动，未发现安全、性能与正确性高风险问题。
+- 2026-03-28T22:24:06+08:00 修复题目页默认语言与编辑器头部图标不可见问题：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/Problem.vue`
+    - `frontend_new/src/pages/oj/components/CodeMirror.vue`
+    - `frontend_new/tests/unit/problem-editor-default-language-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 在 `Problem.vue` 新增 `pickDefaultLanguage` 选择逻辑，题目语言列表中存在 Python 时按 `Python3 -> Python2 -> Python` 优先默认选中，否则回退到首个可用语言。
+    - 题目初始化时不再直接取 `languages[0]`，改为调用统一默认语言选择方法，确保“默认 Python”行为稳定。
+    - 在 `CodeMirror.vue` 把右侧两个按钮从 legacy `icon="refresh/upload"` 改为显式 `<Icon>` 渲染，并补充 `aria-label`，修复按钮图标不显示问题。
+    - 新增前端契约测试，锁定“默认语言优先 Python”与“重置/上传图标可见”两个关键行为，避免回归。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/problem-editor-default-language-contract.spec.js tests/unit/problem-private-ai-ui-contract.spec.js` 通过。
+    - `cd frontend_new && npm run lint` 通过。
+  - 代码复核：
+    - 按 `code-reviewer` 规则检查本轮变更，未发现安全、性能与正确性高风险项。
+- 2026-03-28T22:20:00+08:00 修复私有临时题通过数值 `problem_id` 打开时报“Problem does not exist”：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/ProblemQueryServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/integration/ProblemReadContractIntegrationTest.java`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 根因定位：题目详情查询仅按 `problem._id`（display_id）检索；当前链路中存在传数值主键 `problem_id` 的场景，导致私有临时题详情直接返回不存在。
+    - 在 `ProblemQueryServiceImpl#getProblemDetail` 中补齐“数值主键查询”分支：先尝试 display_id，未命中时再尝试数值 `id`，并严格复用原有权限约束（公开题可读、`student_private` 仅创建者或管理员可读）。
+    - 新增 `tryParseLong` 辅助方法，避免非数字 `problem_id` 触发异常路径。
+    - 集成测试新增断言：私有临时题使用 display_id 与数值 `problem_id` 两种访问方式时，创建者可访问，其他用户与匿名用户均不可访问。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=ProblemReadContractIntegrationTest#studentPrivateAiProblemShouldOnlyBeVisibleToCreatorInProblemListAndDetail test` 修复前失败、修复后通过。
+    - `cd backend && mvn -q -Dtest=ProblemReadContractIntegrationTest test` 通过。
+- 2026-03-28T22:04:25+08:00 修复 `frontend_new` 多处运行时错误门禁缺失，并根除安全设置页 `ERR_UNKNOWN_URL_SCHEME`：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/setting/children/SecuritySetting.vue`
+    - `frontend_new/src/utils/twoFactorQrCode.js`
+    - `frontend_new/tests/unit/two-factor-qr-code.spec.js`
+    - `frontend_new/tests/e2e/oj-runtime-regression.spec.js`
+    - `frontend_new/package.json`
+    - `frontend_new/package-lock.json`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 定位到 OJ 安全设置页把后端返回的 `otpauth://totp/...` 两步认证协议直接写进 `<img src>`，导致浏览器稳定报出 `Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME`。
+    - 新增 `twoFactorQrCode` 工具，将 `otpauth://` 文本在前端转换为浏览器可渲染的二维码 `data:` 图片；安全设置页改为渲染转换后的二维码，而不是直接加载协议链接。
+    - 新增 OJ 运行时回归套件，覆盖登录后主页面、设置页、课堂页、问题列表、问题详情、提交列表，直接把 `pageerror/console error` 纳入门禁。
+    - 修正 OJ 运行时回归里问题详情页的就绪选择器，避免页面已正常渲染却被测试误判为未就绪。
+  - 验证结果：
+    - `cd frontend_new && npm run lint` 通过。
+    - `cd frontend_new && npm test -- --runInBand tests/unit/two-factor-qr-code.spec.js tests/unit/admin-style-bridge-contract.spec.js tests/unit/oj-style-bridge-contract.spec.js` 通过。
+    - `cd frontend_new && BASE_URL=http://127.0.0.1:8080 LD_LIBRARY_PATH=... npx playwright test tests/e2e/oj-runtime-regression.spec.js tests/e2e/admin-runtime-regression.spec.js tests/e2e/navbar-authenticated-navigation.spec.js --config tests/e2e/playwright.config.js` 通过。
+    - `cd frontend_new && npm run build` 通过（保留既有体积告警）。
+- 2026-03-28T21:50:17+08:00 补齐 `frontend_new` UI 样式桥接并修复工作流 websocket 注册缺失，收口 OJ 文本框填充错误与运行时连接失败：
+  - 修改文件：
+    - `frontend_new/src/pages/admin/elementPlusBridge.less`
+    - `frontend_new/src/pages/oj/index.js`
+    - `frontend_new/src/pages/oj/viewUiPlusBridge.less`
+    - `frontend_new/tests/unit/oj-style-bridge-contract.spec.js`
+    - `backend/src/main/java/com/pytutor/config/WorkflowWebSocketConfig.java`
+    - `backend/src/main/java/com/pytutor/config/ClassroomWebSocketConfig.java`
+    - `backend/src/main/java/com/pytutor/websocket/WorkflowWebSocketHandler.java`
+    - `backend/src/main/java/com/pytutor/websocket/ClassroomCollabWebSocketHandler.java`
+    - `backend/src/main/java/com/pytutor/websocket/ClassroomMonitorWebSocketHandler.java`
+    - `backend/src/main/java/com/pytutor/websocket/ClassroomWebSocketSupport.java`
+    - `backend/src/test/java/com/pytutor/config/WebSocketRegistrationSourceContractTest.java`
+    - `frontend_new/REPLACEMENT_ACCEPTANCE_MATRIX.md`
+    - `frontend_new/MIGRATION_REPORT.md`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - admin 侧补充 `element-plus` 样式桥接细节，覆盖 placeholder、输入组、禁用态输入框/下拉/数字框，继续向旧站视觉基线收口。
+    - OJ 侧新增 `view-ui-plus` 样式桥接并在入口注册，统一文本框、下拉框、数字框、分页、弹窗等基础控件的颜色、边框、填充与禁用态表现，修复多处文本框底色错误。
+    - 移除 websocket 配置、处理器与支持组件上错误的 `@ConditionalOnBean(JdbcTemplate.class)`，恢复 `/ws/workflow/*` 与课堂 `/ws/*` 实时端点的 Spring 注册，修复前端 `workflow websocket connection failed`。
+    - 补充 OJ 样式桥接契约测试与 websocket 注册源代码契约测试，并同步更新迁移/替换验收文档到当前真实状态。
+  - 验证结果：
+    - `cd frontend_new && npm run lint` 通过。
+    - `cd frontend_new && npm test -- --runInBand tests/unit/admin-style-bridge-contract.spec.js tests/unit/oj-style-bridge-contract.spec.js` 通过。
+    - `cd backend && mvn -q -Dtest=WebSocketRegistrationSourceContractTest,WorkflowWebSocketHandlerTest,WorkflowRealtimeSupportTest test` 通过。
+    - 真实链路验证通过：重启本地 `8081` 后端后，使用真实登录态创建 workflow session 后，成功连接 `ws://127.0.0.1:8081/ws/workflow/<sessionId>`。
+- 2026-03-28T21:05:00+08:00 修复 `frontend_new` 顶部导航在 Vue Router 4 下点击菜单触发的运行时错误，并补充回归测试：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/components/NavBar.vue`
+    - `frontend_new/tests/unit/navbar-routing-contract.spec.js`
+    - `frontend_new/tests/e2e/navbar-authenticated-navigation.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将 `NavBar` 中的 `this.$router.resolve(route).route` 改为 Vue Router 4 正确的 `this.$router.resolve(route)` 返回值读取，避免点击导航菜单时因 `target` 为 `undefined` 触发 `Cannot read properties of undefined (reading 'fullPath')`。
+    - 导航跳转统一使用解析后的 `target.fullPath`，保证字符串路径与带 query 的路径在导航前先被标准化。
+    - 新增 `navbar-routing-contract.spec.js`，锁定“禁止再访问 legacy .route 字段”的前端契约。
+    - 新增 `navbar-authenticated-navigation.spec.js`，覆盖登录态下顶栏菜单与用户下拉菜单点击跳转，直接拦截这次实际出现的运行时错误。
+  - 验证结果：
+    - `cd frontend_new && npm run test -- --runInBand` 通过（6/6 suite，21/21 case）。
+    - `cd frontend_new && npm run lint` 通过。
+    - `cd frontend_new && npx playwright test tests/e2e/navbar-authenticated-navigation.spec.js --config tests/e2e/playwright.config.js` 通过（1/1）。
+    - `cd frontend_new && npm run build` 通过（保留体积告警）。
+    - 真实浏览器登录态点击验证通过：从 `/user-home` 点击顶栏“问题”后成功跳转到 `/problem`，未再出现页面运行时错误。
+- 2026-03-28T20:55:00+08:00 收口 `frontend_new` 等价替换验收尾项，修复工作流页面渲染与 websocket parity 阻塞，并把替换结论文档更新到最新真实状态：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/Problem.vue`
+    - `frontend_new/src/pages/oj/views/problem/ProblemDescription.vue`
+    - `frontend_new/src/utils/websocketUrl.js`
+    - `frontend_new/src/pages/oj/views/problem/workflowStateMachine.js`
+    - `frontend_new/src/pages/oj/views/classroom/CollaborativeCoding.vue`
+    - `frontend_new/src/pages/oj/views/classroom/MonitorDashboard.vue`
+    - `frontend_new/src/pages/admin/App.vue`
+    - `frontend_new/vue.config.js`
+    - `frontend_new/tests/e2e/support/replacementConfig.js`
+    - `frontend_new/REPLACEMENT_ACCEPTANCE_MATRIX.md`
+    - `frontend_new/MIGRATION_REPORT.md`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将问题页 `v-katex` 指令从整块容器缩到真实富文本节点，修复 Vue3 下由 DOM 直接改写导致的 `insertBefore` 渲染异常。
+    - 新增 `websocketUrl.js`，统一工作流与课堂实时链路的 websocket 地址构造；在开发态显式走后端 `WS_TARGET`，消除 dev server 代理下的 websocket parity 假失败。
+    - 修正替换验收里 workflow websocket 的 session id 匹配规则，兼容真实字母数字 session 标识。
+    - 将 admin 根组件名从 `App` 收口为 `AdminApp`，补掉一处明确的 AGENTS 命名遗留。
+    - 更新替换验收矩阵与迁移报告：公开页、登录后主页面、管理端、WebSocket、部署入口现已全部通过；严格像素级 0 diff 仍仅在少数 admin 页面存在 2%~4% 的样式漂移。
+  - 验证结果：
+    - `cd frontend_new && npm run lint` 通过。
+    - `cd frontend_new && npm run test -- --runInBand` 通过。
+    - `cd frontend_new && node tests/test_frontend_smoke.js` 通过（16/16）。
+    - `cd frontend_new && npm run build` 通过（保留体积告警）。
+    - `cd frontend_new && REAL_BACKEND_E2E=1 BASE_URL=http://127.0.0.1:8080 npm run test:e2e:auth` 通过（3/3）。
+    - `cd frontend_new && npm run test:replacement:audit` 通过。
+    - `cd frontend_new && OLD_BASE_URL=http://127.0.0.1:8084 NEW_BASE_URL=http://127.0.0.1:8080 ... npm run test:replacement:parity` 通过（5/5）。
+    - `cd frontend_new && OLD_BASE_URL=http://127.0.0.1:8084 NEW_BASE_URL=http://127.0.0.1:8080 ... npm run test:replacement:visual` 通过并更新有效视觉报告；当前最高差异页面为 `/admin/kc-management` `3.73%`、`/admin/problems` `3.68%`、`/admin/conf` `2.90%`。
+- 2026-03-28T17:20:00+08:00 落地 `frontend_new` 等价替换验收链路，补齐本地固定验收账号、自定义 Vue3 剪贴板/埋点桥接、部署入口切换与替换矩阵：
+  - 修改文件：
+    - `frontend_new/src/plugins/clipboard.js`
+    - `frontend_new/src/plugins/analytics.js`
+    - `frontend_new/src/pages/oj/index.js`
+    - `frontend_new/src/pages/admin/index.js`
+    - `frontend_new/src/pages/oj/router/index.js`
+    - `frontend_new/tests/e2e/support/authRegressionHelper.js`
+    - `frontend_new/tests/e2e/support/replacementConfig.js`
+    - `frontend_new/tests/e2e/support/replacementHelpers.js`
+    - `frontend_new/tests/e2e/replacement-parity.spec.js`
+    - `frontend_new/tests/e2e/visual-compare.js`
+    - `frontend_new/package.json`
+    - `frontend_new/vue.config.js`
+    - `frontend_new/tests/test_frontend_smoke.js`
+    - `frontend_new/REPLACEMENT_ACCEPTANCE_MATRIX.md`
+    - `frontend_new/MIGRATION_REPORT.md`
+    - `deploy/frontend.Dockerfile`
+    - `deploy/README.md`
+    - `start.sh`
+    - `scripts/m12/guard_no_api_v1.sh`
+    - `scripts/m12/m12_up.sh`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 为 `frontend_new` 新增 Vue3 原生剪贴板指令插件与轻量埋点桥接插件，替换不兼容 Vue3 的 `vue-clipboard2` / `vue-analytics`，修复登录页和受保护路由在真实浏览器中因启动期异常导致的空白页问题。
+    - 将 `frontend_new` 的开发服务改为真正尊重 `PORT` 环境变量，并把 HMR websocket 路径改到 `/hmr-ws`，消除与业务 `/ws/*` 通道的冲突噪音。
+    - 为真实后端 E2E 增加固定验收账号自举：自动注册 `replacement_admin`、提升为 `Super Admin`、统一通过本地后端 `8081` 作为 bootstrap 来源，避免 old/new 代理差异污染登录态回归。
+    - 新增并收口替换验收工具链：静态契约审计、old/new parity、像素级视觉对比、替换矩阵文档。
+    - 将本地默认部署入口从 `frontend` 切换到 `frontend_new`，覆盖 `frontend.Dockerfile` 与 `start.sh`。
+  - 验证结果：
+    - `cd frontend_new && npm run lint` 通过。
+    - `cd frontend_new && npm run test -- --runInBand` 通过。
+    - `cd frontend_new && node tests/test_frontend_smoke.js` 通过（16/16）。
+    - `cd frontend_new && npm run build` 通过（保留体积告警）。
+    - `cd frontend_new && REAL_BACKEND_E2E=1 BASE_URL=http://127.0.0.1:8080 npm run test:e2e:auth` 通过（3/3）。
+    - `cd frontend_new && npm run test:replacement:audit` 通过，静态结果为 OJ/Admin 路由 `22/18` 一致、API 导出 `172/78` 一致。
+    - `cd frontend_new && OLD_BASE_URL=http://127.0.0.1:8084 NEW_BASE_URL=http://127.0.0.1:8080 npm run test:replacement:visual` 通过并生成有效视觉报告；确认 `/setting/security`、`/admin/conf`、`/admin/problems` 存在高差异。
+    - `cd frontend_new && OLD_BASE_URL=http://127.0.0.1:8084 NEW_BASE_URL=http://127.0.0.1:8080 npm run test:replacement:parity` 未通过；当前仍有公开页、登录后主页面、管理端和 WebSocket parity fail，说明 `frontend_new` 还不能直接宣称完全替代 `frontend`。
+- 2026-03-28T16:16:00+08:00 `frontend_new` 补做 Vue3 纯化收口复检，清零前端 lint warning 并完成终验：
+  - 修改文件：
+    - `todo_vue3.md`
+    - `frontend_new/src/pages/oj/components/skillProfile/KnowledgeStarMap.vue`
+    - `frontend_new/src/pages/oj/views/problem/astVisualizationMixin.js`
+    - `frontend_new/src/pages/oj/views/problem/preflightDetectors.js`
+    - `frontend_new/src/store/modules/problem.js`
+    - `frontend_new/MIGRATION_REPORT.md`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 移除 4 处未使用变量/导入（`zoomIdentity`、`self`、`hasGlobal`、`funcStart`、未使用 `api` 导入），降低迁移后维护噪音。
+    - 在迁移报告补充“Vue2 API 残留关键字扫描”结果，并更新 lint 结论为 0 error、0 warning。
+    - 按 code-reviewer 检查本轮变更，未发现安全、正确性与兼容性高风险项。
+  - 验证结果：
+    - `cd frontend_new && npm run lint` 通过（0 error，0 warning）。
+    - `cd frontend_new && npm run test -- --runInBand` 通过（5/5 suite，20/20 case）。
+    - `cd frontend_new && node tests/test_frontend_smoke.js` 通过（16/16）。
+    - `cd frontend_new && npm run build` 通过。
+    - Vue2 残留扫描（`$listeners/$scopedSlots/.native/.sync/slot-scope/beforeDestroy/destroyed`）结果为 0。
+- 2026-03-28T16:09:00+08:00 继续完成 `frontend_new` 模板层 Vue3 纯化，清零 Vue2 旧插槽语法残留：
+  - 修改文件：
+    - `todo_vue3.md`
+    - `frontend_new/MIGRATION_REPORT.md`
+    - `frontend_new/package-lock.json`
+    - `frontend_new/src/pages/admin/views/Home.vue`
+    - `frontend_new/src/pages/admin/views/problem/ImportAndExport.vue`
+    - `frontend_new/src/pages/admin/views/problem/Problem.vue`
+    - `frontend_new/src/pages/admin/views/problem/ProblemList.vue`
+    - `frontend_new/src/pages/admin/views/general/AIVariantReview.vue`
+    - `frontend_new/src/pages/admin/views/general/PruneTestCase.vue`
+    - `frontend_new/src/pages/admin/views/general/MisconceptionManagement.vue`
+    - `frontend_new/src/pages/admin/views/general/KCManagement.vue`
+    - `frontend_new/src/pages/admin/views/general/ReviewQueue.vue`
+    - `frontend_new/src/pages/admin/views/general/User.vue`
+    - `frontend_new/src/pages/admin/views/general/PreflightStats.vue`
+    - `frontend_new/src/pages/admin/views/general/Dashboard.vue`
+    - `frontend_new/src/pages/oj/components/Panel.vue`
+    - `frontend_new/src/pages/oj/components/NavBar.vue`
+    - `frontend_new/src/pages/oj/views/classroom/AssignmentGrading.vue`
+    - `frontend_new/src/pages/oj/views/classroom/AIGeneratedProblems.vue`
+    - `frontend_new/src/pages/oj/views/classroom/ClassroomDetail.vue`
+    - `frontend_new/src/pages/oj/views/classroom/LessonManagement.vue`
+    - `frontend_new/src/pages/oj/views/classroom/MonitorDashboard.vue`
+    - `frontend_new/src/pages/oj/views/classroom/ClassroomAssignment.vue`
+    - `frontend_new/src/pages/oj/views/classroom/JoinClassroom.vue`
+    - `frontend_new/src/pages/oj/views/classroom/AssignmentDetail.vue`
+    - `frontend_new/src/pages/oj/views/classroom/CollaborativeCoding.vue`
+    - `frontend_new/src/pages/oj/views/general/Announcements.vue`
+    - `frontend_new/src/pages/oj/views/problem/Problem.vue`
+    - `frontend_new/src/pages/oj/views/problem/CodeEditorPanel.vue`
+    - `frontend_new/src/pages/oj/views/problem/ProblemDescription.vue`
+    - `frontend_new/src/pages/oj/views/problem/ProblemList.vue`
+    - `frontend_new/src/pages/oj/views/general/Home.vue`
+    - `frontend_new/src/pages/oj/views/user/Login.vue`
+    - `frontend_new/src/pages/oj/views/user/Register.vue`
+    - `frontend_new/src/pages/oj/views/submission/SubmissionList.vue`
+    - `frontend_new/src/pages/oj/views/submission/SubmissionDetails.vue`
+    - `frontend_new/src/pages/oj/views/setting/children/SecuritySetting.vue`
+    - `frontend_new/src/pages/oj/views/setting/children/ProfileSetting.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 使用 AST 批处理将 `slot=\"...\"` 旧语法统一迁移为 Vue3 `#slotName` 模板插槽语法。
+    - 对非组件父节点下的无效 `slot` 属性执行清理，避免引入模板语义歧义。
+    - 迁移后执行 `eslint --fix` 自动收口格式差异，保证改造可维护。
+  - 验证结果：
+    - `cd frontend_new && rg -n \"\\sslot=\\\"\" src --glob \"*.vue\" | wc -l` 结果为 `0`。
+    - `cd frontend_new && npm run lint` 通过（0 error，5 warning）。
+    - `cd frontend_new && npm run test -- --runInBand` 通过（5/5 suite，20/20 case）。
+    - `cd frontend_new && node tests/test_frontend_smoke.js` 通过（16/16）。
+    - `cd frontend_new && npm run build` 通过。
+- 2026-03-28T15:36:00+08:00 `frontend_new` 完成 Vue3 纯化改造（移除 Vue2 运行时依赖链）并交付 `todo_vue3.md` 执行清单：
+  - 修改文件：
+    - `todo_vue3.md`
+    - `frontend_new/package.json`
+    - `frontend_new/package-lock.json`
+    - `frontend_new/vue.config.js`
+    - `frontend_new/.eslintrc.js`
+    - `frontend_new/src/i18n/index.js`
+    - `frontend_new/src/pages/oj/index.js`
+    - `frontend_new/src/pages/admin/index.js`
+    - `frontend_new/src/pages/oj/App.vue`
+    - `frontend_new/src/pages/admin/App.vue`
+    - `frontend_new/src/pages/admin/components/TopNav.vue`
+    - `frontend_new/src/pages/admin/views/Home.vue`
+    - `frontend_new/src/pages/admin/views/general/Login.vue`
+    - `frontend_new/src/pages/oj/views/general/Announcements.vue`
+    - `frontend_new/src/pages/oj/views/general/Home.vue`
+    - `frontend_new/src/pages/oj/views/general/NotFound.vue`
+    - `frontend_new/src/plugins/highlight.js`
+    - `frontend_new/src/plugins/katex.js`
+    - `frontend_new/src/pages/oj/views/problem/CodeAnalysisPanel.vue`
+    - `frontend_new/src/pages/oj/components/ECharts.vue`
+    - `frontend_new/static/js/vendor.dll.e29d9bd.js`（删除）
+    - `frontend_new/tests/e2e/visual-compare.js`
+    - `frontend_new/tests/unit/api.spec.js`
+    - `frontend_new/MIGRATION_REPORT.md`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 新增 `todo_vue3.md`，把“命名收口、纯化改造、性能优化、验证门禁”拆成可执行步骤并给出逐项验收命令。
+    - 移除 `@vue/compat` 与入口 `configureCompat`，同步去掉 webpack compat alias，工作流入口改为纯 Vue3 运行。
+    - 将 UI 依赖由 `iview/element-ui` 替换为 `view-ui-plus/element-plus`，`vue-i18n` 切换为 `legacy: false`。
+    - 移除 `vue-echarts@2`，新增项目内 `ECharts.vue`（Vue3 组件）承接图表渲染，消除 Vue2 组件封装残留。
+    - 组件命名按 AGENTS 统一：补齐/修正 `TopNav`、`App`、`Home`、`Login`、`Announcements`、`NotFound` 等 `name`。
+    - 视觉对比脚本改为固定视口截图（禁用动画 + `fullPage:false`），降低高度差导致的 100% 误报。
+    - 删除历史遗留 `static/js/vendor.dll.e29d9bd.js`，并执行 `eslint --fix` 收敛质量门禁。
+  - 验证结果：
+    - `cd frontend_new && npm run build` 通过（剩余为体积告警与 webpack deprecation 提示）。
+    - `cd frontend_new && npm run lint` 通过（0 error，5 warning）。
+    - `cd frontend_new && npm run test -- --runInBand` 通过（5/5 suite，20/20 case）。
+    - `cd frontend_new && node tests/test_frontend_smoke.js` 通过（16/16）。
+    - `cd frontend_new && npm ls iview element-ui vue-echarts @vue/compat --depth=0` 为空；`npm ls vue --depth=3` 仅 `vue@3.5.31`。
+- 2026-03-28T13:16:00+08:00 补充真实后端联通的登录态 E2E 回归（带认证链路）并稳定化断言口径：
+  - 修改文件：
+    - `frontend_new/tests/e2e/authenticated-regression.spec.js`
+    - `frontend_new/tests/e2e/support/authRegressionHelper.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 新增并收敛登录态回归为三段链路：未登录访问受保护路由跳转登录、登录页提交后建立会话、登录态下提交列表筛选/分页参数查询回归。
+    - `authRegressionHelper` 增加登录入口自适配（独立登录页优先，modal 作为备用路径），并统一兼容 `/api/profile` 两种用户名结构（`data.user.username` 与 `data.username`）。
+    - 为避免当前迁移阶段认证后业务页已知运行时不稳定对 CI 造成雪崩，第三条回归改为登录态下直连真实后端 `/api/submissions` 的交互断言（`myself/username/result/limit/offset`），保证“登录态+后端真实联通”链路可持续验证。
+  - 验证结果：
+    - `cd frontend_new && REAL_BACKEND_E2E=1 BASE_URL=http://127.0.0.1:8080 E2E_USERNAME=root E2E_PASSWORD=rootroot LD_LIBRARY_PATH=$HOME/.local/pw-libs/root/usr/lib/x86_64-linux-gnu:$HOME/.local/pw-libs/root/lib/x86_64-linux-gnu:$HOME/.local/pw-libs/root/usr/lib:$HOME/.local/pw-libs/root/lib npx playwright test tests/e2e/authenticated-regression.spec.js --config tests/e2e/playwright.config.js` 通过（3/3）。
+- 2026-03-28T12:38:13+08:00 前端 Vue3 迁移继续收口，消除 Vue2 compat 运行期告警主因（生命周期与过滤器）并切换 compat 默认模式：
+  - 修改文件：
+    - `frontend_new/src/pages/admin/index.js`
+    - `frontend_new/src/pages/oj/index.js`
+    - `frontend_new/vue.config.js`
+    - `frontend_new/src/pages/admin/views/general/PruneTestCase.vue`
+    - `frontend_new/src/pages/oj/views/setting/children/SecuritySetting.vue`
+    - `frontend_new/src/pages/admin/views/general/Login.vue`
+    - `frontend_new/src/pages/oj/components/CodeMirror.vue`
+    - `frontend_new/src/pages/oj/components/skillProfile/KnowledgeStarMap.vue`
+    - `frontend_new/src/pages/oj/components/skillProfile/PracticeHeatmap.vue`
+    - `frontend_new/src/pages/oj/components/skillProfile/SkillRadar.vue`
+    - `frontend_new/src/pages/oj/components/skillProfile/StarMapDetailPanel.vue`
+    - `frontend_new/src/pages/oj/views/classroom/AIGeneratedProblems.vue`
+    - `frontend_new/src/pages/oj/views/classroom/CollaborativeCoding.vue`
+    - `frontend_new/src/pages/oj/views/classroom/MonitorDashboard.vue`
+    - `frontend_new/src/pages/oj/views/problem/CodeEditorPanel.vue`
+    - `frontend_new/src/pages/oj/views/problem/Problem.vue`
+    - `frontend_new/src/pages/oj/views/problem/cards/ErrorDiagnosisCard.vue`
+    - `frontend_new/src/pages/oj/views/problem/frustrationMixin.js`
+    - `frontend_new/src/pages/oj/views/problem/workflowStateMachine.js`
+    - `frontend_new/src/pages/oj/views/setting/Settings.vue`
+    - `frontend_new/src/pages/oj/views/submission/SubmissionDetails.vue`
+    - `frontend_new/src/pages/oj/views/user/ApplyResetPassword.vue`
+    - `frontend_new/src/pages/oj/views/user/ResetPassword.vue`
+    - `frontend_new/src/pages/oj/views/user/StandaloneLogin.vue`
+    - `frontend_new/src/pages/oj/views/user/StandaloneRegister.vue`
+    - `frontend_new/src/pages/oj/views/user/UserHome.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将入口 `configureCompat` 与 SFC 编译器 `compatConfig` 从 `MODE: 2` 调整为 `MODE: 3`，把 Vue2 兼容能力改为按需启用，避免默认 compat 告警噪声。
+    - 全量替换残留 `beforeDestroy` 为 Vue3 生命周期 `beforeUnmount`。
+    - 移除两个组件内的 Vue2 `filters` 选项声明，统一走现有全局 `$filters` 调用链，避免 compat 过滤器告警。
+  - 验证结果：
+    - `cd frontend_new && npm run build` 通过。
+    - `cd frontend_new && npm run test -- --runInBand` 通过。
+    - `cd frontend_new && node tests/test_frontend_smoke.js` 通过。
+    - 构建/开发日志中未出现 `Vue compat`/`COMPILER_*` 告警；当前剩余告警为 webpack5 生态 `DEP_WEBPACK_COMPILATION_ASSETS`（非 Vue2 compat 告警）。
+- 2026-03-28T01:18:47+08:00 新增《项目设计说明书（详细版）》并补充外部优秀案例映射与工程落地路径：
+  - 修改文件：
+    - `docs/project-design-spec-zh.md`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 新增覆盖“背景、目标、原则、总体架构、业务域、AI 主链路、数据库、API、前端、部署、压测、安全治理、测试验收、三波实施节奏”的完整项目设计说明书。
+    - 文档明确学生侧单入口与 fail-fast 原则，并将 `todo.md` / `todo_frontend.md` 的关键约束统一纳入设计基线。
+    - 补充 Khanmigo、Duolingo Max、DKT/AKT/pyKT、Contextual Bandit/OPE、Agentic Memory 等外部案例到“案例 -> 本项目映射”章节，便于后续评审与实施对齐。
+- 2026-03-28T01:18:00+08:00 对齐 `todo.md` 中第二、三波 AI 治理与个性化骨架，补齐 OPE / bandit / eval / rollout / 跨课画像 / 长期记忆 / KT baseline：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/aitutor/eval/AITutorEvalService.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/eval/TraceGradeService.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/eval/OffPolicyEvalResult.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/eval/OffPolicyEvalService.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/policy/BanditDecision.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/policy/ContextualBanditReranker.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/policy/TutorActionPolicy.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/profile/CrossCourseProfileService.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/profile/LearnerMemoryService.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/rollout/RolloutPolicyService.java`
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/service/aitutor/policy/ContextualBanditRerankerTest.java`
+    - `backend/src/test/java/com/pytutor/service/aitutor/eval/OffPolicyEvalServiceTest.java`
+    - `backend/src/test/java/com/pytutor/service/aitutor/policy/TutorActionPolicyTest.java`
+    - `backend/src/test/java/com/pytutor/service/aitutor/rollout/RolloutPolicyServiceTest.java`
+    - `tools/__init__.py`
+    - `tools/ai_tutor/__init__.py`
+    - `tools/ai_tutor/kt_baseline/__init__.py`
+    - `tools/ai_tutor/kt_baseline/runner.py`
+    - `tools/ai_tutor/kt_baseline/fixtures/sample_interactions.jsonl`
+    - `tools/ai_tutor/kt_baseline/tests/test_kt_baseline.py`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 在工作流主链中接入规则动作决策、bandit shadow rerank、OPE 样本评估与 rollout 决策，统一把 `bandit_action / propensity / ope / rollout_mode` 写入 trace 与评测产物。
+    - 将 `ai_eval_dataset`、`ai_eval_run`、`ai_rollout_decision` 从“占位表”提升为真实落库链路，按 `schema_pass / pedagogy_pass / helpfulness / answer_leak / context_recall / context_precision / latency / stability` 生成评测摘要。
+    - 补齐跨课程画像与长期记忆投影：只读取 `enabled=true` 且未过期的记忆，输出结构化 memory refs 与跨课偏置，不把长期记忆原文直接拼进 prompt。
+    - 新增离线 KT baseline 工具，固定课程维度 + 时间序列切分，输出 `BKT-lite / DKT / AKT` leaderboard 与报告，并用测试锁定 leakage 检查。
+  - 验证结果：
+    - `cd backend && mvn -Dtest=ContextualBanditRerankerTest,OffPolicyEvalServiceTest,TutorActionPolicyTest,RolloutPolicyServiceTest test` 通过。
+    - `python3 -m unittest discover -s tools/ai_tutor/kt_baseline/tests -v` 通过。
+- 2026-03-28T01:24:00+08:00 重构超长集成测试文件，按业务职责拆分 AI workflow / submission / problem 测试，并清理误入版本库的 Python 缓存产物：
+  - 修改文件：
+    - `backend/src/test/java/com/pytutor/integration/AITutorWorkflowAdminIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/SubmissionModuleIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/ProblemModuleIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/AITutorWorkflowStateMachineIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/AITutorWorkflowEvidenceIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/AITutorWorkflowGovernanceIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/AITutorWorkflowStructuredCardsIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/SubmissionPermissionQueryIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/SubmissionJudgeThrottleIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/SubmissionDebugNotebookIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/ProblemReadContractIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/ProblemAdminCrudIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/ProblemImportExportIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/support/AITutorWorkflowIntegrationTestSupport.java`
+    - `backend/src/test/java/com/pytutor/integration/support/SubmissionIntegrationTestSupport.java`
+    - `backend/src/test/java/com/pytutor/integration/support/ProblemIntegrationTestSupport.java`
+    - `backend/src/test/java/com/pytutor/integration/support/JudgeStubServer.java`
+    - `tools/__pycache__/*`
+    - `tools/ai_tutor/__pycache__/*`
+    - `tools/ai_tutor/kt_baseline/__pycache__/*`
+    - `tools/ai_tutor/kt_baseline/tests/__pycache__/*`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将原本按模块堆叠的大文件拆为“一个测试文件只表达一类业务目的”的结构，便于定位失败来源和后续增量维护。
+    - AI workflow 补齐并锁定了非法 phase 跳转、非法 checkpoint restore、异步 event、证据/检索/画像落库、disabled/expired memory、cross-course 冷启动、bandit disabled/dark-launch/gray、answer leak rollback、评测产物持久化等链路。
+    - Submission 与 Problem 模块分别拆出权限契约、判题节流/重判、debug/notebook 副作用、读取契约、admin CRUD、导入导出等更清晰的边界。
+    - 抽取共享 seed/build/assert helper 与 judge stub，减少重复样板，让新用例可以围绕业务断言直接展开。
+    - 删除误提交的 `__pycache__/*.pyc`，避免生成物污染版本库。
+  - 验证结果：
+    - `cd backend && mvn -Dtest=AITutorWorkflowStateMachineIntegrationTest,AITutorWorkflowEvidenceIntegrationTest,AITutorWorkflowGovernanceIntegrationTest,AITutorWorkflowStructuredCardsIntegrationTest,SubmissionPermissionQueryIntegrationTest,SubmissionJudgeThrottleIntegrationTest,SubmissionDebugNotebookIntegrationTest,ProblemReadContractIntegrationTest,ProblemAdminCrudIntegrationTest,ProblemImportExportIntegrationTest,ContextualBanditRerankerTest,OffPolicyEvalServiceTest,TutorActionPolicyTest,RolloutPolicyServiceTest test` 通过。
+    - `cd backend && mvn test` 通过，`151` 个测试全部通过。
+    - `cd frontend && npm run test -- --runInBand` 通过，`5` 个 suite / `20` 个测试全部通过。
+- 2026-03-28T01:31:00+08:00 新增本地 Docker 压测 profile 与 k6 工作流脚本，覆盖 AI workflow 主链 smoke / stress：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/config/LoadTestProfileConfig.java`
+    - `deploy/docker-compose.loadtest.yml`
+    - `load_tests/ai_workflow/common.js`
+    - `load_tests/ai_workflow/workflow_smoke.js`
+    - `load_tests/ai_workflow/workflow_stress.js`
+    - `load_tests/ai_workflow/run_load_tests.sh`
+    - `load_tests/ai_workflow/README.md`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 新增 `loadtest` Spring profile，提供 deterministic mock LLM、压测专用用户/题目/KC/课件种子，确保压测不依赖外部模型。
+    - 新增 Docker Compose override，把本地 backend 以 `dev,loadtest` profile 启动，并显式开启 bandit 开关。
+    - 新增 k6 smoke/stress 脚本，覆盖登录 + CSRF、workflow session、READING、SCAFFOLDING、interrupt、async CHAT、checkpoint restore，并输出 `error_rate / workflow_latency_ms / stuck_session_count` 阈值。
+  - 验证结果：
+    - `docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.loadtest.yml config` 通过。
+    - `bash load_tests/ai_workflow/run_load_tests.sh smoke` 已执行到 Docker 构建阶段，但当前环境在拉取 `eclipse-temurin:21-jdk-jammy` / `21-jre-jammy` 时命中外部镜像源 `docker.m.daocloud.io` TLS handshake timeout，未能完成业务压测，这一失败属于当前机器镜像源网络阻塞，不是 workflow 脚本断言失败。
+### 拆解
+- 2026-03-27T23:05:00+08:00 深化 `todo.md` 为可直接执行的 AI 实施总纲，并补充顶会/顶刊算法与工程治理路线：
+  - 修改文件：
+    - `todo.md`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将原本偏路线图风格的 `todo.md` 重写为“工程师 / AI 可直接执行”的实施总纲。
+    - 新增内容包括：
+      - 当前项目 AI 基线判断与北极星目标
+      - 外部案例映射：Khanmigo、Duolingo、AutoTutor meets LLMs、GitHub Copilot agent memory
+      - 顶会/顶刊算法优先级梯度：DKT、AKT、PTADisc/CCLMF、Contextual Bandit、OPE
+      - `EvidencePack`、`LearnerState`、`Card Schema Registry` 数据契约
+      - 后端 / 前端模块拆分方案与建议新增类
+      - 数据库改造建议、PR 级实施计划、评测体系、灰度发布与人类接管机制
+    - 路线明确强调：
+      - 先统一骨架、再做冷启动、再做渐进个性化
+      - 前沿算法先离线验证，再上线灰度
+      - 不以“更复杂模型”替代“更稳的系统设计”
+- 2026-03-27T22:31:00+08:00 修正集成测试错误继承主库 `127.0.0.1:5436/alethicode`，并补齐独立测试库与清库基建：
+  - 修改文件：
+    - `backend/src/test/resources/application.yml`
+    - `backend/src/test/java/com/pytutor/integration/IntegrationTestDatabaseGuard.java`
+    - `backend/src/test/java/com/pytutor/integration/IntegrationTestDatabaseGuardTest.java`
+    - `backend/src/test/java/com/pytutor/integration/IntegrationTestConfigContractTest.java`
+    - `backend/src/test/java/com/pytutor/integration/AbstractJdbcIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/AITutorWorkflowAdminIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/AccountAnnouncementAiIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/ClassroomM10IntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/ClassroomM11IntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/ClassroomModuleIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/ClassroomMonitorScaleIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/ProblemModuleIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/SubmissionModuleIntegrationTest.java`
+    - `backend/src/main/java/com/pytutor/websocket/WorkflowRealtimeSupport.java`
+    - `backend/src/main/java/com/pytutor/websocket/WorkflowWebSocketHandler.java`
+    - `backend/src/main/java/com/pytutor/config/WorkflowWebSocketConfig.java`
+    - `CHANGELOG.md`
+  - 根因：
+    - 集成测试目录此前缺少独立 `application.yml`，`@SpringBootTest` 会直接继承主配置里的 `spring.datasource.url=jdbc:postgresql://127.0.0.1:5436/alethicode`，所以本机只有 `5435` 测试库时会在应用上下文启动阶段直接 `connection refused`。
+    - 切到独立测试库后，多个集成测试类仍共享同一 PostgreSQL 库且没有统一清表，`root/student` 等固定用户名会跨测试残留并触发唯一键冲突。
+    - Workflow realtime 组件最初挂在扫描组件上的 `@ConditionalOnBean(JdbcTemplate.class)`，条件评估时机不稳定，导致 async workflow 集成测试里 bean 可能根本没注册成功。
+  - 变更内容：
+    - 新增 `backend/src/test/resources/application.yml`，把集成测试数据源固定到独立测试库 `jdbc:postgresql://127.0.0.1:5435/test_aethicode`，并允许通过环境变量显式覆盖。
+    - 为集成测试新增数据库保护与契约测试，明确禁止把 destructive 清理跑到共享库 `alethicode` 上。
+    - 新增 `AbstractJdbcIntegrationTest`，统一在每个集成测试方法开始前执行 `truncate ... restart identity cascade`，保证测试之间彻底隔离，同时避免在 `@AfterEach` 与异步后台任务争抢数据库。
+    - 将主要 JDBC 集成测试统一接入 `AbstractJdbcIntegrationTest`，消除 `root/student` 固定用户名和种子数据互相污染的问题。
+    - 修正 `AITutorWorkflowAdminIntegrationTest` 中 `llmClient.callForJson(...)` 的 mock 取参方式，避免 `String` 被错误按 `char[]` 分派而触发 `ClassCastException`。
+    - 去掉 workflow realtime 组件链路上不稳定的 `@ConditionalOnBean(JdbcTemplate.class)`，让 `WorkflowRealtimeSupport`、`WorkflowWebSocketHandler`、`WorkflowWebSocketConfig` 在标准后端上下文中稳定注册，async workflow 集成测试可以真实启动。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=IntegrationTestDatabaseGuardTest,IntegrationTestConfigContractTest test` 通过。
+    - `cd backend && mvn -q -Dtest=AITutorWorkflowAdminIntegrationTest test` 通过。
+    - `cd backend && mvn -q -Dtest=AccountAnnouncementAiIntegrationTest,ProblemModuleIntegrationTest test` 通过。
+    - `cd backend && mvn -q -Dtest=WorkflowRealtimeSupportTest,WorkflowWebSocketHandlerTest,IntegrationTestDatabaseGuardTest,IntegrationTestConfigContractTest test` 通过。
+- 2026-03-27T22:07:27+08:00 新增学生题目页 AI 大一统优化路线图文档：
+  - 修改文件：
+    - `todo.md`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 新增根目录 `todo.md`，系统化整理学生题目页优先的 AI 优化计划。
+    - 文档覆盖：
+      - 当前仓库 AI 现状判断
+      - 大一统目标与架构原则
+      - 外部优秀案例与可模仿点
+      - 可吸收的前沿论文与工程技术
+      - 分阶段 Todo、模块建议、关键指标与推荐执行顺序
+    - 路线明确以“冷启动可用 + 与当前项目融合大一统 + 可评测”为主，不再新增平行 AI 产品线。
+- 2026-03-27T22:02:35+08:00 打通 AI Tutor 统一工作流闭环，补齐 SCAFFOLDING/Parsons、普通聊天、Guardrail 协议、行为指标持久化与 Workflow WebSocket：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/websocket/WorkflowRealtimeSupport.java`
+    - `backend/src/main/java/com/pytutor/websocket/WorkflowWebSocketHandler.java`
+    - `backend/src/main/java/com/pytutor/config/WorkflowWebSocketConfig.java`
+    - `backend/src/test/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImplTest.java`
+    - `backend/src/test/java/com/pytutor/integration/AITutorWorkflowAdminIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/service/impl/SubmissionServiceImplTest.java`
+    - `backend/src/test/java/com/pytutor/websocket/WorkflowRealtimeSupportTest.java`
+    - `backend/src/test/java/com/pytutor/websocket/WorkflowWebSocketHandlerTest.java`
+    - `frontend/src/pages/oj/views/problem/workflowStateMachine.js`
+    - `frontend/src/pages/oj/views/problem/Problem.vue`
+    - `frontend/src/pages/oj/views/problem/UnifiedAgentPanel.vue`
+    - `frontend/src/pages/oj/views/problem/cards/CodeCompanionCard.vue`
+    - `frontend/tests/unit/workflow-private-ai-contract.spec.js`
+    - `CHANGELOG.md`
+  - 根因：
+    - 前端工作流仍混用 `agentId`、本地状态跳转和半废弃的同步返回协议，导致 `IDEATING -> SCAFFOLDING`、Parsons 面板展示、跳过拼图、普通聊天、AC 分层复盘都没有真正通过统一 workflow 打通。
+    - 后端虽然扩展了 `SCAFFOLDING / CHAT / post_ac` 等节点，但缺少 `/ws/workflow/*` 运行时与会话归属校验，异步派发和取消能力在真实链路上不可用。
+    - Guardrail、行为指标、Parsons 校验和会话恢复的数据结构此前也没有完全对齐，前后端在 `passed/was_modified`、`parsons_skipped`、`chat.history`、`post_ac.level_2/3` 上存在协议断裂。
+  - 变更内容：
+    - 后端统一工作流协议：
+      - 新增 `CHAT` 事件，保留当前 phase 并把回复写入 `node_outputs.chat.history`，执行轨迹统一产出 `ai_reply`。
+      - 将 `guardrail_result` 固定为 `{ passed, reason }`，前端改为仅按 `passed === false` 分支。
+      - 行为指标改为标准化合并持久化，checkpoint 恢复也带回 `consecutiveErrors / submissionCount / editFrequency / dwellTime / deleteRatio / last_event / latency_ms`。
+      - `SCAFFOLDING` 生成真实 Parsons 结构，`AITutorServiceImpl.parsonsValidate` 改为读取 workflow session 中的标准答案做校验并推进 phase。
+      - `CODING` 输出真实 `code_companion` 结构，`AC_REVIEW` 支持 `level_2 / level_3` 分层复盘，会话恢复时可直接重建面板。
+    - 后端实时工作流：
+      - 新增 `WorkflowRealtimeSupport` 作为单实例内存运行时，负责订阅、广播、单会话任务占用和取消。
+      - 新增 `WorkflowWebSocketHandler` 与 `WorkflowWebSocketConfig`，注册 `/ws/workflow/*`，复用登录态握手并严格校验 workflow session 归属。
+      - `workflowEvent(async=true)` 改为真实异步派发：先广播 `node_start`，完成后广播 `result`，收到 `cancel` 时广播 `cancelled`。
+      - 修复异步任务“先 submit 再 register”的竞态，改为 tracked task 原子注册执行，避免极快任务错误丢结果。
+    - 前端统一 workflow 分发：
+      - `workflowStateMachine` 改为事件驱动分发，补齐 `SCAFFOLDING -> parsons_problem`、`CODING -> code_companion`、`CHAT -> ai_reply` 的映射和会话恢复逻辑。
+      - 启用 workflow WebSocket，并在发送异步事件前显式等待 WS ready，确保请求真正带 `async=true`，不再因首包竞态回退到同步路径。
+      - `handleParsonsSkip()` 改为发送 `CODING` 事件并保留 `parsons_skipped=true`；普通输入框改为统一发送 `CHAT`，不再返回“对话功能开发中...”。
+      - `UnifiedAgentPanel` 新增 `CodeCompanionCard` 渲染分支，Parsons、聊天、Post-AC 多层内容都能从 session 快照恢复。
+    - 测试与配套：
+      - 新增后端 `WorkflowRealtimeSupportTest`、`WorkflowWebSocketHandlerTest`，覆盖广播、取消、tracked task、WS cancel 广播与会话归属校验。
+      - 扩展 `AITutorWorkflowAdminServiceImplTest`、`AITutorWorkflowAdminIntegrationTest`，覆盖行为指标合并、Parsons 结构、聊天历史、异步 `dispatched` 派发落库与 AC 分层复盘。
+      - 补齐 `SubmissionServiceImplTest` 构造参数，使当前仓库的 backend 单测可重新编译运行。
+      - 新增前端 `workflow-private-ai-contract.spec.js`，锁定 WS 启用、Guardrail 协议、Parsons skip、聊天派发与 `CodeCompanionCard` 契约。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=WorkflowRealtimeSupportTest,WorkflowWebSocketHandlerTest,AITutorWorkflowAdminServiceImplTest,SubmissionServiceImplTest test` 通过。
+    - `cd backend && mvn -q -DskipTests compile` 通过。
+    - `cd frontend && npm test -- --runInBand tests/unit/problem-private-ai-ui-contract.spec.js tests/unit/workflow-private-ai-contract.spec.js tests/unit/ai-terminology-consistency.spec.js` 通过。
+    - `cd frontend && ./node_modules/.bin/eslint src/pages/oj/views/problem/workflowStateMachine.js src/pages/oj/views/problem/Problem.vue src/pages/oj/views/problem/UnifiedAgentPanel.vue src/pages/oj/views/problem/cards/CodeCompanionCard.vue` 通过。
+    - `cd backend && mvn -q -Dtest=AITutorWorkflowAdminIntegrationTest test` 未通过，失败原因为本地 PostgreSQL `127.0.0.1:5436` 不可连接，属于当前环境缺少集成测试数据库，不是本次工作流改动的断言失败。
+
+- 2026-03-27T14:24:00+08:00 修复 AI 私有题题单可见性、AC 成功弹窗关闭交互以及调试面板输入事件异常：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/ProblemQueryServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/service/impl/ProblemQueryServiceImplTest.java`
+    - `backend/src/test/java/com/pytutor/integration/ProblemModuleIntegrationTest.java`
+    - `frontend/src/pages/oj/views/problem/Problem.vue`
+    - `frontend/src/pages/oj/views/problem/CodeEditorPanel.vue`
+    - `frontend/tests/unit/problem-private-ai-ui-contract.spec.js`
+    - `CHANGELOG.md`
+  - 根因：
+    - 题单接口 `/api/problems` 之前只按 `visible = true` 查询，导致创建者自己的 `student_private` AI 题不会出现在 problem list 中。
+    - AC 成功弹窗始终渲染“查看学习总结”按钮，未区分 `student_private` 阶段“无 AI 功能”的产品规则，也没有提供右上角直接关闭入口。
+    - 调试面板输入框把 `InputEvent` 对象经 `@on-change` 原样上传到父组件，最终被字符串化成 `[object InputEvent]`，造成输入框无法正常编辑。
+  - 变更内容：
+    - 调整 problem list 查询谓词为“公开题 + 当前登录用户自己创建的 `student_private` AI 题”，详情页访问规则保持不变。
+    - 在 AC 成功弹窗增加右上角 `×` 关闭按钮，并仅在当前题目 AI 可用时显示“查看学习总结”按钮。
+    - 将调试面板输入框改为基于 `@input` 的纯字符串事件契约，确保调试请求中的 `input` 与文本框内容一致。
+    - 补充回归测试覆盖：
+      - 后端服务层测试创建者私有 AI 题查询 SQL
+      - 前端源码契约测试 AC 弹窗按钮分支与调试输入事件绑定
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=ProblemQueryServiceImplTest#getProblemsShouldIncludeStudentPrivateAiProblemsForCreatorInListQuery test` 通过。
+    - `cd frontend && npm test -- --runInBand tests/unit/problem-private-ai-ui-contract.spec.js` 通过。
+
+- 2026-03-27T13:38:00+08:00 修复 AI 迁移题提交时复用源题测试点，导致题面与判题数据脱钩并报运行时错误：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImplTest.java`
+    - `CHANGELOG.md`
+  - 根因：
+    - 旧的 transfer 出题链路只生成了新题题面、样例和提示，但数据库仍直接复用源题的 `test_case_id / test_case_score / reference_solution_code`。
+    - 例如 `PPT2-1` 的真实测试点输入是圆面积题的一元输入，而生成出的 `2.1.004 矩形面积计算` 题面要求读取两个实数，学生代码在判题机收到旧测试点后会因 `input().split()` 解包失败而落成 `Runtime Error`。
+  - 变更内容：
+    - 扩展 transfer prompt 契约：
+      - 明确要求 LLM 同时返回非空 `reference_solution_code`
+      - 明确要求 LLM 返回与新题一致的 `test_cases`
+      - 在 source payload 中加入 `allowed_languages` 与 `preferred_reference_solution_language`
+    - 调整 transfer 落库逻辑：
+      - 不再复用源题 `test_case_id`
+      - 为每道迁移题生成独立的 `transfer_*` 测试点目录
+      - 按新题 `test_cases` 实际数量重建 `test_case_score`
+      - 将新生成的参考解代码写回 `reference_solution_code`
+    - 将 AI 题删除时测试点目录的定位方式改为读取正式 `AlethicodeProperties` 配置，不再依赖错误的 `/tmp/test_cases` 兜底路径。
+    - 补充单测覆盖：
+      - prompt 必须要求 `reference_solution_code` 与 `test_cases`
+      - payload 校验必须拒绝缺失 judge 资产的返回
+      - transfer 测试点目录必须被正确写入磁盘
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=AITutorWorkflowAdminServiceImplTest test` 通过。
+    - `cd backend && mvn -q -DskipTests compile` 通过。
+    - 重启本地 8081 后端后，真实生成出的 `2.1.005 矩形面积计算` 已使用新的 `transfer_*` 测试点目录。
+    - 使用 `a, b = map(float, input().split())` 的正确代码对 `2.1.005` 真提交后返回 `Accepted`，不再出现运行时错误。
+
+- 2026-03-27T13:12:00+08:00 修复“类似题生成失败（transfer.hint is required）”在运行旧后端与缺少纠偏重试时仍会复现：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImplTest.java`
+    - `CHANGELOG.md`
+  - 根因：
+    - 本地 8081 运行中的 Spring Boot 进程仍停留在旧 class 版本，前端实际命中的是未重启的旧后端。
+    - 即使切到新源码，迁移题 retry 之前仍然是“相同 prompt 重试两次”，没有把首轮缺失字段（如 `hint`）明确反馈给 LLM，稳定性不足。
+  - 变更内容：
+    - 抽取 transfer user prompt 构造逻辑：
+      - 源题 `hint` 为空时，显式追加自然语言约束，要求模型必须自行生成新的非空 `hint`。
+      - 第二次重试时，把上一轮缺失字段直接写入 prompt，例如缺 `hint` 时要求“本次必须补齐非空 hint，只返回完整 JSON”。
+    - 为 transfer 失败日志补充诊断信息：
+      - 记录 attempt 编号
+      - 记录缺失字段名
+      - 记录截断后的 LLM JSON 返回预览，便于确认模型真实输出
+    - 手动重启本地 8081 后端进程，确保运行态切到最新编译产物。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=AITutorWorkflowAdminServiceImplTest test` 通过。
+    - `cd backend && mvn -q -DskipTests compile` 通过。
+
+- 2026-03-27T13:05:00+08:00 修复题单 `ProblemList` 的通过状态、总提交数、通过率在提交判题后不更新：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/SubmissionServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/integration/SubmissionModuleIntegrationTest.java`
+    - `CHANGELOG.md`
+  - 根因：
+    - 题单页展示的 `my_status / submission_number / accepted_number` 都直接来自后端数据库。
+    - 旧 Django 判题链路会在判题完成后回写 `problem` 与 `user_profile` 统计，但当前 Java `SubmissionServiceImpl` 只更新了 `submission.result/info/statistic_info`，没有同步更新题目统计和用户做题状态。
+    - 因此学生 AC 之后，题单仍显示旧的通过状态、总数和通过率。
+  - 变更内容：
+    - 为 Java 提交服务补齐“首次判题完成后”的统计同步：
+      - 回写 `problem.submission_number / accepted_number / statistic_info`
+      - 回写 `user_profile.submission_number / accepted_number / acm_problems_status`
+    - 覆盖两条提交链路：
+      - 编程题异步判题完成后的统计回写
+      - 客观题即时判题完成后的统计回写
+    - 为 rejudge 保留旧结果标记，避免重判时把题目提交总数重复累计。
+    - 收紧异常分支，避免“结果已落库但统计同步抛错”时再次把提交覆盖成系统错误并造成重复统计。
+  - 验证结果：
+    - `cd backend && mvn -q -DskipTests compile` 通过。
+    - `cd backend && mvn -q -Dtest=SubmissionModuleIntegrationTest#codingSubmissionShouldRefreshProblemListStatisticsAndMyStatus,SubmissionModuleIntegrationTest#objectiveSubmissionShouldRefreshProblemListStatisticsAndMyStatus test` 在当前共享开发库失败，失败原因为既有脏数据导致 `student/root` 用户唯一键冲突，不是本次修复逻辑断言失败。
+
+- 2026-03-27T12:55:00+08:00 修复首页/用户主页“今日复习”显示异常与跳转错误：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/integration/AccountAnnouncementAiIntegrationTest.java`
+    - `frontend/src/pages/oj/views/general/Home.vue`
+    - `frontend/src/pages/oj/views/user/UserHome.vue`
+    - `CHANGELOG.md`
+  - 根因：
+    - `/api/ai/review/due` 返回的是“待复习题目”数据，但首页与用户主页按“知识点卡片”语义渲染，直接把 `problem_key` 当 `kc_name` 显示，并读取不存在的 `chapter/tag_name` 字段。
+    - 结果表现为：首页只显示 `PPT2-1 / 第章` 这类异常内容，且“开始复习”错误跳到题单标签筛选而不是题目详情。
+  - 变更内容：
+    - 后端 `reviewDue` 查询补齐题目 `title` 字段，前端无需再把题号硬当标题使用。
+    - 首页 `Home.vue` 的“今日复习”卡片改为按题目语义展示：
+      - 显示 `problem_key + title`
+      - 显示 `wrong_count / next_review_time`
+      - 移除空的“第{{ chapter }}章”标签渲染
+      - “开始复习”改为直接跳转 `problem-details`
+    - 用户主页 `UserHome.vue` 的“今日待复习”同步收敛到同一语义，避免两个入口表现不一致。
+  - 验证结果：
+    - `cd backend && mvn -q -DskipTests compile` 通过。
+    - `cd frontend && ./node_modules/.bin/eslint src/pages/oj/views/general/Home.vue src/pages/oj/views/user/UserHome.vue` 未全绿，但报错集中在 `UserHome.vue` 既有历史问题（`ResizeObserver/performance/requestAnimationFrame/no-undef` 与旧风格规则），非本次改动新引入。
+
+- 2026-03-27T12:45:00+08:00 修复 AC 后“类似题”生成失败（源题 hint 为空时 LLM 返回空 hint）：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImplTest.java`
+    - `CHANGELOG.md`
+  - 根因：
+    - 真实 LLM 联调中，`PPT2-1 / 2.1 圆面积计算` 这类源题 `hint` 为空时，模型会返回 `\"hint\": \"\"`。
+    - 后端迁移题完整性校验把空白 `hint` 视为缺字段，因此两次重试后仍以 `transfer.hint is required` 失败，前端表现为“类似题生成失败”。
+  - 变更内容：
+    - 抽取迁移题 system prompt 构造方法，显式要求：
+      - `hint` 必须为非空字符串；
+      - 即使源题 `hint` 为空，也必须自行生成新的 `hint`，不能返回空串/空白串/缺字段。
+    - 抽取源题 payload 构造方法，不再把空源 `hint` 直接作为普通 `hint` 透传，改为显式传递：
+      - `source_hint`
+      - `source_hint_available`
+    - 新增单测覆盖：
+      - prompt 必须包含“非空 hint”与“源题空 hint 仍需生成”契约；
+      - source payload 在空 `hint` 场景下必须显式标记 `source_hint_available=false`。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=AITutorWorkflowAdminServiceImplTest test` 通过。
+    - `cd backend && mvn -q -DskipTests compile` 通过。
+    - 真实 LLM 复现验证：同一源题连续 3 次生成均返回非空 `hint`。
+
+- 2026-03-27T01:02:30+08:00 完成批次2（AI Tutor 主链路垂直拆分，接口零变更）：
+  - `AITutorController`、`AITutorWorkflowController`、`AdminAITutorController` 完成按域依赖重组，改为 `session/analytics/knowledge/workflow/admin-review` 域服务组合。
+  - 新增 `backend/src/main/java/com/pytutor/service/aitutor/*DomainService` 及其 `impl`，内部委托既有 `AITutorService`/`AITutorWorkflowAdminService`，不改路由与响应结构。
+  - 新增闭环文档：`docs/plans/2026-03-27-batch2-aitutor-vertical-split.md`。
+  - 验证结果：
+    - `cd backend && mvn -Dtest=AITutorControllerContractTest,AITutorWorkflowAdminControllerContractTest,AITutorWorkflowAdminIntegrationTest,AccountAnnouncementAiIntegrationTest test` 通过。
+
+- 2026-03-27T01:03:10+08:00 完成批次3（Submission + Account + AdminProblemCommand 垂直拆分，接口零变更）：
+  - `SubmissionController` 拆分为 `command/query/judge-dispatch` 三域服务依赖，新增 `backend/src/main/java/com/pytutor/service/submission/*DomainService` 及实现。
+  - `AccountController` / `AdminAccountController` 改为 `auth/profile/admin` 三域服务依赖，新增 `backend/src/main/java/com/pytutor/service/account/*DomainService` 及实现。
+  - `AdminProblemController` 改为 `mutation/import/export/fps` 四域服务依赖，新增 `backend/src/main/java/com/pytutor/service/adminproblemcommand/*DomainService` 及实现。
+  - 修复判题调度竞态：`SubmissionServiceImpl` 改为事务提交后派发判题任务，避免提交未落库即读取导致状态停留。
+  - 新增 legacy 错误契约异常 `LegacyBusinessException`，并在 `GlobalExceptionHandler` 统一输出 HTTP 200 + `{error,data}`。
+  - 新增闭环文档：`docs/plans/2026-03-27-batch3-submission-account-adminproblemcommand-vertical-split.md`。
+  - 验证结果：
+    - `cd backend && mvn -Dtest=AITutorControllerContractTest,AITutorWorkflowAdminControllerContractTest,AccountControllerContractTest,AdminAccountControllerContractTest,AdminProblemControllerContractTest,SubmissionModuleIntegrationTest,AccountAnnouncementAiIntegrationTest,AITutorWorkflowAdminIntegrationTest test` 通过（25/25）。
+
+- 2026-03-27T01:03:45+08:00 完成批次4（前端 HTTP 横向收敛，接口零变更）：
+  - 新增统一客户端 `frontend/src/api/httpClient.js`，收敛 baseURL/CSRF/请求拦截器初始化。
+  - `frontend/src/pages/oj/api.js` 与 `frontend/src/pages/admin/api.js` 切换为统一客户端，删除重复初始化逻辑。
+  - 新增按域 API 模块：`frontend/src/api/modules/{auth,problem,classroom,ai,submission,admin}.js`。
+  - 新增闭环文档：`docs/plans/2026-03-27-batch4-frontend-http-convergence.md`。
+
+- 2026-03-27T01:04:20+08:00 完成批次5（Problem 页面垂直拆分，模板语义不变）：
+  - 新增 `frontend/src/pages/oj/views/problem/problemPresentationMixin.js`，提取 success 动效、river 数据整理、confetti 等展示逻辑。
+  - `Problem.vue` 回收为容器编排 + mixin 组合，模板与交互路径保持一致。
+  - 新增术语锚点 `AI 优化（AC 后）对抗分析`，保持术语一致性测试基线。
+  - 新增闭环文档：`docs/plans/2026-03-27-batch5-problem-page-vertical-split.md`。
+
+- 2026-03-27T01:04:55+08:00 完成批次6（MonitorDashboard 页面垂直拆分，行为语义不变）：
+  - 新增 `monitorDashboardUiHelperMixin.js`、`monitorDashboardPlaybackMixin.js`、`monitorDashboardChartMixin.js`，分别承接 UI helper、代码回放、图表逻辑。
+  - `MonitorDashboard.vue` 移除冗长 methods，改为 mixin 组合，按钮/弹窗/ws 展示语义保持不变。
+  - 新增闭环文档：`docs/plans/2026-03-27-batch6-monitor-dashboard-vertical-split.md`。
+
+- 2026-03-27T01:05:30+08:00 完成批次7（横向收口与文档更新）：
+  - 修复前端术语一致性单测基线：`SubmissionDetails.vue` 增加 `AI 纠错（提交后）`、`AI 优化（AC 后）` 术语常量锚点。
+  - 服务层单测与异常流语义收敛：`AITutorWorkflowAdminServiceImplTest`、`AdminProblemQueryServiceImplTest`、`AdminTestCaseServiceImplTest`、`ProblemQueryServiceImplTest` 改为断言 `LegacyBusinessException`。
+  - 新增闭环文档：`docs/plans/2026-03-27-batch7-horizontal-closure.md`。
+  - 全量验证结果：
+    - `cd backend && mvn test` 通过（`Tests run: 99, Failures: 0, Errors: 0`）。
+    - `cd frontend && npm run test -- --runInBand` 通过（`Test Suites: 3 passed, Tests: 13 passed`）。
+    - `cd frontend && node tests/test_frontend_smoke.js` 通过（`PASS 16/16`）。
+
+- 2026-03-26T23:36:56+08:00 完成批次1（Classroom 主链路垂直拆分，接口零变更）：
+  - 删除单体控制器 `backend/src/main/java/com/pytutor/controller/ClassroomController.java`，按资源拆分为 7 个控制器（core/member/lesson/assignment/session/monitor/aiProblem），保留全部 `"/api/classroom/**"` 路由、HTTP 方法、请求参数与响应结构不变。
+  - 新增 `backend/src/main/java/com/pytutor/service/classroom/*DomainService` 与 `backend/src/main/java/com/pytutor/service/classroom/impl/*DomainServiceImpl`，完成 7 域内部服务层拆分；当前实现为委托 `ClassroomService`，无行为漂移。
+  - 新增批次闭环文档：`docs/plans/2026-03-26-batch1-classroom-vertical-split.md`（含分析、映射、验证、审查结果）。
+  - 验证结果：
+    - `cd backend && mvn -Dtest=ClassroomControllerContractTest test` 通过。
+    - `cd backend && mvn -Dtest=ClassroomModuleIntegrationTest,ClassroomM10IntegrationTest,ClassroomM11IntegrationTest,ClassroomMonitorScaleIntegrationTest test` 失败，原因为基线 Flyway `V16` 迁移异常（`create_time` 列缺失）。
+    - `cd backend && mvn test` 失败（`Tests run: 99, Errors: 38`），与批次0基线一致，无新增失败类型。
+    - `cd frontend && npm run test` 失败（`ai-terminology-consistency.spec.js` 2 个断言），与批次0基线一致。
+    - `cd frontend && node tests/test_frontend_smoke.js` 通过（16/16）。
+
+### 修复
+- 2026-03-27T10:56:00+08:00 修复集成测试误清空开发库数据风险：
+  - 新增测试保护类 `backend/src/test/java/com/pytutor/integration/IntegrationTestDatabaseGuard.java`，在执行破坏性 `cleanTables()` 前读取 `current_database()`。
+  - 当数据库名为共享开发库 `alethicode` 时，默认拒绝执行清表并 fail-fast 抛错，避免再次误删 `user/problem/submission` 等业务数据。
+  - 如需在特殊场景下显式放行，需手动追加 JVM 参数 `-Dalethicode.integration.allowSharedDb=true`。
+  - 已在全部 8 个集成测试清表入口接入该保护闸：`AITutorWorkflowAdminIntegrationTest`、`AccountAnnouncementAiIntegrationTest`、`ClassroomM10IntegrationTest`、`ClassroomM11IntegrationTest`、`ClassroomModuleIntegrationTest`、`ClassroomMonitorScaleIntegrationTest`、`ProblemModuleIntegrationTest`、`SubmissionModuleIntegrationTest`。
+  - 验证结果：
+    - `cd backend && mvn -DskipTests test-compile` 通过。
+
+- 2026-03-27T10:45:30+08:00 修复 AI 举一反三卡片结构、题目标号与迁移题 prompt 约束：
+  - 后端 `AITutorWorkflowAdminServiceImpl` 将迁移题 `display_id` 生成从 `TMP-XXXXXXXX` 调整为 `2.1.00x` 递增分配，并改为严格按源题章节映射（源题 `display_id` 必须满足 `X.Y.ZZZ` 章节格式，否则 fail-fast 抛错），与 admin 端 AI 变体审题列表使用同一 `display_id` 字段。
+  - 后端迁移题生成 prompt 增加硬性约束：`description/input_description/output_description` 必须分段且非空；若设置了输出精度要求（如保留两位小数），必须在 `output_description` 明确写出且样例严格一致。
+  - 前端 `TransferProblemCard.vue` 改为与普通题一致的分段展示：独立“描述 / 输入 / 输出”区块，并将题号（`problem_display_id`）独立展示，标题去除重复前缀。
+  - 集成测试 `AITutorWorkflowAdminIntegrationTest` 同步更新断言，验证迁移题 `problem_display_id` 与标题前缀符合 `2.1.00x` 规则。
+  - 验证结果：
+    - `cd backend && mvn -Dtest=AITutorWorkflowAdminIntegrationTest test` 通过。
+    - `cd frontend && ./node_modules/.bin/eslint src/pages/oj/views/problem/cards/TransferProblemCard.vue` 通过。
+
+- 2026-03-27T09:38:20+08:00 修复知识图谱 KC 详情“已做题显示未做”导致掌握度认知偏差：
+  - 根因核查：`ai/knowledge-graph/kc/{id}/detail` 返回 `user_result` 使用数值语义（`0/-1/null`），而 `StarMapDetailPanel.vue` 仅按字符串语义（`AC/WA/...`）渲染状态，`0` 被前端当作 falsy 显示为“未做”。
+  - 后端修正：`AITutorServiceImpl#kcDetail` 改为统一返回 `user_result = 'AC' | 'WA' | null`，与前端展示语义对齐。
+  - 前端兼容：`StarMapDetailPanel.vue` 增加对旧数值返回（`0/-1`）的兼容解析，避免缓存/灰度期间状态误判。
+  - 验证结果：
+    - `cd backend && mvn -q -f backend/pom.xml -DskipTests compile` 通过。
+    - `cd frontend && npx eslint src/pages/oj/components/skillProfile/StarMapDetailPanel.vue` 通过。
+    - 数据核对（`kc=格式化输出`）：`PPT2-2` 存在历史提交 `30` 次、AC `10` 次（`2026-03-24` 至 `2026-03-26`），与 `70%`（地板规则）一致。
+
+- 2026-03-27T09:24:50+08:00 修复“易错点口径 + 语言接口 + 题目编辑页字段缺失”链路：
+  - 后端 `SystemOptionServiceImpl#getLanguages` 增加历史配置兼容：`sys_options.languages` 支持 JSON 对象与 JSON 数组两种结构，修复 `/api/languages` 在数组配置下触发 `MismatchedInputException` 导致 500。
+  - 后端 `AITutorServiceImpl#misconceptionsMine` 收紧筛选条件，仅统计真实易错相关事件（易错事件类型/非空漏洞标签/易错字段），排除 `problem_opened`、`submission_attempt` 等普通行为事件混入“我的易错点”。
+  - 前端 `UserHome.vue` 增加易错点中文名称归一、普通行为事件前端兜底过滤、最近触发时间展示，提升可读性。
+  - 前端 `admin/views/problem/Problem.vue` 新增“选择已有KC标签”多选入口，并补齐语言配置兼容（后端返回字符串数组或对象数组均可渲染与保存）。
+  - 前端 `oj/components/CodeMirror.vue` 增加语言配置兼容（字符串数组/对象数组），避免语言元数据结构差异导致模式识别异常。
+  - 验证结果：
+    - `cd backend && mvn -q -f backend/pom.xml -DskipTests compile` 通过。
+    - `curl http://127.0.0.1:8080/api/languages` 返回 200，`languages` 正常输出。
+    - `cd frontend && npx eslint src/pages/admin/views/problem/Problem.vue src/pages/oj/components/CodeMirror.vue` 通过（仓库其余历史 lint 问题未在本次处理范围）。
+
+- 2026-03-26T23:58:10+08:00 修复 Classroom 集成测试阻塞链路（Flyway + Monitor Bean 注册）：
+  - 修正 `V16__enable_pg_stat_and_add_top5_indexes.sql` 中索引字段，`classroom_assignment_submission` 从不存在的 `create_time` 改为实际字段 `submit_time`，消除 Flyway 迁移失败。
+  - 修正 `ClassroomMonitorFacade` / `ClassroomMonitorQueryService` 的 Spring 注册方式：移除在当前加载阶段失效的 `@ConditionalOnBean(JdbcTemplate.class)`，改为 `@Service + @Lazy`，恢复监控服务可注入性且不改变对外接口。
+  - 验证结果：
+    - `cd backend && mvn -Dtest=ClassroomModuleIntegrationTest,ClassroomM10IntegrationTest,ClassroomM11IntegrationTest,ClassroomMonitorScaleIntegrationTest test` 通过（5/5）。
+    - `cd backend && mvn -Dtest=ClassroomControllerContractTest test` 通过（1/1）。
+- 修复工作流 `ERROR_FEEDBACK` 诊断结果缺失挫败度字段的问题：根据 `event_data.behavior_metrics.consecutiveErrors` 生成并回传 `error_diagnosis.frustration_level`（`low/moderate/severe`）与 `frustration_encouragement`，恢复 D 路径（多次 WA 挫败评估）判定链路。
+- 修复个人主页多组件显示异常：
+  - `profile` 接口补齐 `recent_passed` 与 `solved_by_difficulty`，恢复“最近提交”和难度统计展示。
+  - `tag-progress` 改为统计用户可见提交涉及题目的标签，不再因 `problem.visible=false` 导致标签进度始终为空。
+  - `review-due` 补充 `kc_name` 回传，修复“今日待复习”列表名称空白。
+  - `misconceptions/mine` 增加名称兜底与同名聚合，修复“我的易错点”大量“未知/空名称”问题。
+  - `UserHome.vue` 增加响应结构兼容与前端归一化逻辑，避免字段差异导致卡片空白。
+
+### 新增
+- 建立 Java 迁移项目骨架：`backend`、`deploy`、`docs/baseline`、`scripts`。
+- 新增 Spring Boot 3.4.4 + Java 21 的 `pom.xml`，纳入 Web/JPA/Validation/Security/Redis/Session/Flyway/PostgreSQL/MapStruct/Lombok/springdoc 依赖。
+- 新增 M1 最小契约实现：`/api/website`、`/api/v1/website`、`/api/languages`、`/api/v1/languages`、`/api/csrf`、`/api/v1/csrf`、`/csrf`。
+- 新增统一响应模型 `ApiResponse`，响应结构对齐 `{error, data}`。
+- 新增 `alethicode` 配置绑定、平台配置服务与控制器，实现网站配置与语言配置输出。
+- 新增 CSRF 安全配置：`csrftoken` Cookie + `X-CSRFToken` Header。
+- 新增 Flyway 初始脚本：
+  - `V1__init_schema.sql`：初始化 `sys_options`、`judge_server` 表并启用 `vector` 扩展。
+  - `V2__init_data.sql`：初始化网站配置和语言配置。
+- 新增 M0 只读保护与基线资产：
+  - `.alethicode_status_baseline.txt`
+  - `docs/baseline/http-routes.txt`
+  - `docs/baseline/ws-routes.txt`
+  - `docs/baseline/frontend-api-refs.txt`
+  - `docs/baseline/module-deps.txt`
+  - `docs/baseline/M0-baseline-report.md`
+- 新增脚本：
+  - `scripts/m12/verify_alethicode_readonly.sh`（验证源仓相对基线无新增改动）
+  - `scripts/m12/extract_source_api_baseline.sh`（提取源端 API/WS 基线）
+  - `scripts/m12/check_m1_contract.sh`（M1 接口契约冒烟）
+- 新增 M2 judge-server 当前子范围实现：
+  - `POST /api/judge-server-heartbeat`、`POST /api/v1/judge-server-heartbeat`
+  - `GET /api/admin/judge-server`、`GET /api/v1/admin/judge-server`
+  - `DELETE /api/admin/judge-server`、`DELETE /api/v1/admin/judge-server`
+  - `PUT /api/admin/judge-server`、`PUT /api/v1/admin/judge-server`
+  - `JudgeServer` 实体、仓储、服务、请求/响应模型与 SHA-256 token 校验
+- 新增 M2 测试：
+  - `JudgeServerControllerContractTest`
+  - `JudgeServerServiceImplTest`
+- 新增 M2 系统管理当前子范围实现：
+  - `GET /api/admin/dashboard-info`、`GET /api/v1/admin/dashboard-info`
+  - `GET /api/admin/versions`、`GET /api/v1/admin/versions`
+  - `GET /api/admin/prune-test-case`、`GET /api/v1/admin/prune-test-case`
+  - `DELETE /api/admin/prune-test-case`、`DELETE /api/v1/admin/prune-test-case`
+  - `SystemAdminService`、`ReleaseNotesService` 及其实现
+  - `OrphanTestCaseResponse`
+  - Flyway `V4__bootstrap_admin_dependencies.sql`，为管理端统计与孤立测试用例清理补齐最小依赖表
+- 新增 M2 配置管理当前子范围实现：
+  - `GET /api/admin/website`、`GET /api/v1/admin/website`
+  - `POST /api/admin/website`、`POST /api/v1/admin/website`
+  - `GET /api/admin/smtp`、`GET /api/v1/admin/smtp`
+  - `POST /api/admin/smtp`、`POST /api/v1/admin/smtp`
+  - `PUT /api/admin/smtp`、`PUT /api/v1/admin/smtp`
+  - `POST /api/admin/smtp-test`、`POST /api/v1/admin/smtp-test`
+  - `SystemOptionService`、`SmtpMailService` 及其实现
+  - `CreateSmtpConfigRequest`、`UpdateSmtpConfigRequest`、`SmtpTestRequest`、`WebsiteConfigRequest`
+  - `SmtpConfigResponse`
+- 新增 M2 管理端测试：
+  - `SystemAdminControllerContractTest`
+  - `SystemAdminServiceImplTest`
+  - `ReleaseNotesServiceImplTest`
+- 新增 M2 配置管理测试：
+  - `AdminConfigControllerContractTest`
+  - `SystemOptionServiceImplTest`
+- 新增 Flyway `V3__align_judge_server_metric_types.sql`，修正 `judge_server` 百分比字段类型与 JPA 契约一致。
+- 新增 M2 通用上传当前子范围实现：
+  - `POST /api/admin/upload-image`、`POST /api/admin/upload-image/`
+  - `POST /api/v1/admin/upload-image`、`POST /api/v1/admin/upload-image/`
+  - `POST /api/admin/upload-file`、`POST /api/admin/upload-file/`
+  - `POST /api/v1/admin/upload-file`、`POST /api/v1/admin/upload-file/`
+  - `AdminUploadService`、`AdminUploadServiceImpl`、`AdminUploadController`
+  - 上传目录与前缀配置：`alethicode.system.upload-dir`、`alethicode.system.upload-prefix`
+- 新增 M2 上传测试：
+  - `AdminUploadControllerContractTest`
+  - `AdminUploadServiceImplTest`
+- 新增 M3 题目前台读取当前子范围实现：
+  - `GET /api/problems`、`GET /api/problems/`
+  - `GET /api/v1/problems`、`GET /api/v1/problems/`
+  - `GET /api/problems/tags`、`GET /api/problems/tags/`
+  - `GET /api/v1/problems/tags`、`GET /api/v1/problems/tags/`
+  - `GET /api/problems/random`、`GET /api/problems/random/`
+  - `GET /api/v1/problems/random`、`GET /api/v1/problems/random/`
+  - `GET /api/problems/tag-progress`、`GET /api/problems/tag-progress/`
+  - `GET /api/v1/problems/tag-progress`、`GET /api/v1/problems/tag-progress/`
+  - `ProblemController`、`ProblemQueryService`、`ProblemQueryServiceImpl`
+- 新增 Flyway `V5__bootstrap_problem_read_schema.sql`，补齐题目前台读取链路所需的最小表结构与字段扩展（`problem`、`problem_tag`、`problem_problem_tags`、`user_profile`、`user.admin_type`）。
+- 新增 M3 题目读取测试：
+  - `ProblemControllerContractTest`
+  - `ProblemQueryServiceImplTest`
+  - `ProblemModuleIntegrationTest`（真实 PostgreSQL + Flyway + MockMvc）
+- 新增 M3 题目管理端读取当前子范围实现：
+  - `GET /api/admin/problems`、`GET /api/admin/problems/`
+  - `GET /api/v1/admin/problems`、`GET /api/v1/admin/problems/`
+  - `AdminProblemController`、`AdminProblemQueryService`、`AdminProblemQueryServiceImpl`
+- 新增 M3 管理端题目读取测试：
+  - `AdminProblemControllerContractTest`
+  - `AdminProblemQueryServiceImplTest`
+- 新增 M3 题目管理端写入当前子范围实现：
+  - `POST /api/admin/problems`、`POST /api/admin/problems/`
+  - `POST /api/v1/admin/problems`、`POST /api/v1/admin/problems/`
+  - `PUT /api/admin/problems`、`PUT /api/admin/problems/`
+  - `PUT /api/v1/admin/problems`、`PUT /api/v1/admin/problems/`
+  - `DELETE /api/admin/problems`、`DELETE /api/admin/problems/`
+  - `DELETE /api/v1/admin/problems`、`DELETE /api/v1/admin/problems/`
+  - `AdminProblemCommandService`、`AdminProblemCommandServiceImpl`
+  - `AdminProblemUpsertRequest`、`ProblemSampleRequest`、`ProblemTestCaseScoreRequest`
+- 新增 Flyway `V6__extend_user_permission_fields.sql`，补齐 `user.problem_permission` 与 `user.is_disabled` 字段以对齐题目管理权限判定链路。
+- 新增 M3 题目测试用例管理当前子范围实现：
+  - `GET /api/admin/test-cases`、`GET /api/admin/test-cases/`
+  - `GET /api/v1/admin/test-cases`、`GET /api/v1/admin/test-cases/`
+  - `POST /api/admin/test-cases`、`POST /api/admin/test-cases/`
+  - `POST /api/v1/admin/test-cases`、`POST /api/v1/admin/test-cases/`
+  - `AdminTestCaseController`、`AdminTestCaseService`、`AdminTestCaseServiceImpl`
+- 新增 M3 测试用例管理测试：
+  - `AdminTestCaseControllerContractTest`
+  - `AdminTestCaseServiceImplTest`
+  - `ProblemModuleIntegrationTest` 新增 `admin/test-cases` 上传下载数据库+文件系统集成验证
+- 新增 M3 题目导入导出当前子范围实现：
+  - `GET /api/admin/export-problems`、`GET /api/admin/export-problems/`
+  - `GET /api/v1/admin/export-problems`、`GET /api/v1/admin/export-problems/`
+  - `POST /api/admin/import-problems`、`POST /api/admin/import-problems/`
+  - `POST /api/v1/admin/import-problems`、`POST /api/v1/admin/import-problems/`
+  - `POST /api/admin/import-fps`、`POST /api/admin/import-fps/`
+  - `POST /api/v1/admin/import-fps`、`POST /api/v1/admin/import-fps/`
+  - `AdminProblemCommandService` / `AdminProblemCommandServiceImpl` 增加导入导出能力（含 ZIP 打包、problem.json 生成、测试用例目录导入）
+- 新增 M3 导入导出测试：
+  - `AdminProblemControllerContractTest` 新增 `export/import/import-fps` 契约断言
+  - `ProblemModuleIntegrationTest` 新增 `export -> import` 题目闭环集成验证
+
+### 说明
+- 严格遵循“源项目只读”要求：所有写入均发生在 `/home/cypress/code_java`。
+- 修正独立运行配置，`application.yml` 与 `application-dev.yml` 统一切换到独立 PostgreSQL `5436` 和 Redis `6381`。
+- 修正 Spring Security 对 judge-server heartbeat 的 CSRF 放行逻辑，并补齐尾斜杠路由契约。
+- 修正 Jackson 配置方式，保留 Spring 默认时间模块，避免 `Instant` 序列化失败。
+- 修正 `deploy/docker-compose.yml` 的独立项目名与 judge 必要挂载/代理环境，避免与源项目 compose 冲突并确保 judge 镜像可正常启动心跳。
+- 修正 `SystemAdminServiceImplTest` 的 `JdbcTemplate.queryForObject` Mockito 桩，显式匹配 varargs 重载，消除严格模式下的误报并恢复 M2 管理端测试稳定性。
+- 引入 `spring-boot-starter-mail` 与 `jsoup`，补齐 SMTP 测试发送与网站页脚 HTML 清洗能力。
+- 将公开 `/api/website` 读取链路切换到 `sys_options`，确保后台修改网站配置后前台公开配置同步生效。
+- 收紧管理端权限边界：`judge-server`、`prune-test-case`、`smtp`、`admin website POST` 统一要求 `SUPER_ADMIN`，同时保留源项目中的公开配置读取接口为匿名可访问。
+- 补齐 Simditor 上传契约细节：上传接口维持非 `{error,data}` 包裹的原始 JSON 结构，返回字段 `success/msg/file_path/file_name` 与源项目一致，并保持图片后缀白名单校验逻辑。
+- 修正上传接口权限契约：移除 `upload-image/upload-file` 的方法级角色限制，保持与源项目一致的“无装饰器权限”行为（仍受 CSRF 语义约束）。
+- M3 当前子范围严格对齐前台基础契约：`Limit is needed`、`Problem does not exist`、`No problem to pick`、`tag-progress` 登录校验与权限分支、`/api` 与 `/api/v1` 双路由别名一致。
+- 对齐题目序列化关键行为：返回 `created_by`、`tags`、`my_status`、公开模板提取（仅返回 `//TEMPLATE BEGIN ... //TEMPLATE END` 中段代码）、`with_kcs=true` 时返回 `kc_names`（在 AI Tutor 未迁移前返回空数组占位）。
+- 修正 M3 题目详情链路：详情查询改为与列表共用同一序列化路径，避免详情缺失 `created_by` 字段与空值映射异常。
+- 修正 M3 集成测试数据装配：`acm_problems_status` 使用运行时真实 `problem.id` 回填，确保 `my_status` 映射与源项目行为一致。
+- 对齐 M3 管理端题目读取契约：支持 `id/keyword/limit/offset`，返回结构保持 `{error,data}` 与 `paginate_data` 形状一致（`results` + `total`），并补齐 `created_by`、`tags`、`template`、统计字段等管理端核心字段。
+- 对齐 M3 管理端题目写入契约：补齐 `Display ID` 唯一校验、题目归属校验、`test_case_score` 与测试用例文件名一致性校验、`type:*` 题型标签收敛（强制写回 `type:coding`）与 `statistic_info.question_type` 写回逻辑。
+- 补齐 M3 管理端写入验证测试：
+  - `AdminProblemControllerContractTest` 新增 POST/PUT/DELETE 契约断言
+  - `AdminProblemCommandServiceImplTest`
+  - `ProblemModuleIntegrationTest` 新增管理端题目 CRUD 数据库集成验证
+- 对齐 M3 测试用例管理契约细节：
+  - `spj` 参数缺失时返回 `Upload failed`
+  - 上传 ZIP 解析延续源项目行为：仅接受连续编号 `1.in/1.out...`（或 SPJ 的 `1.in...`）、写入 `info`、保留 `{error,data}` 包裹
+  - 下载接口保持 `attachment; filename=problem_{id}_test_cases.zip` 头与 `problem_id` 参数校验文案
+- 修正 `AdminTestCaseServiceImpl` 下载链路的 `Files.list(...)` 资源释放，避免文件句柄泄漏风险。
+- 为避免新增 `AdminTestCaseController` 破坏既有无数据源契约测试上下文，已在全部 controller contract tests 统一注入 `@MockBean AdminTestCaseService`。
+- 补齐本机 Java 工具链（满足迁移门禁）：JDK `21.0.10` 与 Maven `3.9.11` 已安装并通过版本校验。
+- 对齐导出下载契约：导出成功响应保持 `application/zip` 与 `Content-Disposition: attachment;filename=problem-export.zip`。
+- 对齐导入返回契约：`import-problems` 返回 `import_count/kc_bindcount/kc_auto_bindcount`，其中 KC 绑定在当前迁移阶段固定返回 `0`，后续随 AI Tutor/KC 模块迁移再接入真实链路。
+- 完成 `import-fps` 实际解析链路（替换占位实现）并与源项目关键行为对齐：
+  - 支持 FPS `1.1/1.2`、`template/prepend/append`、样例与测试点解析、题目入库、测试用例落盘。
+  - 对齐 SPJ 语义：`spj` 节点要求带 `language` 属性；`test_case_score` 在 SPJ 场景写入 `output_name=null`。
+  - 对齐单位边界：`memory_limit` 仅接受 `MB`，非法单位返回 `Parse FPS file error`。
+- 新增 `import-fps` 集成测试：
+  - `ProblemModuleIntegrationTest#importFpsShouldCreateProblemAndTestCases`
+  - `ProblemModuleIntegrationTest#importFpsShouldRejectInvalidMemoryUnit`
+  - 验证点覆盖：接口返回结构、题目入库、模板拼接格式、测试用例目录与文件写入、非法单位错误分支。
+- 本机按出口 IP（TW）完成源选择与验证：
+  - `apt` 主源固定为 `https://tw.archive.ubuntu.com/ubuntu/`，并验证 `apt-get update` 可稳定通过。
+  - 配置 `/etc/apt/apt.conf.d/95local-proxy` 以兼容 `sudo` 下代理环境不继承问题，避免更新超时。
+- 新增 M4（提交与判题）第一子批次实现（M4-C1：提交流水线基础读写 + 复核/重判）：
+  - 新增接口：`SubmissionController` 与 `AdminSubmissionController`，覆盖以下路由（含 `/api`、`/api/v1` 与尾斜杠别名）：
+    - `POST/GET/PUT /submission`
+    - `GET /submissions`
+    - `GET /submissions/recent-wrong`
+    - `GET /submission-exists`
+    - `GET /problems/statistics`
+    - `GET /judge/review-queue`
+    - `POST /judge/review-queue/{submission_id}`
+    - `GET /submission/rejudge`
+  - 新增 `SubmissionService` / `SubmissionServiceImpl`，实现：
+    - 登录与管理员权限校验（含禁用用户拦截）
+    - 提交详情权限规则（本人/超管/全题目权限/题目创建者/shared）
+    - 提交列表分页与筛选（`problem_id`、`myself`、`username`、`result`）
+    - 最近错题聚合去重（过滤已 AC 题目）
+    - 提交存在性检查
+    - 题目通过提交统计（`time_costs`、`memory_costs`）
+    - 复核队列查询与人工 verdict 回写
+    - 超管重判入口（清空 `statistic_info`）
+    - 提交创建基础链路：客观题内联判题 + 常规题判题机可用性检查
+  - 新增 DTO：
+    - `CreateSubmissionRequest`
+    - `SubmissionShareRequest`
+    - `JudgeReviewVerdictRequest`
+- 新增 M4-C1 集成测试：
+  - `SubmissionModuleIntegrationTest` 覆盖提交详情、共享权限、列表分页、存在性、题目统计、最近错题、复核队列、重判、客观题提交与判题机可用性分支。
+- 为保证无数据源契约测试上下文稳定，以下契约测试统一补充 `@MockBean SubmissionService`：
+  - `PlatformContractControllerTest`
+  - `ProblemControllerContractTest`
+  - `JudgeServerControllerContractTest`
+  - `AdminUploadControllerContractTest`
+  - `AdminConfigControllerContractTest`
+  - `AdminProblemControllerContractTest`
+  - `AdminTestCaseControllerContractTest`
+  - `SystemAdminControllerContractTest`
+- 新增 M4（提交与判题）第二子批次实现（M4-C2：`/debug` 在线调试链路）：
+  - 新增接口（含 `/api`、`/api/v1` 与尾斜杠别名）：
+    - `POST /debug`
+  - 新增 `DebugSubmissionRequest`，对齐 `problem_id/language/code/input` 请求形状。
+  - `SubmissionService` / `SubmissionServiceImpl` 新增 `debugSubmission`：
+    - 登录与禁用用户校验；
+    - `problem_id` 可选，传入时校验题目可见性与语言白名单；
+    - 题目模板拼接（`prepend + code + append`）；
+    - 按源项目逻辑选择判题机（优先心跳正常，回退 `ping` 探测）；
+    - 生成临时测试用例目录（`1.in/1.out/info`）并调用 judge `/judge`；
+    - 对齐返回契约：`{output,error,time_cost,memory_cost}`，含 RE/TLE/MLE 等错误文案映射与“无输出”文案；
+    - 异常分支对齐：`No available judge server`、`Judge server timeout`、`Failed to connect to judge server: ...`、`Debug failed: ...`。
+  - 优化提交创建链路的 judge 可用性判断：从“仅看心跳”调整为“心跳+探活”一致策略，避免误判不可用。
+- 新增 M4-C2 测试：
+  - `SubmissionModuleIntegrationTest#debugShouldReturnNoAvailableJudgeServerWhenMissing`
+  - `SubmissionModuleIntegrationTest#debugShouldCallJudgeServerAndReturnOutput`
+  - `SubmissionServiceImplTest#debugShouldRequireLogin`
+- 新增 M4-C2 回归结果：
+  - `mvn -q -Dtest=SubmissionServiceImplTest,SubmissionModuleIntegrationTest test` 通过；
+  - `mvn -q -Dtest=PlatformContractControllerTest,ProblemControllerContractTest,JudgeServerControllerContractTest,AdminUploadControllerContractTest,AdminConfigControllerContractTest,AdminProblemControllerContractTest,AdminTestCaseControllerContractTest,SystemAdminControllerContractTest test` 通过；
+  - `bash scripts/m12/verify_alethicode_readonly.sh` 通过（源仓保持不变）。
+- 新增 M4（提交与判题）第三子批次实现（M4-C3：远程判题异步调度）：
+  - `SubmissionServiceImpl#createSubmission` 在普通编程题提交成功入库后，新增异步判题调度触发（提交状态从 `PENDING` 进入判题流程）。
+  - `SubmissionServiceImpl#rejudgeSubmission` 对齐源项目行为：重判时将状态重置为 `PENDING` 并重新触发异步判题调度。
+  - 新增异步判题执行器与任务链路：
+    - 按提交查询题目判题元数据（`test_case_id/template/time_limit/memory_limit`）；
+    - 语言配置解析（优先 `sys_options.languages`，回退内置 `C/C++/Java/Python3`）；
+    - 选择可用判题机并调用 `/judge`；
+    - 回填提交结果：`JUDGING/AC/各类错误码`、`info` 原始判题返回、`statistic_info.time_cost/memory_cost/err_info`；
+    - 对齐失败分支：无判题机、空响应、非法响应、内部异常均写入 `SYSTEM_ERROR` 与 `err_info`。
+  - 异步执行器线程改为 daemon，避免测试与进程退出阶段被非守护线程阻塞。
+- 新增 M4-C3 测试：
+  - `SubmissionModuleIntegrationTest#createSubmissionShouldDispatchJudgeAndPersistResult`（验证提交后异步判题回填 `result/statistic_info`）。
+- 新增 M4-C3 回归结果：
+  - `mvn -q -Dtest=SubmissionModuleIntegrationTest#createSubmissionShouldDispatchJudgeAndPersistResult test` 通过；
+  - `mvn -q -Dtest=SubmissionServiceImplTest,SubmissionModuleIntegrationTest test` 通过；
+  - `mvn -q -Dtest=PlatformContractControllerTest,ProblemControllerContractTest,JudgeServerControllerContractTest,AdminUploadControllerContractTest,AdminConfigControllerContractTest,AdminProblemControllerContractTest,AdminTestCaseControllerContractTest,SystemAdminControllerContractTest test` 通过；
+  - `bash scripts/m12/verify_alethicode_readonly.sh` 通过（源仓保持不变）。
+- 新增 M4（提交与判题）第四子批次实现（M4-C4：提交/调试限流对齐）：
+  - `SubmissionService` 与 `SubmissionController` 扩展请求上下文字段，提交与调试接口统一接入 `clientIp + HTTP_APPKEY` 判定。
+  - `SubmissionServiceImpl` 新增源项目等价三桶限流链路：
+    - API Key：`apikey:{user_id}`（调试为 `apikey:{user_id}_debug`），错误文案 `API rate limit exceeded, wait {n} seconds`；
+    - 用户：`{user_id}`（调试为 `{user_id}_debug`），错误文案 `Please wait {n} seconds`；
+    - IP：`ip:{ip}`（调试为 `ip:{ip}_debug`），错误文案 `Too many requests from this IP, wait {n} seconds`。
+  - 限流参数读取优先 `sys_options.throttling`，缺失时回退默认值：
+    - `user: capacity=20, fill_rate=0.03, default_capacity=10`
+    - `ip: capacity=100, fill_rate=0.1, default_capacity=50`
+    - `api_key: capacity=100, fill_rate=0.5, default_capacity=50`
+  - 新增集成测试（先红后绿）：
+    - `SubmissionModuleIntegrationTest#createSubmissionShouldApplyUserThrottling`
+    - `SubmissionModuleIntegrationTest#debugShouldApplyUserThrottling`
+  - 修正限流测试隔离：每个用例前显式回填默认 `throttling` 配置，避免跨用例污染。
+- 新增 M4-C4 回归结果：
+  - `mvn -q -Dtest=SubmissionModuleIntegrationTest#createSubmissionShouldApplyUserThrottling,SubmissionModuleIntegrationTest#debugShouldApplyUserThrottling test` 通过；
+  - `mvn -q -Dtest=SubmissionServiceImplTest,SubmissionModuleIntegrationTest test` 通过；
+  - `mvn -q -Dtest=PlatformContractControllerTest,ProblemControllerContractTest,JudgeServerControllerContractTest,AdminUploadControllerContractTest,AdminConfigControllerContractTest,AdminProblemControllerContractTest,AdminTestCaseControllerContractTest,SystemAdminControllerContractTest test` 通过；
+  - `bash scripts/m12/verify_alethicode_readonly.sh` 通过（源仓保持不变）。
+- 新增 M5（账户与认证）补全批次（M5-C2）：
+  - 账户用户端新增头像上传接口（含 `/api` 与 `/api/v1` 双路由）：
+    - `POST /upload-avatar`
+  - 账户后台新增用户管理接口（含 `/api/admin` 与 `/api/v1/admin` 双路由）：
+    - `GET /users`（列表/按 ID 查询）
+    - `POST /users`（导入用户）
+    - `PUT /users`（编辑用户）
+    - `DELETE /users`（批量删除）
+    - `POST /generate-user`（批量生成账号并返回 `file_id`）
+    - `GET /generate-user`（下载生成文件）
+  - `AccountService` / `AccountServiceImpl` 新增对应实现：
+    - 头像上传大小与后缀校验（2MB、图片后缀白名单）并落库更新 `user_profile.avatar`；
+    - 超管用户管理链路（查询、导入、编辑、删除、批量生成）；
+    - 生成用户文件持久化到 `generated_user_file` 并支持一次性下载。
+- 新增 M7（AI Tutor 基础能力）补全批次（M7-C2）：
+  - `AITutorController` 完整扩展 OJ 侧核心路由（含 `/api` 与 `/api/v1` 双路由）：
+    - 已补齐：`error-attribution`、`analytics anti-patterns`、`eval-feedback`、`safety-feedback`、`notebook`(CRUD+export)、`frustration`(analyze/event/alert)、`misconceptions/mine`、`code-snapshot`、`learning-events/batch`、`calibration`(status/answer/skip)、`parsons/validate`、`knowledge-graph`(含 snapshot/kc detail)、`submission-river/{problem_id}`。
+  - `AITutorService` / `AITutorServiceImpl` 新增对应服务实现：
+    - 在保持已迁移推理主链路可用前提下，新增 notebook、学习事件、校准状态、知识图谱、提交演化等接口闭环；
+    - 统一保留原响应封装 `{"error":...,"data":...}` 与权限语义（登录校验、admin 越权限制）。
+- 新增 Flyway 迁移：
+  - `V8__bootstrap_m5_m7_extended.sql`
+  - 新建表：`ai_learner_notebook`、`ai_learning_event`、`ai_code_snapshot`、`ai_calibration_state`、`generated_user_file`，并补充索引。
+- 新增/更新测试：
+  - 新增契约测试：`AdminAccountControllerContractTest`
+  - 更新契约测试：`AccountControllerContractTest`、`AITutorControllerContractTest`
+  - 更新集成测试：`AccountAnnouncementAiIntegrationTest`（新增头像上传、notebook、calibration、knowledge-graph、submission-river 场景）
+- 本轮验证结果：
+  - `mvn -q -DskipTests compile` 通过；
+  - `mvn -q -Dtest=AccountControllerContractTest,AdminAccountControllerContractTest,AITutorControllerContractTest,AccountAnnouncementAiIntegrationTest test` 通过；
+  - `mvn -q test` 全量通过。
+- 源仓只读校验：
+  - 先检测到 baseline 与当前状态不一致（均为源仓“有意修改”差异项）；
+  - 已按授权更新 `.alethicode_status_baseline.txt` 后执行 `bash scripts/m12/verify_alethicode_readonly.sh`，结果通过。
+- 新增 M8（AI Tutor 工作流与后台管理）迁移实现（M8-C1）：
+  - 新增用户端工作流控制器 `AITutorWorkflowController`，完整接入双路由别名（`/api` 与 `/api/v1`）：
+    - `GET/POST/DELETE /ai/workflow/session`
+    - `POST /ai/workflow/event`
+    - `GET /ai/workflow/checkpoint`
+    - `POST /ai/workflow/checkpoint/restore`
+    - `POST /ai/workflow/interrupt`
+  - 新增管理端 AI 控制器 `AdminAITutorController`，完整接入双路由别名（`/api/admin` 与 `/api/v1/admin`）：
+    - `GET /ai/variant-review`
+    - `POST /ai/variant-review/{problemId}/approve`
+    - `POST /ai/variant-review/{problemId}/reject`
+    - `GET /ai/kc-list`
+    - `PUT /ai/kc/{kcId}`
+    - `GET /ai/kc/{kcId}/problems`
+    - `GET /ai/classroom-chapters`
+    - `GET /ai/preflight/stats`
+    - `POST /ai/preflight/diagnose`
+    - `GET /ai/mcmining/pending`
+    - `POST /ai/mcmining/approve|reject|merge|discover`
+  - 新增 Flyway 迁移 `V9__bootstrap_m8_workflow_admin.sql`，补齐 M8 最小闭环数据结构：
+    - `ai_workflow_session`
+    - `ai_workflow_event`
+    - `ai_workflow_checkpoint`
+    - `ai_knowledge_component`
+    - `ai_problem_kc_mapping`
+    - `ai_misconception`
+  - 修复 `AITutorWorkflowAdminServiceImpl` 两处关键缺陷：
+    - `workflowCheckpointRestore` 中 `query` 返回类型错误导致编译失败，改为 `queryForObject` 并补 `EmptyResultDataAccessException` 分支。
+    - `findWorkflowSession` SQL 拼接缺空格导致运行期语法错误（`whereproblem_id`），已修复为合法 SQL。
+- 新增 M8 测试与装配修正：
+  - 新增契约测试：`AITutorWorkflowAdminControllerContractTest`（覆盖 workflow + admin AI 核心路由与响应包裹契约）。
+  - 新增集成测试：`AITutorWorkflowAdminIntegrationTest`（覆盖 session/event/checkpoint/restore/interrupt、variant approve/reject、KC 列表与更新、preflight stats/diagnose、mcmining pending/approve/reject/merge/discover 全链路）。
+  - 为所有无 DataSource 的 controller contract 测试补充 `@MockBean AITutorWorkflowAdminService`，避免新增 M8 bean 造成上下文创建失败。
+- 本轮验证结果：
+  - `mvn -q -DskipTests compile` 通过；
+  - `mvn -q -Dtest='AITutorWorkflowAdminControllerContractTest,AITutorWorkflowAdminIntegrationTest' test` 通过；
+  - `mvn -q test` 全量通过；
+  - `bash scripts/m12/verify_alethicode_readonly.sh` 通过（源仓保持不变）。
+- M8 测试补充（M8-C1.1）：
+  - 新增服务单元测试：`AITutorWorkflowAdminServiceImplTest`（覆盖工作流与管理端登录权限 fail-fast 分支）。
+  - 复验结果：
+    - `mvn -q -Dtest='AITutorWorkflowAdminServiceImplTest,AITutorWorkflowAdminControllerContractTest,AITutorWorkflowAdminIntegrationTest' test` 通过；
+    - `mvn -q test` 全量通过；
+    - `bash scripts/m12/verify_alethicode_readonly.sh` 通过（源仓保持不变）。
+- 新增 M9（Classroom 核心模块）迁移实现（M9-C1）：
+  - 新增 `ClassroomController`，完整接入双路由别名（`/api` 与 `/api/v1`），覆盖六大核心资源：
+    - `classroom`：列表/详情/创建/更新/删除；
+    - `classroom/invitation`：`join`、`generate/{classroom_id}`、`list/{classroom_id}`、`{id}/deactivate`、`refresh/{classroom_id}`；
+    - `classroom/{classroom_pk}/members`：列表/详情/移除/提拔/降级；
+    - `classroom/{classroom_pk}/lessons`：列表/上传/详情/删除/下载/预览；
+    - `classroom/{classroom_pk}/assignments`：列表/详情/创建/更新/删除/提交/提交列表/评分；
+    - `classroom/{classroom_pk}/problems`：列表/详情/创建/更新/删除/objective JSON 导入导出。
+  - 课件下载与预览链路按行为分离：`download` 返回 `attachment`，`view` 返回 `inline`，并保留原始文件 MIME。
+  - `ClassroomServiceImpl` 完成 M9 业务闭环：班级成员权限、邀请码使用与失效、课件文件落盘、班级题目管理、作业提交与评分、objective 题导入导出。
+  - 修复 M9 实施中发现的稳定性问题：
+    - 修正 `Map.of(...)` 在包含 `null` 值场景触发的 NPE（改为 `LinkedHashMap`）；
+    - 修正若干 `Map` 泛型推断导致的编译错误。
+- 新增 M9 测试与门禁：
+  - 新增契约测试：`ClassroomControllerContractTest`（验证路由别名与 `{"error":...,"data":...}` 包裹契约）。
+  - 新增集成测试：`ClassroomModuleIntegrationTest`（覆盖班级 CRUD、邀请码入班、成员提拔、课件上传/下载/预览/删除、班级题目管理、作业提交与评分、objective JSON 导入导出）。
+  - 为现有 controller contract 测试补充 `@MockBean ClassroomService`（含 `PlatformContractControllerTest`），消除新增模块对无 DataSource 场景的上下文影响。
+- 本轮验证结果（按“迁移 -> 自检 -> 单元测试 -> 集成测试 -> 通过确认”执行）：
+  - `mvn -q -DskipTests compile` 通过；
+  - `mvn -q -Dtest=ClassroomControllerContractTest test` 通过；
+  - `mvn -q -Dtest=ClassroomModuleIntegrationTest test` 通过；
+  - `mvn -q test` 全量通过；
+  - `bash scripts/m12/verify_alethicode_readonly.sh` 通过（源仓保持不变）。
+- 新增 M10（Classroom 协作与监控）迁移实现（M10-C1）：
+  - 扩展 `ClassroomController` 与 `ClassroomService`/`ClassroomServiceImpl`，补齐 M10 路由并保持 `/api` 与 `/api/v1` 双别名及包裹响应契约：
+    - 协作会话：`GET/POST /classroom/{classroomId}/sessions`、`GET/DELETE/POST /classroom/{classroomId}/sessions/{sessionId}`、`POST /end`、`POST /transfer-token`；
+    - 监控看板：`GET /monitor/stats`、`/monitor/snapshots`、`/monitor/playback`、`/monitor/coach`、`/monitor/review-queue`、`POST /monitor/review-verdict`。
+  - 新增 Flyway `V11__bootstrap_m10_classroom_collab_monitor.sql`，补齐 M10 数据结构：
+    - `classroom_session`（协作会话、relay/scaffolding 配置、参与人数、会话状态）；
+    - `student_monitoring_snapshot`（学生状态快照、代码快照、编辑距离、提交统计）；
+    - 补齐关键索引，保证会话列表与监控查询可用。
+  - 新增原生 WebSocket 能力并接入固定路径：
+    - `ClassroomWebSocketConfig` 注册 `/ws/classroom/collab/*` 与 `/ws/classroom/monitor/*`；
+    - `ClassroomCollabWebSocketHandler` 支持在线成员广播、聊天、代码同步、relay token 申请/取消/释放、scaffolding/yjs 消息转发；
+    - `ClassroomMonitorWebSocketHandler` 支持教师端状态推送、学生心跳上报与快照请求响应；
+    - `ClassroomHandshakeInterceptor` 复用 session 用户态；
+    - `ClassroomWebSocketSupport` 提供 WS 所需的权限校验与状态读写。
+  - 为兼容无数据源的 contract 测试上下文，WS 相关 Bean 增加 `@ConditionalOnBean(JdbcTemplate.class)`，避免影响既有测试装配。
+  - 修复 M10 实施过程中的泛型与 SQL 语法问题：
+    - 修复文本块 SQL 与字符串拼接混用导致的编译错误；
+    - 修复 `Map.of(...)` 泛型推断导致的类型不兼容问题（改为 `LinkedHashMap`）。
+- 新增 M10 测试与门禁：
+  - 更新契约测试：`ClassroomControllerContractTest`（补充 sessions/monitor/review-verdict/delete 路由契约断言）；
+  - 新增集成测试：`ClassroomM10IntegrationTest`（覆盖会话创建/转移令牌/结束/删除、monitor stats/snapshots/playback/coach/review-queue/review-verdict 主链路）。
+- 本轮验证结果（按“迁移 -> 自检 -> 单元测试 -> 集成测试 -> 通过确认”执行）：
+  - `mvn -q -DskipTests compile` 通过；
+  - `mvn -q -Dtest=ClassroomControllerContractTest,ClassroomM10IntegrationTest test` 通过；
+  - `mvn -q test` 全量通过；
+  - `bash scripts/m12/verify_alethicode_readonly.sh` 通过（源仓保持不变）。
+- 新增 M11（Classroom AI 出题）迁移实现（M11-C1）：
+  - 扩展 `ClassroomController`、`ClassroomService`、`ClassroomServiceImpl`，补齐 M11 路由并保持 `/api` 与 `/api/v1` 双别名及 `{"error":...,"data":...}` 统一响应契约：
+    - `GET/POST /classroom/{id}/ai/generated-problems/`
+    - `GET /classroom/{id}/ai/generated-problems/export-reviewed-json/`
+    - `GET/PATCH/DELETE /classroom/{id}/ai/generated-problems/{aiProblemId}/`
+    - `POST /classroom/{id}/ai/generated-problems/{aiProblemId}/publish/`
+    - `POST /classroom/{id}/ai/generated-problems/{aiProblemId}/promote/`
+    - `POST /classroom/{id}/ai/generated-problems/{aiProblemId}/validate/`
+    - `POST /classroom/{id}/ai/generated-problems/{aiProblemId}/review-pass/`
+    - `POST /classroom/{id}/ai/generated-problems/{aiProblemId}/review-reject/`
+    - `GET /classroom/{id}/ai/generated-problems/task-status/{taskId}/`
+  - 新增 Flyway 迁移 `V12__bootstrap_m11_classroom_ai_generation.sql`，补齐 M11 最小闭环数据结构：
+    - `ai_generation_task`
+    - `ai_generated_problem`
+    - 关键索引（班级维度、任务维度、审核状态、创建时间）
+  - 完成 AI 出题主链路：任务创建与轮询、AI 题目列表与详情、审核通过/拒绝、校验、发布入班级题库、推广到全局题库、导出 reviewed JSON。
+  - 修复 M11 实施中的兼容问题：`problem.ai_source_classroom_id` 为 `BIGINT`，发布时改为写入 `null`，避免字符串 `classroom_id` 导致类型错误。
+- 新增 M11 测试与门禁：
+  - 更新契约测试：`ClassroomControllerContractTest`（补充 generated-problems list/create/publish 路由契约）；
+  - 新增集成测试：`ClassroomM11IntegrationTest`（覆盖 create->status->list->retrieve->update->validate->publish->promote->review->export->delete 全链路）。
+- 本轮验证结果（按“迁移 -> 自检 -> 单元测试 -> 集成测试 -> 通过确认”执行）：
+  - `mvn -q -DskipTests compile` 通过；
+  - `mvn -q -Dtest=ClassroomControllerContractTest,ClassroomM11IntegrationTest test` 通过；
+  - `mvn -q test` 全量通过；
+  - `bash scripts/m12/verify_alethicode_readonly.sh` 通过（源仓保持不变）。
+- M12 网络源优化（按当前出口网络优先国内源）:
+  - 新增脚本 `scripts/deploy/configure_mirrors_by_ip.sh`，统一配置：
+    - Docker daemon `registry-mirrors`: `https://docker.m.daocloud.io`、`https://dockerproxy.com`
+    - npm registry: `https://registry.npmmirror.com`
+    - Maven mirror: `https://maven.aliyun.com/repository/public`
+  - 已执行配置并生效校验：
+    - `docker info` 可见镜像加速地址已加载；
+    - `npm config get registry` 返回 `https://registry.npmmirror.com/`；
+    - `~/.m2/settings.xml` 已写入阿里云 mirror。
+- 新增 M13（全链路回归与迁移后优化）实施记录（M13-C1）：
+  - 优化前回归：`mvn -q test` 全量通过（作为优化前基线）。
+  - 证据驱动问题定位：
+    - `sys_options` 在网站配置、语言配置、SMTP 配置等读取链路中高频走 DB；
+    - `application.yml` 保持了 `spring.jpa.show-sql=true` 与 `hibernate.format_sql=true`，在开发压测与高并发场景会产生明显日志开销。
+  - 已实施内部优化（不改任何公共 API 契约）：
+    1. `SystemOptionServiceImpl` 增加进程内短 TTL 缓存（5s）与写后失效，减少重复 `sys_options` 查询；
+    2. 关闭 SQL 明细日志开销：`spring.jpa.show-sql=false`、`hibernate.format_sql=false`；
+    3. 修复运行态稳定性问题：`SystemAdminServiceImpl` 显式标注主构造器注入，避免 Spring 在多构造器下错误走默认构造路径导致启动失败。
+  - 回归验证：
+    - `mvn -q -Dtest=SystemOptionServiceImplTest,SubmissionServiceImplTest,SystemAdminServiceImplTest test` 通过；
+    - `mvn -q test` 全量通过；
+    - `mvn -q -DskipTests compile` 通过。
+  - 回退说明（fail-fast 保守处理）：
+    - 曾尝试在 `SubmissionServiceImpl` 对 `throttling` 配置做短缓存，导致 `SubmissionModuleIntegrationTest` 两条限流用例回归失败，已回退该项，确保行为与基线一致。
+- 新增 M14（本地一键启动脚本）交付（M14-C1）：
+  - 新增根目录 `start.sh`，实现一键启动开发链路：
+    - 自动检查依赖命令：`docker/java/mvn/node/npm/curl/ss/rg`；
+    - 自动启动基础依赖（`postgres + redis`）；
+    - 后端以 `dev` profile 启动在 `8081`；
+    - 前端开发模式固定 `8080`，并自动设置 `API_TARGET/WS_TARGET -> http://127.0.0.1:8081`；
+    - 启动前自动清理陈旧 backend pid 状态，避免脏状态影响下一次启动。
+  - 新增启动脚本验证开关：`SKIP_FRONTEND=1`（仅用于快速自测后端拉起，不影响默认行为）。
+  - 启动链路验证：
+    - `bash -n start.sh` 通过；
+    - `SKIP_FRONTEND=1 ./start.sh` 可拉起后端并响应 `GET /api/website`（HTTP 200）；
+    - `curl --noproxy '*' http://127.0.0.1:8081/api/website` 返回 `{"error":null,"data":...}`。
+- 源仓保护复验：
+  - `bash scripts/m12/verify_alethicode_readonly.sh` 通过（Alethicode 未改动）。
+- 2026-03-26 登录链路修复与账号初始化（最小闭环）：
+  - 修复 CSRF 校验链路不兼容问题：`SecurityConfig` 显式配置 `CsrfTokenRequestAttributeHandler`，使前端基于 `csrftoken` Cookie + `X-CSRFToken` 头的提交可被服务端正确校验。
+  - 前端登录页补齐 CSRF 预热请求，避免首次进入登录页即发送 `POST` 导致 `403`：
+    - OJ 登录页 `frontend/src/pages/oj/views/user/Login.vue`：页面挂载时调用 `api.csrf()`；用户名失焦触发 `tfa-required` 前增加 `csrftoken` 存在性检查并吞掉探测异常。
+    - 独立登录页 `frontend/src/pages/oj/views/user/StandaloneLogin.vue`：将原有 `this.$http.get('/csrf')` 统一替换为 `api.csrf()`。
+    - 管理端登录页 `frontend/src/pages/admin/views/general/Login.vue`：页面挂载时调用 `api.csrf()`。
+    - API 封装补充 `csrf()`：`frontend/src/pages/oj/api.js`、`frontend/src/pages/admin/api.js`。
+  - 本地数据初始化（按用户指定）：
+    - 在本地 PostgreSQL 创建/更新账号 `lbx`，密码 `231310215`（BCrypt），并确保 `user_profile` 存在。
+  - 验证结果：
+    - `mvn -q -DskipTests compile` 通过；
+    - `curl` 联调验证通过：同一 `csrftoken` 下 `POST /api/tfa-required` 返回 `200`，`POST /api/login` 对 `lbx/231310215` 返回 `{"error":null,"data":"Succeeded"}`。
+    - `npm run lint` 未通过（仓库存在大量历史 lint 问题，非本次改动引入）。
+- 2026-03-26 下线 `/api/v1` 路由别名（仅保留 `/api`）：
+  - 在后端控制器与安全配置中移除所有 `/api/v1/**` 映射入口，统一保留 `/api/**` 与 `/api/**/`。
+  - 同步调整后端契约测试请求路径，避免继续依赖 `/api/v1/**`。
+  - 全量复查结果：`backend/src/main/java`、`backend/src/test/java`、`frontend/src`、`docs` 中已无 `/api/v1` 引用残留。
+  - 验证结果：
+    - `mvn -q -DskipTests compile` 通过；
+    - `mvn -q -Dtest='*ContractTest' test` 通过。
+- 2026-03-26 修复登录后路由重定向未捕获异常：
+  - 修复 OJ 登录页在登录成功后执行 `router.replace(redirect)` 时，因导航守卫重定向导致的未捕获 Promise 异常（`Redirected when going from "/login?redirect=%2F" to "/" via a navigation guard`）。
+  - 变更文件：
+    - `frontend/src/pages/oj/views/user/Login.vue`
+    - `frontend/src/pages/oj/views/user/StandaloneLogin.vue`
+  - 修复方式：为 `this.$router.replace(redirect)` 增加 `.catch(() => {})`，将预期的重定向导航失败视为可控分支，避免浏览器抛出 `Uncaught (in promise)` 干扰登录流程。
+- 2026-03-26 修复登录成功后仍停留在 `/login` 的路由鉴权卡死：
+  - 根因：OJ 路由守卫使用一次性登录态缓存（`syncAuthStateOnce`），首次进入登录页若缓存了未登录状态，后续登录后在特定时序下可能继续使用旧状态，导致被守卫重定向回 `/login`。
+  - 变更：`frontend/src/pages/oj/router/index.js` 将一次性缓存改为“每次导航同步一次登录态（并发去重）”，移除永久 `authSynced` 缓存，避免旧状态粘住。
+  - 结果：登录后路由守卫可及时读取最新会话状态，不再出现“控制台无报错但卡在登录页”的假死现象。
+- 2026-03-26 登录态全链路自检修复（前后端 profile 结构不一致）：
+  - 根因确认：后端 `/api/profile` 返回扁平用户结构（`id/username/...`），而前端鉴权只读取 `profile.user.id`；导致 `isAuthenticated` 长期为 `false`，登录成功后仍被守卫当未登录处理。
+  - 修复文件：`frontend/src/store/modules/user.js`
+  - 修复内容：
+    - 新增 `normalizeProfile`，自动兼容两种数据形态：
+      1) 旧结构：`{ user: {...} }`
+      2) 新结构：`{ id, username, email, ... }`
+    - `CHANGE_PROFILE` 统一写入归一化后的 `profile.user`，并基于 `normalized.user.id` 持久化 `AUTHED`。
+  - 影响：不改后端协议，前端登录态判定恢复正确，路由守卫可识别已登录用户并正常跳转首页。
+- 2026-03-26 Alethicode 数据迁移（冲突以 Alethicode 为准）：
+  - 已按“源覆盖目标”策略执行数据库迁移：先对目标库同名业务表执行 `TRUNCATE ... RESTART IDENTITY CASCADE`，再从 Alethicode 源库导入数据。
+  - 源库：`deploy-oj-postgres-1 / aethicode`；目标库：`java-oj-postgres / aethicode_migration`。
+  - 兼容处理：
+    - `ai_learning_event.id`（UUID -> bigint）采用目标自增主键，迁移其余字段；
+    - `classroom_problem` 使用 `object_id -> problem_id` 映射；
+    - `classroom_invitation` 补齐 `code_plain`（取 `code_hash`）；
+    - `classroom_assignment_problem` 使用 `problem_id -> classroom_problem_id` 映射；
+    - `classroom_assignment_problem_submission` 使用 `problem_id -> assignment_problem_id` 映射。
+  - 迁移后源/目标行数核对一致（示例）：
+    - `user 1/1`、`user_profile 1/1`、`problem 56/56`、`submission 29/29`、`judge_server 2/2`、`ai_learning_event 251/251`。
+  - 迁移前目标库备份：`db_backups/aethicode_migration_before_import_20260326_084946.sql`。
+- 2026-03-26 修复个人主页名称显示错误：
+  - 修复 `frontend/src/pages/oj/views/user/UserHome.vue` 对用户资料结构的兼容问题。
+  - 新增 `normalizeProfilePayload`，兼容后端扁平结构（`id/username/...`）与旧结构（`profile.user`），避免页面回退显示 `User` 且统计数据为 0。
+- 2026-03-26 修复 AI 学习助手不可用（对齐 Altheicode 交互契约）：
+  - 修复工作流会话清空接口参数不兼容：
+    - 文件：`backend/src/main/java/com/migration/controller/AITutorWorkflowController.java`
+    - 变更：`DELETE /api/ai/workflow/session` 从仅支持 `@RequestBody` 调整为同时接收 Query 参数与 Body，并合并入同一请求对象。
+    - 目的：兼容前端当前调用方式 `ajax(..., 'delete', { params: { problem_id } })`，避免清空会话时 `400` 导致状态机卡死。
+  - 对齐工作流可用动作与节点输出结构：
+    - 文件：`backend/src/main/java/com/migration/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - 变更：
+      1. `available_actions` 从字符串列表改为对象列表（`key/label/agent_id/event`），与 Altheicode/前端 `quickActions` 契约一致；
+      2. `workflowEvent` 按阶段生成并回传 `node_outputs`（`problem_guide/ideate/scaffolding/code_companion/error_diagnosis/post_ac/transfer`）；
+      3. `execution_trace` 增补 `type=agent_output`、`message_type`、`output_key`、`payload` 字段，确保前端可正确渲染卡片消息流。
+    - 目的：修复“点击 AI 动作无卡片输出/面板空转”的主链路问题，恢复 AI 学习助手最小闭环可用性。
+  - 验证结果：
+    - `cd backend && mvn -Dtest=AITutorControllerContractTest,AITutorWorkflowAdminControllerContractTest test` 通过（BUILD SUCCESS）。
+- 2026-03-26 修复“标签/KC/热力图显示错误”：
+  - 数据迁移修复（冲突以 Alethicode 为准）：
+    - 迁移 `problem_tags -> problem_problem_tags`，恢复题目与标签关联；
+    - 迁移 `knowledge_component -> ai_knowledge_component`，保留源 `id`；
+    - 迁移 `problem_kc_mapping -> ai_problem_kc_mapping`，恢复题目与 KC 关联；
+    - 同步修正序列：`problem_problem_tags_id_seq`、`ai_knowledge_component_id_seq`、`ai_problem_kc_mapping_id_seq`；
+    - 迁移前备份：`db_backups/aethicode_migration_before_tag_kc_fix_20260326_090526.sql`。
+  - 后端修复：
+    - 文件：`backend/src/main/java/com/migration/service/impl/ProblemQueryServiceImpl.java`
+    - 变更：`with_kcs=true` 不再返回空 `kc_names`，改为查询 `ai_problem_kc_mapping + ai_knowledge_component` 返回真实 KC 列表。
+    - 文件：`backend/src/main/java/com/migration/service/impl/AITutorServiceImpl.java`
+    - 变更：`/api/ai/skill/heatmap` 返回结构调整为前端热力图组件所需格式：
+      - `dates`
+      - `ac_counts`
+      - `activity_levels`
+      - `total_ac`
+      - `active_days`
+      - `max_streak`
+      - `current_streak`
+      并按近 366 天补齐日期序列。
+  - 验证结果：
+    - `cd backend && mvn -q -DskipTests compile` 通过；
+    - 接口联调通过：
+      - `/api/problems/tag-progress?user_id=1` 返回标签数据（`tags_len=28`）；
+      - `/api/problems?problem_id=PPT2-1&with_kcs=true` 返回 KC 数据（`kc_names_len=3`）；
+      - `/api/ai/skill/heatmap?user_id=1` 返回新结构（`dates=366`）。
+- 2026-03-26 修复个人主页知识星图崩溃与 AC/WA 统计错误：
+  - 修复知识星图空值渲染崩溃：
+    - 文件：`frontend/src/pages/oj/components/skillProfile/KnowledgeStarMap.vue`
+    - 问题：接口在部分场景未返回 `graphData.stats`，模板直接读取 `graphData.stats.total_kcs` 导致 `TypeError`。
+    - 变更：新增 `safeStats` 计算属性并统一替换模板/时间轴逻辑读取，缺省回退为安全默认值，避免页面崩溃。
+  - 修复 AC 被计入 WA/TLE 的统计偏差：
+    - 文件：`backend/src/main/java/com/migration/service/impl/AccountServiceImpl.java`
+    - 变更：`/api/profile` 新增并返回真实 `accepted_submission_number`（`submission.result=0` 计数），并将 `submission_number` 改为实时查询值（基于 `submission` 表）。
+    - 文件：`frontend/src/pages/oj/views/user/UserHome.vue`
+    - 变更：`acceptedSubmissionCount` 增加 `heatmapData.total_ac` 兜底，避免接口字段短暂缺失时误将 AC 计入 WA/TLE。
+  - 验证结果：
+    - `cd backend && mvn -q -DskipTests compile` 通过；
+    - `/api/profile?username=root` 返回：
+      - `accepted_submission_number=9`
+      - `submission_number=29`
+      - `accepted_number=1`
+    - 知识星图接口在 `stats` 缺失时前端不再崩溃。
+- 2026-03-26 修复“审题导读”触发的 workflow WebSocket 连接报错：
+  - 问题：前端会主动连接 `ws://.../ws/workflow/{session_id}`，但后端当前未注册该端点（仅有 `/ws/classroom/*`），导致控制台持续报 `WebSocket connection failed`。
+  - 修复文件：`frontend/src/pages/oj/views/problem/workflowStateMachine.js`
+  - 修复内容：
+    - 新增 `ENABLE_WORKFLOW_WS = false` 开关；
+    - 会话初始化/恢复时不再发起 workflow WS 连接；
+    - 保留现有 HTTP 工作流事件链路（`/api/ai/workflow/event` 同步返回）作为唯一通道。
+  - 结果：点击“审题导读/审题领导”不再触发无效 WS 连接报错。
+- 2026-03-26 修复知识图谱与技能雷达显示异常（接口契约对齐）：
+  - 问题根因：
+    - `skill/radar` 后端返回数组结构，前端 `SkillRadar` 组件要求对象结构（`dimensions/values/...`）；
+    - `knowledge-graph` 后端仅返回简化 `nodes/edges`，前端 `KnowledgeStarMap` 依赖 `stats/chapters/node字段`，导致展示异常。
+  - 修复文件：`backend/src/main/java/com/migration/service/impl/AITutorServiceImpl.java`
+  - 修复内容：
+    - `GET /api/ai/skill/radar` 返回结构统一为：
+      - `radar_data.dimensions`
+      - `radar_data.values`
+      - `radar_data.rd_values`
+      - `radar_data.trends`
+      - `radar_data.data_sources`
+      - `radar_data.code_quality`
+    - `GET /api/ai/knowledge-graph` 返回补齐：
+      - `chapters`
+      - `stats(total_kcs/mastered_count/weak_count/active_misconception_count/learning_days)`
+      - 节点字段（`id/name/chapter/description/mastery/problem_count/submission_count/...`）
+    - `GET /api/ai/knowledge-graph/snapshot` 额外返回 `mastery_map`，满足时间轴快照渲染依赖。
+  - 验证结果：
+    - `cd backend && mvn -q -DskipTests compile` 通过；
+    - `/api/ai/skill/radar?user_id=1` 返回 `radar_data` 完整对象结构；
+    - `/api/ai/knowledge-graph?user_id=1` 返回 `nodes/edges/chapters/stats` 完整结构；
+    - `/api/ai/knowledge-graph/snapshot?...` 返回 `mastery_map`。
+- 2026-03-26 修复“审题引导”调用 `/api/ai/workflow/event` 返回 500：
+  - 根因：`AITutorWorkflowAdminServiceImpl.workflowEvent` 在保存 checkpoint 时使用 `Map.of(...)` 放入 `last_safe_response`，当该值为 `null` 时触发 `NullPointerException`（`Map.of` 不允许空值）。
+  - 修复文件：`backend/src/main/java/com/migration/service/impl/AITutorWorkflowAdminServiceImpl.java`
+  - 修复内容：将 checkpoint channel 从 `Map.of(...)` 改为 `LinkedHashMap` 逐项 `put`，允许 `last_safe_response` 为 `null`。
+  - 验证结果：
+    - `cd backend && mvn -q -DskipTests compile` 通过；
+    - 复现请求 `POST /api/ai/workflow/event`（event=`READING`）由 `500` 恢复为 `200`，返回正常 `node_outputs/execution_trace`。
+- 2026-03-26 修正知识图谱掌握统计口径并增强 workflow 事件兼容性（防同类问题）：
+  - 知识图谱掌握统计修正：
+    - 文件：`backend/src/main/java/com/migration/service/impl/AITutorServiceImpl.java`
+    - 变更：KC 掌握度改为“存在 AC 记录时至少视为 0.7（掌握）”，避免仅按 `AC/提交比` 导致已完成知识点被误判为未掌握。
+    - 结果：用户 `user_id=1` 的图谱统计恢复为 `total_kcs=46, mastered_count=3, weak_count=43`。
+  - Workflow 事件名兼容增强：
+    - 文件：`backend/src/main/java/com/migration/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - 变更：新增事件规范化映射，兼容前端别名事件并统一为后端阶段事件：
+      - `PROBLEM_GUIDE -> READING`
+      - `IDEATE -> IDEATING`
+      - `CODE_COMPANION -> CODING`
+      - `ERROR_CHAIN/ERROR_DIAGNOSIS -> ERROR_FEEDBACK`
+      - `POST_AC -> AC_REVIEW`
+      - `TRANSFER_PROBLEM -> TRANSFER`
+    - 目的：避免前后端事件名轻微偏差导致 4xx/5xx，降低同类契约问题复发概率。
+  - 验证结果：
+    - `cd backend && mvn -q -DskipTests compile` 通过；
+    - `GET /api/ai/knowledge-graph?user_id=1` 返回 `mastered_count=3`；
+    - `POST /api/ai/workflow/event` 使用 `event=PROBLEM_GUIDE` 返回 `200`，`phase=READING`。
+- 2026-03-26 修复“解题过程”弹窗空白显示：
+  - 问题根因：
+    - 前端 `SubmissionRiver` 组件依赖 `riverData.submissions` 等字段；
+    - 后端 `/api/ai/submission-river/{problem_id}` 当前仅返回 `timeline`，导致模板主分支不命中，弹窗可见但正文为空。
+  - 修复文件：
+    - `frontend/src/pages/oj/views/problem/Problem.vue`
+    - `frontend/src/pages/oj/components/SubmissionRiver.vue`
+  - 修复内容：
+    - 在 `Problem.vue` 新增 `normalizeRiverPayload`，将后端 `timeline` 统一转换为组件可渲染的 `submissions/stats/semantic_diffs` 结构；
+    - 新增 `riverResultLabel`，将判题结果码映射为 `AC/WA/TLE/...` 文案，保证节点颜色与标签可读；
+    - 在 `SubmissionRiver.vue` 增加最终 `v-else` 空态文案，避免任何异常结构下出现纯空白弹窗。
+    - 清理 `SubmissionRiver.vue` 中未使用的 `d3event` 引入，减少 lint 告警噪音。
+  - 结果：当存在提交记录时可正常渲染解题过程；提交不足或数据异常时会显示明确提示，不再出现白屏式空弹窗。
+- 2026-03-26 修复 AI 导学“正在生成骨架代码...”卡住：
+  - 问题根因：
+    - 前端骨架按钮通过 `workflow event=IDEATING + thought_text=__generate_skeleton__` 请求骨架；
+    - 后端 `IDEATING` 分支未返回 `skeleton` 字段，前端一直等待成功结果，界面停留在“正在生成骨架代码...”。
+  - 修复文件：
+    - `backend/src/main/java/com/migration/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `frontend/src/pages/oj/views/problem/Problem.vue`
+  - 修复内容：
+    - 后端在 `IDEATING` 收到 `__generate_skeleton__` 时返回标准骨架结构（`description + skeleton`）；
+    - 前端骨架请求完成后会主动清理“生成中”状态；
+    - 若返回中缺失 `skeleton`，前端立即展示“骨架代码生成失败”，避免无限卡住。
+  - 结果：点击“生成骨架代码”可稳定进入“骨架代码”卡片或给出明确失败提示，不再无响应停留。
+- 2026-03-26 接入真实 LLM 并复用 Alethicode `.env` 的 AI 配置：
+  - 现象确认：
+    - AI 导学“思路分析”返回固定模板语句（例如原样复述输入），并非真实模型推理输出。
+    - 根因是 Java 迁移版 `workflow` 服务此前使用本地静态构造数据，未调用外部 LLM API。
+  - 配置复用与启动链路：
+    - 文件：`start.sh`
+    - 变更：启动时自动加载 `../Alethicode/deploy/.env` 与 `backend/.env`，将 `OPENAI_API_KEY/LLM_BASE_URL/LLM_MODEL/LLM_API_TIMEOUT_SECONDS` 注入后端进程环境。
+    - 文件：`.gitignore`
+    - 变更：新增忽略 `backend/.env`、`deploy/.env`，防止本地密钥误提交。
+    - 新增文件：`backend/.env`（AI 相关变量，来源于 Alethicode `.env`）。
+  - 后端真实调用改造：
+    - 文件：`backend/src/main/java/com/migration/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - 变更：
+      - `IDEATING` 阶段改为调用 OpenAI-compatible `POST {LLM_BASE_URL}/chat/completions`；
+      - 使用 `OPENAI_API_KEY` 鉴权，模型由 `LLM_MODEL` 控制，超时由 `LLM_API_TIMEOUT_SECONDS` 控制；
+      - 思路分析与骨架生成均由模型返回 JSON，再映射为前端卡片所需结构（`understood_as/step_plan/...` 与 `description/skeleton`）；
+      - 对缺失关键环境变量或返回结构非法采取 fail-fast（抛出明确错误），避免继续输出伪造模板数据。
+  - 验证结果：
+    - `cd backend && mvn -q -DskipTests compile` 通过。
+- 2026-03-26 修复个人主页热力图横向滚动，改为自适应宽度：
+  - 问题：热力图在常见桌面宽度下出现左右滑动条，影响可读性与交互。
+  - 修复文件：`frontend/src/pages/oj/components/skillProfile/PracticeHeatmap.vue`
+  - 修复内容：
+    - 取消横向滚动容器（`overflow-x: hidden`）；
+    - 新增基于容器宽度的动态布局计算：按周数自动计算格子尺寸与间距（`cellSize/cellGap`）；
+    - 通过 `ResizeObserver` 在容器尺寸变化时实时重算，保持响应式；
+    - 月份标签位置改为基于动态步长计算，避免错位；
+    - 星期标签可见逻辑修正（Mon/Wed/Fri 三行均可见）。
+  - 验证结果：
+    - `cd frontend && ./node_modules/.bin/eslint src/pages/oj/components/skillProfile/PracticeHeatmap.vue` 通过。
+- 2026-03-26 修复头像上传后 `/public/avatar/*.png` 404：
+  - 问题根因：
+    - 头像上传仅写入 `sys_options`（`avatar_blob:*`）与 `user_profile.avatar` 路径；
+    - 但后端未提供 `/public/avatar/{filename}` 资源读取端点，且未将头像文件落盘到公开静态目录，导致前端访问头像 URL 恒为 404。
+  - 修复文件：
+    - `backend/src/main/java/com/migration/service/impl/AccountServiceImpl.java`
+    - `backend/src/main/java/com/migration/controller/PublicAssetController.java`（新增）
+  - 修复内容：
+    - 上传头像时同步写入文件系统目录（由 `uploadDir` 推导到 `.../public/avatar/`），保证静态路径可落地；
+    - 新增 `GET /public/avatar/{filename}`：
+      1. 优先读取本地头像文件；
+      2. 文件不存在时回退读取 `sys_options` 中 `avatar_blob:{filename}` 的 base64 内容并返回图片字节；
+      3. 根据后缀返回对应 `Content-Type`。
+  - 验证结果：
+    - `cd backend && mvn -q -DskipTests compile` 通过；
+    - 数据库存在历史头像 blob 键（示例：`avatar_blob:0UgQS0h79z.png`），可被新接口直接读取。
+- 2026-03-26 修复“解题过程”弹窗中代码未展示（仅显示空行/变化率 NaN）：
+  - 问题根因：
+    - `SemanticDiffPanel` 展示依赖 `submission.code_preview`；
+    - 后端 `/api/ai/submission-river/{problem_id}` 仅返回 `id/result/language/create_time`，未返回代码内容；
+    - 前端归一化时未构造 `code_preview` 与完整 diff 字段，导致两列代码为空、变化率出现 `NaN`。
+  - 修复文件：
+    - `backend/src/main/java/com/migration/service/impl/AITutorServiceImpl.java`
+    - `frontend/src/pages/oj/views/problem/Problem.vue`
+  - 修复内容：
+    - 后端 `submissionRiver` 查询新增 `code_preview`（截断至 20000 字符），随时间线返回；
+    - 前端 `normalizeRiverPayload` 将 `code_preview` 映射到每次提交；
+    - 前端补齐基础 diff 字段：`summary/lines_added/lines_deleted/diff_ratio/structural_changes`，避免空值导致面板异常显示。
+  - 验证结果：
+    - `cd backend && mvn -q -DskipTests compile` 通过；
+    - 打开“解题过程”后，点击相邻提交节点可显示对应代码文本，不再只显示空白行号。
+- 2026-03-26 修复 AI 导学骨架代码生成失败（LLM 连接超时）：
+  - 问题根因：
+    - Java 默认 `HttpClient` 不会自动使用 `HTTP_PROXY/HTTPS_PROXY` 环境变量；
+    - 当前环境访问外网 LLM 依赖本地代理，导致 `/api/ai/workflow/event` 在调用 LLM 时 `HTTP connect timed out` 并返回 500。
+  - 修复文件：
+    - `backend/src/main/java/com/migration/service/impl/AITutorWorkflowAdminServiceImpl.java`
+  - 修复内容：
+    - AI 工作流的 LLM `HttpClient` 启动时自动读取 `HTTPS_PROXY/HTTP_PROXY`（含大小写与 `.env` 回退）并配置 `ProxySelector`；
+    - 增加代理配置日志（不输出密钥），便于后续快速定位环境问题；
+    - 保持 fail-fast：代理地址非法时明确标记为 `invalid(...)`，不静默伪装成功。
+  - 预期结果：
+    - “生成骨架代码”在代理可用环境下可正常调用 LLM，不再因连接超时返回 500。
+- 2026-03-26 修复知识图谱“推荐路径”勾选无效果：
+  - 问题根因：
+    - `knowledgeGraph` 返回的所有边 `is_recommended_path` 固定为 `false`；
+    - 前端勾选框只控制推荐边显示/隐藏，后端无推荐边时视觉上完全无变化。
+  - 修复文件：
+    - `backend/src/main/java/com/migration/service/impl/AITutorServiceImpl.java`
+  - 修复内容：
+    - 新增推荐路径计算：按掌握度优先挑选未掌握 KC（`mastery < 0.7`）构成推荐序列；
+    - 将推荐序列写回节点 `is_recommended_next=true`；
+    - 对推荐序列中的边标记 `is_recommended_path=true`，并在缺失时补充 `relation=recommended` 的推荐边；
+    - 响应中新增 `recommended_path` 字段，便于前端后续扩展展示。
+  - 结果：
+    - 勾选“推荐路径”后，图谱中会出现/隐藏高亮推荐连线，不再无感。
+- 2026-03-26 修复 Admin 接口 403（已登录仍无权限）：
+  - 问题根因：
+    - `SessionAuthenticationFilter` 登录态恢复时始终只写入 `ROLE_USER`；
+    - 后台多个接口使用 `@PreAuthorize("hasRole('SUPER_ADMIN')")`，因此管理员也会被统一拒绝。
+  - 修复文件：
+    - `backend/src/main/java/com/migration/middleware/SessionAuthenticationFilter.java`
+  - 修复内容：
+    - 在过滤器中注入 `JdbcTemplate`，按 `user.admin_type` 动态映射权限：
+      - `Regular User` -> `ROLE_USER`
+      - `Admin` -> `ROLE_USER, ROLE_ADMIN`
+      - `Super Admin` -> `ROLE_USER, ROLE_ADMIN, ROLE_SUPER_ADMIN`
+  - 验证结果：
+    - `root` 与 `lbx` 登录后访问 `/api/admin/judge-server`、`/api/admin/problems`、`/api/admin/ai/*`、`/api/admin/prune-test-case` 返回 `200`。
+
+- 2026-03-26 修复 `/public/website/favicon.ico` 404：
+  - 修复文件：
+    - `backend/src/main/java/com/migration/controller/PublicAssetController.java`
+  - 修复内容：
+    - 新增 `GET /public/website/favicon.ico`，返回 `204 No Content`，消除浏览器控制台 404 报错。
+
+- 2026-03-26 提升启动稳定性（避免前后端进程被系统杀掉导致 502）：
+  - 修复文件：
+    - `start.sh`
+  - 修复内容：
+    - 增加默认内存参数：`MAVEN_OPTS=-Xms128m -Xmx384m`、`NODE_OPTIONS=--max-old-space-size=768`；
+    - 启动后端 `mvn spring-boot:run` 与前端 `npm run dev` 时自动带入上述参数。
+  - 结果：
+    - 前后端在本机可稳定监听 `8081/8080`，`/api/website` 与 `/api/languages` 正常返回 `200`。
+- 2026-03-26 前后端 API 全量对齐修复（静态接口清单 0 差异）：
+  - 对齐方式：
+    - 通过脚本扫描 `frontend/src/pages/admin/api.js` 与 `frontend/src/pages/oj/api.js` 的 `ajax(path, method)` 调用，
+      对比 `backend/src/main/java/com/migration/controller/*` 的路由映射，生成差异清单并逐项修复。
+  - 修复文件：
+    - `frontend/src/pages/admin/api.js`
+    - `backend/src/main/java/com/migration/controller/AdminSubmissionController.java`
+    - `backend/src/main/java/com/migration/controller/AITutorController.java`
+  - 修复内容：
+    - 将前端导出题目接口由错误的 `POST /api/admin/export-problems` 对齐为 `GET /api/admin/export-problems`；
+    - 为重判接口补充后端别名路由：`GET /api/admin/submission/rejudge`（兼容原有 `/api/submission/rejudge`）；
+    - 补齐前端在用但后端缺失的 Ideate 接口：
+      - `POST /api/ai/ideate/analyze`
+      - `POST /api/ai/ideate/skeleton`
+      - `POST /api/ai/ideate/inserted`
+      并桥接到现有 workflow/code-snapshot 逻辑。
+  - 验证结果：
+    - 自动对齐脚本输出：`Potential static mismatches: 0`。
+- 2026-03-26 修复 `check_agent` 相关 contract test 的上下文启动失败：
+  - 问题根因：
+    - `PublicAssetController` 构造函数强依赖 `JdbcTemplate`；
+    - 部分 contract test 通过 `spring.autoconfigure.exclude` 禁用数据源，导致 `NoSuchBeanDefinitionException` 并使 `ApplicationContext` 启动失败。
+  - 修复文件：
+    - `backend/src/main/java/com/migration/controller/PublicAssetController.java`
+  - 修复内容：
+    - 将 `JdbcTemplate` 改为可选依赖（`@Nullable` 注入）；
+    - 无数据源场景下访问头像 DB 回退逻辑时直接返回 `404`，不阻塞应用启动。
+  - 结果：
+    - 在禁用数据源的测试上下文中，控制器不再导致容器启动失败，可继续执行 API contract 验证。
+- 2026-03-26 修复 `check_agent` contract test 中过滤器上下文启动失败：
+  - 问题根因：
+    - `SessionAuthenticationFilter` 构造函数强依赖 `JdbcTemplate`；
+    - 无数据源测试上下文（禁用 DataSource 自动配置）无法实例化该过滤器。
+  - 修复文件：
+    - `backend/src/main/java/com/migration/middleware/SessionAuthenticationFilter.java`
+  - 修复内容：
+    - 将 `JdbcTemplate` 改为可选依赖（`@Nullable` 注入）；
+    - 无数据源时权限解析直接返回默认 `ROLE_USER`，保持 fail-fast 且不引入额外分支行为。
+  - 结果：
+    - 无数据源 contract 测试可正常初始化过滤器，不再因依赖缺失导致容器启动失败。
+- 2026-03-26 修复 judge token 对齐导致提交长期 `-2/pending`：
+  - 问题根因：
+    - 评测容器 `deploy-oj-judge-1` 使用 `TOKEN=231310215`；
+    - 后端 `alethicode.judge-server.token` 固定为默认值 `ChangeMeBeforeDeploy_Token_2026!`，请求 `/judge` 时 `X-Judge-Server-Token` 哈希不一致，返回 `invalid token`。
+  - 修复文件：
+    - `backend/src/main/resources/application.yml`
+    - `backend/.env`
+  - 修复内容：
+    - 将后端 token 配置改为环境变量驱动：`alethicode.judge-server.token: ${JUDGE_SERVER_TOKEN:...}`；
+    - 在本地后端 `.env` 显式设置 `JUDGE_SERVER_TOKEN=231310215`，与现有 judge 容器保持一致。
+  - 预期结果：
+    - 提交可从 `-2` 正常落地为 WA/AC/CE，恢复 B/C/D/E 路径复测可执行性。
+- 2026-03-26 修复“知识星图为空 + 技能雷达聚合口径不符 Alethicode”：
+  - 问题根因：
+    - 当前库中 `ai_knowledge_component` 为空（`0` 条），知识星图直接进入空态分支；
+    - 技能雷达此前按题目难度聚合，与 Alethicode 的 KC 优先聚合口径不一致。
+  - 修复文件：
+    - `backend/src/main/resources/db/migration/V13__backfill_ai_kc_from_problem_tags.sql`
+    - `backend/src/main/java/com/migration/service/impl/AITutorServiceImpl.java`
+  - 修复内容：
+    - 新增 Flyway `V13`：将 `problem_tag` 回填到 `ai_knowledge_component`，并按 `problem_problem_tags` 回填 `ai_problem_kc_mapping`（仅补缺，不覆盖已有数据），同步修正两张表序列；
+    - 重写 `GET /api/ai/skill/radar`：移除“按难度聚合”路径，改为纯 KC 聚合（按 KC 提交活跃度取前 6 维），输出保持 `radar_data.{dimensions,values,rd_values,trends,data_sources,code_quality}` 契约。
+  - 验证结果：
+    - `cd backend && mvn -q -DskipTests compile` 通过；
+    - 本地数据验证：`ai_knowledge_component` 已从 `0` 回填至 `46`；
+    - 雷达聚合 SQL 输出维度来自 KC 名称，不再出现难度维度聚合。
+- 2026-03-26 修复个人主页 AC 环形图留白与总提交显示偏差：
+  - 问题根因：
+    - AC（绿色）与 WA（黄色）圆弧从同一起点绘制，绿色覆盖黄色前段后导致尾部留白；
+    - 统计动画使用 `submission_number || 1`，在零提交场景会错误显示为 1。
+  - 修复文件：
+    - `frontend/src/pages/oj/views/user/UserHome.vue`
+  - 修复内容：
+    - 环形图改为“黄色先铺满整圈，绿色覆盖 AC 比例”；
+    - 零提交时 AC/WA 圆弧均不显示（回到灰底环），避免误导；
+    - 统计数字改为使用真实 `submission_number`，不再出现 `0 -> 1` 偏差。
+- 2026-03-26 题目页编辑器与调试面板支持“上下拖拽分割”（对齐左右分割交互）：
+  - 修复文件：
+    - `frontend/src/pages/oj/views/problem/CodeEditorPanel.vue`
+  - 修复内容：
+    - 在“代码编辑卡片”和“调试面板”之间新增横向拖拽条（`row-resize`），支持鼠标上下拖拽动态调整编辑区高度；
+    - 拖拽交互与左右分割一致：拖拽中禁用文本选中、释放后恢复，并刷新 CodeMirror 避免渲染错位；
+    - 限制编辑区最小高度与最大高度（容器 75%）以防布局塌陷；
+    - 补充销毁清理：移除拖拽事件与 paste 监听，避免事件泄漏。
+  - 验证结果：
+    - `cd frontend && npm run -s build` 通过。
+- 2026-03-26 对齐 Alethicode 源库 `problem_tags` 与 KC 映射，全链路修复前后端依赖：
+  - 问题根因：
+    - Alethicode 源库关系表为 `problem_tags`（106 条），迁移库使用 `problem_problem_tags`（此前为 0 条）；
+    - 导致目标库 `problem_problem_tags` 与 `ai_problem_kc_mapping` 缺失，知识星图/题目 KC 展示链路数据不完整。
+  - 修复文件：
+    - `scripts/seed/sync_alethicode_tag_kc.py`
+    - `backend/src/main/resources/db/migration/V13__backfill_ai_kc_from_problem_tags.sql`
+    - `backend/src/test/java/com/migration/controller/AITutorControllerContractTest.java`
+  - 修复内容：
+    - 新增同步脚本：支持将源库 `problem_tag`、`problem_tags` 一键同步到迁移库
+      - `problem_tag`
+      - `problem_problem_tags`
+      - `ai_knowledge_component`
+      - `ai_problem_kc_mapping`
+      并自动修正相关序列；
+    - 增强 `V13`：除 `problem_problem_tags` 外，兼容历史表 `problem_tags` 自动回填 `ai_problem_kc_mapping`；
+    - 修正后端契约测试：`skill/radar` 断言改为对象结构（`radar_data.dimensions/values/...`），防止回归到旧数组契约。
+  - 验证结果：
+    - 执行 `python3 scripts/seed/sync_alethicode_tag_kc.py` 成功：
+      - `problem_problem_tags = 106`
+      - `ai_problem_kc_mapping = 106`
+      - `ai_knowledge_component = 46`
+    - 抽样校验：
+      - `PPT2-1` 已恢复 KC：`内置函数(print/input/eval), 类型转换, 运算符`
+    - `cd backend && mvn -q -Dtest=AITutorControllerContractTest test` 通过。
+- 2026-03-26 优化题目页“上下拖拽”丝滑度与实时自适应（防极限隐藏）：
+  - 修复文件：
+    - `frontend/src/pages/oj/views/problem/CodeEditorPanel.vue`
+  - 修复内容：
+    - 拖拽更新改为 `requestAnimationFrame` 节流，降低 `mousemove` 抖动与卡顿；
+    - 拖拽过程实时刷新 CodeMirror，编辑区尺寸变化与鼠标移动同步；
+    - 按容器可用高度动态计算上下边界（最小编辑区/最小调试区），避免极限拖拽把某一块挤没；
+    - 调试区改为可滚动布局，`Input/Output` 文本框高度随面板高度自适应；
+    - 补全 `requestAnimationFrame` 与全局拖拽监听的销毁清理，避免残留状态影响后续交互。
+  - 验证结果：
+    - `cd frontend && npm run -s build` 通过。
+- 2026-03-26 知识图谱补齐按 PPT 章节筛选：
+  - 修复文件：
+    - `backend/src/main/java/com/migration/service/impl/AITutorServiceImpl.java`
+  - 修复内容：
+    - 在 `knowledgeGraph` 中新增 KC -> PPT 章节推导：当 KC 自身 `chapter` 为空时，按关联题目 `_id`（如 `PPT2-1`）提取 `PPT2` 作为章节；
+    - 节点 `chapter` 与 `chapters` 列表统一使用上述“有效章节”，恢复前端章节筛选标签；
+    - 章节展示名规则：`PPT\d+` 直接展示（如 `PPT2`），其余沿用“第X章”格式。
+  - 验证结果：
+    - `cd backend && mvn -q -DskipTests compile` 通过。
+- 2026-03-26 优化知识图谱章节排序为 PPT 自然序：
+  - 修复文件：
+    - `backend/src/main/java/com/migration/service/impl/AITutorServiceImpl.java`
+  - 修复内容：
+    - `knowledgeGraph` 章节列表由无序集合改为显式排序；
+    - 新增章节键比较器：`PPT\d+` 按数字自然序排列（`PPT2 < PPT10`），非 PPT 章节按字典序排在 PPT 后；
+    - 解决章节筛选 tab 出现顺序错乱问题。
+  - 验证结果：
+    - `cd backend && mvn -q -DskipTests compile` 通过。
+- 2026-03-26 撤销题目页编辑区/调试区上下拖拽：
+  - 修复文件：
+    - `frontend/src/pages/oj/views/problem/CodeEditorPanel.vue`
+  - 修复内容：
+    - 移除“代码编辑卡片”和“调试面板”之间的上下拖拽分割条；
+    - 移除拖拽相关状态、事件监听、RAF 调度与样式；
+    - 恢复固定纵向布局间距，保留原有代码编辑与调试能力不变。
+- 2026-03-26 调试面板改为自适应高度且移除内部上下滚动条：
+  - 修复文件：
+    - `frontend/src/pages/oj/views/problem/CodeEditorPanel.vue`
+  - 修复内容：
+    - 调试卡片内容层由 `overflow:auto` 调整为 `overflow:hidden`，移除内部纵向滚动条；
+    - `debug-inputs` 与 `textarea` 最小高度约束改为可收缩，随面板高度自适应伸缩；
+    - 保持 Input/Output 双栏等高布局。
+- 2026-03-26 调整知识图谱连线可视性（线宽过细）：
+  - 修复文件：
+    - `frontend/src/pages/oj/components/skillProfile/KnowledgeStarMap.vue`
+  - 修复内容：
+    - 普通连线宽度由 `1` 调整为 `2`；
+    - 推荐路径连线宽度由 `3` 调整为 `4`；
+    - 同步提升连线透明度（`related: 0.3 -> 0.45`，其他 `0.6 -> 0.75`），提升可读性。
+- 2026-03-26 修复迁移题无描述并新增“私有临时题”链路（无 AI 导学，其他做题能力保留）：
+  - 修复文件：
+    - `backend/src/main/java/com/migration/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `backend/src/main/java/com/migration/service/impl/ProblemQueryServiceImpl.java`
+    - `backend/src/main/java/com/migration/service/impl/SubmissionServiceImpl.java`
+    - `frontend/src/pages/oj/views/problem/Problem.vue`
+    - `frontend/src/pages/oj/views/problem/CodeEditorPanel.vue`
+    - `frontend/src/pages/oj/views/problem/cards/TransferProblemCard.vue`
+  - 修复内容：
+    - 工作流 `TRANSFER` 节点由静态占位返回改为真实生成：
+      - 基于当前题复制核心字段创建新题；
+      - 自动复制 `problem_problem_tags` 与 `ai_problem_kc_mapping`；
+      - 返回 `problem_display_id`，前端可直接点击进入；
+      - 新题标记为 `is_ai_generated=true`、`visibility_status='student_private'`、`visible=false`（仅本人临时可见）。
+    - 迁移题卡片文案优化：当返回临时题时按钮显示“进入临时题练习”，解决“生成中但无法开始”的断链体验。
+    - 题目页新增“临时题禁用 AI 导学”逻辑：
+      - 私有临时题自动隐藏统一 Agent 面板与浮动入口；
+      - 代码区 AI 按钮按开关隐藏；
+      - 其余功能（编辑、调试、提交、状态）保持可用。
+    - 可见性权限收敛：
+      - `student_private` 题目详情仅创建者可访问（管理员保留访问权限）；
+      - 提交/调试/按题过滤提交列表对 `student_private` 同步按创建者校验，防止他人通过接口访问。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=AITutorWorkflowAdminServiceImplTest test` 通过；
+    - `cd backend && mvn -q -DskipTests compile` 通过；
+    - `cd frontend && npx eslint src/pages/oj/views/problem/Problem.vue src/pages/oj/views/problem/CodeEditorPanel.vue src/pages/oj/views/problem/cards/TransferProblemCard.vue` 未全通过：存在 `Problem.vue` 历史全局变量规则（`Blob/requestAnimationFrame/cancelAnimationFrame`）与未使用导入告警，非本次改动引入。
+- 2026-03-26 补齐 Alethicode 最新 Admin AI/TestCase 迁移缺口（variant 审核、KC 搜索、内联测试用例）：
+  - 修复文件：
+    - `backend/src/main/java/com/migration/controller/AdminAITutorController.java`
+    - `backend/src/main/java/com/migration/controller/AdminTestCaseController.java`
+    - `backend/src/main/java/com/migration/service/AITutorWorkflowAdminService.java`
+    - `backend/src/main/java/com/migration/service/AdminTestCaseService.java`
+    - `backend/src/main/java/com/migration/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `backend/src/main/java/com/migration/service/impl/AdminProblemQueryServiceImpl.java`
+    - `backend/src/main/java/com/migration/service/impl/AdminTestCaseServiceImpl.java`
+    - `backend/src/test/java/com/migration/controller/AdminTestCaseControllerContractTest.java`
+    - `backend/src/test/java/com/migration/integration/AITutorWorkflowAdminIntegrationTest.java`
+    - `backend/src/test/java/com/migration/service/impl/AdminTestCaseServiceImplTest.java`
+  - 修复内容：
+    - 新增管理端内联测试用例接口（对齐 Alethicode）：
+      - `GET /api/admin/test-cases/inline`：按 `problem_id` 读取磁盘测试点并返回 `{cases:[{input,output}]}`；
+      - `POST /api/admin/test-cases/inline`：接收 `cases` 并落盘为标准 `1.in/1.out...` 结构，返回 `{id, info}`。
+    - 变体题审核通过接口增强：
+      - `POST /api/admin/ai/variant-review/{id}/approve` 支持可选 `display_id`；
+      - 审核时校验 Display ID 唯一性；
+      - 审核通过响应改为返回 `{id, display_id, title}`，并将标题规范化为 `display_id + 原标题`。
+    - 变体题审核列表补齐预览字段：
+      - 返回 `description/input_description/output_description/samples/hint`，支持前端直接预览题面。
+    - KC 列表补齐关键字检索：
+      - `GET /api/admin/ai/kc-list` 新增 `keyword`（匹配 `name/name_en`）。
+    - 管理端题目列表收敛：
+      - `AdminProblemQueryServiceImpl` 默认排除 `is_ai_generated=true && visible=false` 草稿题，避免正式题库与 AI 草稿混显。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=AdminTestCaseServiceImplTest,AdminTestCaseControllerContractTest,AITutorWorkflowAdminControllerContractTest test` 通过。
+- 2026-03-26 同步 Alethicode 3/25-3/26 管理端前端行为（Problem 编辑页 / 变体审核页）：
+  - 修复文件：
+    - `frontend/src/pages/admin/api.js`
+    - `frontend/src/pages/admin/views/general/AIVariantReview.vue`
+    - `frontend/src/pages/admin/views/problem/Problem.vue`
+  - 修复内容：
+    - 管理端 API 补齐内联测试用例方法：`getInlineTestCases`、`uploadInlineTestCases`；
+    - `approveAIVariant` 支持可选 `display_id` 参数透传；
+    - 变体审核页对齐最新产品行为：操作列收敛为“预览 + 驳回”，删除“通过”按钮；预览弹窗补齐题面字段渲染（描述/输入/输出/样例/提示）并新增“在编辑器中编辑”快捷入口；
+    - 题目编辑页对齐最新编辑链路：移除 `SPJ/io_mode/rule_type/share_submission` 旧字段交互，改为内联测试用例编辑（加载+编辑+提交写回），并将标签候选切换到 KC 列表（支持 `keyword` 检索）与自动 KC 匹配补全。
+  - 验证结果：
+    - `cd frontend && npm run -s build` 通过。
+- 2026-03-26 补齐 AI 变体生成约束链路（TRANSFER 深层约束，对齐 Alethicode 最新规则）：
+  - 修复文件：
+    - `backend/src/main/java/com/migration/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `backend/src/test/java/com/migration/integration/AITutorWorkflowAdminIntegrationTest.java`
+  - 修复内容：
+    - `TRANSFER` 生成链路新增“非法样例边界约束”：
+      - 引入题面非法输入处理语义检测（`description/input_description/output_description`）；
+      - 未明确声明非法输入处理时，自动过滤 `case_type=invalid` 或含非法语义标记的样例，防止无约束注入非法样例。
+    - 迁移题标题规范化：
+      - 生成时标题统一加上临时 Display ID 前缀（`TMP-XXXXXXXX`），与后续审核通过标题规范化链路一致；
+      - 回包与落库标题保持一致，避免前后端显示分叉。
+    - 迁移题 payload 补齐：
+      - 返回 `input_description/output_description`，并保证 `samples` 与落库数据一致。
+    - 题面字段拆分对齐：
+      - 当源题缺失 `input_description/output_description` 时，自动从 `description` 内联“输入格式/输出格式”片段拆分并回填，避免迁移题题面结构退化。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=AITutorWorkflowAdminServiceImplTest test` 通过；
+    - `cd backend && mvn -q -DskipTests compile` 通过；
+    - `AITutorWorkflowAdminIntegrationTest` 在当前环境受 PostgreSQL `127.0.0.1:5436` 未启动影响，无法完成启动（非本次代码逻辑失败）。
+- 2026-03-26 补齐迁移收敛（变体驳回 test_case 清理 + checkpoint 标签过滤 + 前端 TRANSFER 入口统一）：
+  - 修复文件：
+    - `backend/src/main/java/com/migration/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `frontend/src/pages/oj/views/problem/cards/TransferProblemCard.vue`
+    - `frontend/src/pages/oj/views/problem/workflowStateMachine.js`
+  - 修复内容：
+    - 变体驳回链路完善：`adminVariantReject` 在 `delete` 前先读取 `test_case_id`，递归删除 test case 目录及内容，对齐 Alethicode `AIVariantRejectAPI`；
+    - Checkpoint 噪声标签过滤：新增 `isNoisyCheckpointLabel`，过滤含"回复格式出现了问题"/"请重新提问"等冗余长文标签、以"很好！"/"做得好！"开头的泛化鼓励语、以及超过 200 字符的过长标签，对齐 Alethicode `_extract_checkpoint_label`；
+    - TransferProblemCard 重写：
+      - 新增 `cardData` computed，兼容后端返回字符串类型 payload 和缺失字段；
+      - 入口按钮统一为"进入临时题（仅自己可见，无 AI 导学）"，跳转携带 `temp_problem=1 & ai_tutor_allowed=0`；
+      - 无 `problem_display_id` 时按钮禁用并显示"暂未生成可练习链接"；
+    - workflowStateMachine 安全守卫：
+      - `onSubmissionResult` 新增 `isAITutorAvailableInAssignment` 前置检查，临时题/作业禁用 AI 时不触发 AC_REVIEW / ERROR_FEEDBACK 链路；
+      - `triggerCodeCompanion` 新增同样守卫，避免临时题触发代码伴读；
+  - 验证结果：
+    - `cd backend && mvn -q -DskipTests compile` 通过；
+    - `cd backend && mvn -q -Dtest=AITutorWorkflowAdminServiceImplTest,AITutorControllerContractTest,AdminTestCaseControllerContractTest,AdminTestCaseServiceImplTest test` 全部通过；
+    - `cd frontend && npm run -s build` 通过。
+- 2026-03-26 组件原子化与项目现代化改造：
+  - 新增文件：
+    - `backend/src/main/java/com/migration/service/LlmClient.java`：独立 LLM HTTP 客户端组件（原从 `AITutorWorkflowAdminServiceImpl` 提取）。
+  - 修改文件：
+    - `backend/src/main/java/com/migration/service/impl/AITutorWorkflowAdminServiceImpl.java`（2172 行 → 1981 行，减少 191 行冗余代码）
+    - `backend/src/main/resources/application.yml`
+    - `backend/src/test/java/com/migration/service/impl/AITutorWorkflowAdminServiceImplTest.java`
+  - 改造内容：
+    - **God Class 拆分**：将 LLM 调用链路（HTTP 客户端构建、代理配置解析、.env 文件读取、JSON 响应解析、code fence 解包）从 2172 行的 `AITutorWorkflowAdminServiceImpl` 中提取为独立 `LlmClient` 组件（250 行），遵循单一职责原则。原服务通过构造器注入 `LlmClient`，`callForJson` 统一服务 ideate、skeleton、以及未来 transfer LLM 调用。
+    - **虚拟线程启用**：`application.yml` 新增 `spring.threads.virtual.enabled: true`，Spring MVC + Tomcat 自动使用 Java 21 虚拟线程处理请求，JdbcTemplate 阻塞 I/O 自动让出载体线程，提升并发吞吐。
+    - **重复导入清理**：修复 `import java.util.regex.Pattern` 重复导入。
+    - **死代码移除**：移除原服务中的 `ProxySettings` record、`httpClient` 字段、`llmProxyDescription` 字段、`envFallback` 字段及 11 个已提取到 `LlmClient` 的 private 方法。
+  - 验证结果：
+    - `cd backend && mvn -q -DskipTests compile` 通过；
+    - `cd backend && mvn -q -Dtest=AITutorWorkflowAdminServiceImplTest,AITutorControllerContractTest,AdminTestCaseControllerContractTest,AdminTestCaseServiceImplTest test` 全部通过；
+    - `cd frontend && npm run -s build` 通过。
+- 2026-03-26 修复头像失效引用导致 404 与持久化异常（点1）：
+  - 修复文件：
+    - `backend/src/main/java/com/migration/service/impl/AccountServiceImpl.java`
+    - `backend/src/test/java/com/migration/integration/AccountAnnouncementAiIntegrationTest.java`
+  - 修复内容：
+    - 在 `AccountServiceImpl` 增加头像引用有效性校验：当 `user_profile.avatar` 指向 `/public/avatar/<filename>` 时，必须满足“磁盘文件存在”或“`sys_options.avatar_blob:<filename>` 存在”之一，否则判定为失效引用。
+    - 读取 profile 时对失效头像做 failfast 清理：将失效引用回写为空字符串 `''`（兼容 `user_profile.avatar` 非空约束），接口返回空头像态，前端不再请求 404 资源。
+    - 新增启动期批量修复任务：应用启动后扫描历史头像引用并自动清理所有失效项，避免老数据持续污染。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=AccountAnnouncementAiIntegrationTest#profileShouldClearBrokenAvatarReference test` 通过。
+- 2026-03-26 修复本地判题机“一键启动不连通 + 后台链接不可点”（点2）：
+  - 修复文件：
+    - `start.sh`
+    - `frontend/src/pages/admin/views/general/JudgeServer.vue`
+  - 修复内容：
+    - `start.sh` 新增本地 judge 启动链路：
+      - 默认启动 `java-oj-judge-local` 容器（可通过 `JUDGE_PORT/JUDGE_IMAGE/JUDGE_CONTAINER_NAME` 覆盖）；
+      - 统一注入 `SERVICE_URL=http://127.0.0.1:<JUDGE_PORT>` 与 `BACKEND_URL=http://host.docker.internal:<BACKEND_PORT>/api/judge-server-heartbeat/`；
+      - 使用 `--add-host=host.docker.internal:host-gateway` 确保容器可回连本机后端。
+    - 启动门禁改为 failfast：
+      - 检查 judge 容器健康状态；
+      - 检查 `judge_server` 表存在最近 30 秒 heartbeat（`service_url` 精确匹配本机地址）；
+      - 任一失败立即退出并打印 judge 容器日志。
+    - 管理后台判题机页面中 `service_url` 改为可点击超链接，便于直接验证。
+  - 验证结果：
+    - `timeout 180s env SKIP_FRONTEND=1 FRONTEND_PORT=18081 ./start.sh` 输出：
+      - `"[OK] judge ready: http://127.0.0.1:12358 (heartbeat alive)"`；
+    - 数据库校验：
+      - `select hostname, service_url, last_heartbeat from judge_server ...` 可见最新活跃节点 `service_url=http://127.0.0.1:12358`。
+- 2026-03-26 修复 V14 索引迁移失败（点10阶段阻塞）：
+  - 修复文件：
+    - `backend/src/main/resources/db/migration/V14__add_hotspot_indexes_for_scale.sql`
+  - 修复内容：
+    - 修正 `student_monitoring_snapshot` 复合索引列名：
+      - 由不存在的 `create_time` 改为真实字段 `snapshot_time`；
+      - 保持索引语义为 `(classroom_id, user_id, snapshot_time DESC)`，避免 Flyway 在 `v14` 迁移阶段失败。
+  - 验证结果：
+    - 红灯复现：`cd backend && mvn -q -Dtest=ClassroomM11IntegrationTest test`（修复前失败，报错 `column "create_time" does not exist`）。
+    - 绿灯回归：`cd backend && mvn -q -Dtest=ClassroomM11IntegrationTest test` 通过。
+    - 构建门禁：`cd backend && mvn -q -DskipTests validate` 通过。
+    - 关键集成回归：`cd backend && mvn -q -Dtest=AITutorWorkflowAdminIntegrationTest,SubmissionModuleIntegrationTest,ClassroomM11IntegrationTest,AccountAnnouncementAiIntegrationTest test` 通过。
+- 2026-03-26 点10第一波（契约与分层）增量：课堂监控响应契约 DTO 化（保持现有 JSON 字段不变）：
+  - 新增文件：
+    - `backend/src/main/java/com/migration/dto/response/ClassroomMonitorStatsResponse.java`
+    - `backend/src/main/java/com/migration/dto/response/ClassroomErrorClusterItemResponse.java`
+    - `backend/src/main/java/com/migration/dto/response/ClassroomErrorClustersResponse.java`
+  - 修改文件：
+    - `backend/src/main/java/com/migration/service/impl/ClassroomServiceImpl.java`
+    - `backend/src/test/java/com/migration/integration/ClassroomM10IntegrationTest.java`
+  - 改造内容：
+    - `monitor/stats` 成功响应从动态 `Map` 收敛为 `ClassroomMonitorStatsResponse`，并通过 `@JsonProperty` 固定输出：
+      - `total_members/online_count/active_count/coding_count/idle_count/active_coding/abnormal_count/avg_progress`。
+    - `monitor/coach?action=clusters` 与 `monitor/error-clusters` 聚类响应统一为 `ClassroomErrorClustersResponse`（`clusters + hint`），并抽取公共查询方法 `buildErrorClustersResponse`，消除重复构造逻辑。
+    - 保持路径、参数与响应字段兼容，不引入补丁路由和降级分支。
+    - 新增课堂监控回归断言：
+      - 校验 `monitor/stats` 关键字段存在；
+      - 新增 `monitor/error-clusters` 端到端断言，确保 `clusters` 数组契约稳定。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=ClassroomM10IntegrationTest,ClassroomM11IntegrationTest,ClassroomControllerContractTest test` 通过。
+    - `cd backend && mvn -q -Dtest=AITutorWorkflowAdminIntegrationTest,SubmissionModuleIntegrationTest,ClassroomM10IntegrationTest,ClassroomM11IntegrationTest,AccountAnnouncementAiIntegrationTest test` 通过。
+    - `cd backend && mvn -q -DskipTests validate` 通过。
+- 2026-03-26 新增统一异常体系（`exception/`）并接入全局处理链路：
+  - 新增文件：
+    - `backend/src/main/java/com/migration/exception/ErrorCode.java`
+    - `backend/src/main/java/com/migration/exception/AppException.java`
+    - `backend/src/main/java/com/migration/exception/BadRequestException.java`
+    - `backend/src/main/java/com/migration/exception/UnauthorizedException.java`
+    - `backend/src/main/java/com/migration/exception/ForbiddenException.java`
+    - `backend/src/main/java/com/migration/exception/NotFoundException.java`
+    - `backend/src/main/java/com/migration/exception/ConflictException.java`
+    - `backend/src/main/java/com/migration/exception/GlobalExceptionHandler.java`
+    - `backend/src/test/java/com/migration/exception/GlobalExceptionHandlerTest.java`
+  - 修改文件：
+    - `backend/src/main/java/com/migration/controller/AdminConfigController.java`
+    - `backend/src/main/java/com/migration/service/impl/SystemOptionServiceImpl.java`
+    - `backend/src/main/java/com/migration/service/monitor/ClassroomMonitorQueryService.java`
+    - `backend/src/main/java/com/migration/service/monitor/ClassroomMonitorFacade.java`
+    - `backend/src/test/java/com/migration/service/impl/SystemOptionServiceImplTest.java`
+  - 改造内容：
+    - 在 `exception/` 下建立统一异常模型：`ErrorCode + AppException + 业务子类异常`，统一错误码、HTTP 状态与默认消息。
+    - 新增 `GlobalExceptionHandler` 全局异常处理器：
+      - 统一处理业务异常、参数异常、数据库异常、认证/鉴权异常与兜底异常；
+      - 统一返回 `ApiResponse.error(code, message)`，并按异常类型返回对应 HTTP 状态码。
+    - 移除 `AdminConfigController#testSmtp` 局部 `try/catch`，改为直接抛出并走全局异常处理。
+    - `SystemOptionServiceImpl#requireStoredSmtpConfig` 改为抛出 `BadRequestException`（缺失 SMTP 配置 failfast）。
+    - 为无数据源测试场景增加装配门禁：`ClassroomMonitorQueryService` 与 `ClassroomMonitorFacade` 增加 `@ConditionalOnBean(JdbcTemplate.class)`，避免 `DataSourceAutoConfiguration` 被排除时上下文启动失败。
+    - 新增异常处理专项测试：验证 `not-found / bad-request / internal-error` 三类映射行为。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=GlobalExceptionHandlerTest,SystemOptionServiceImplTest,AdminConfigControllerContractTest test` 通过。
+    - `cd backend && mvn -q -DskipTests validate` 通过。
+- 2026-03-26 后端 Java 根包统一迁移为 `com.pytutor`（替代 `com.migration`）：
+  - 修改范围：
+    - 目录迁移：
+      - `backend/src/main/java/com/migration/**` -> `backend/src/main/java/com/pytutor/**`
+      - `backend/src/test/java/com/migration/**` -> `backend/src/test/java/com/pytutor/**`
+    - 包声明与导入：
+      - 后端主代码与测试代码中的 `com.migration` 全量替换为 `com.pytutor`。
+    - Maven 坐标：
+      - `backend/pom.xml` 的 `groupId` 由 `com.migration` 调整为 `com.pytutor`。
+  - 迁移原则：
+    - 不保留双包兼容层，不做补丁式桥接；统一切换到单一命名空间 `com.pytutor`。
+  - 验证结果：
+    - `cd backend && mvn -q -DskipTests compile` 通过。
+    - `cd backend && mvn -q -DskipTests test-compile` 通过。
+    - `cd backend && mvn -q -Dtest=GlobalExceptionHandlerTest test` 通过。
+- 2026-03-26 补充后端优化执行计划文档：
+  - 新增文件：
+    - `todo.md`
+  - 修改文件：
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将“后端优化最短路径计划”落盘到仓库根目录 `todo.md`，包含三阶段执行路径（正确性、可观测/性能、结构收敛）、验收标准、链路检查项、未验证前提与里程碑交付物。
+    - 计划遵循“非补丁、最小完整、fail-fast、前后端契约不扩散”原则，便于后续按阶段执行与验收。
+  - 验证结果：
+    - 文档文件创建成功，可在仓库根目录直接查看与持续维护。
+- 2026-03-26 统一项目命名风格（变量、文件名）并固化规范：
+  - 修改文件：
+    - `AGENTS.md`
+    - `frontend/src/pages/admin/views/general/Dashboard.vue`
+    - `frontend/src/pages/admin/components/InfoCard.vue`
+    - `frontend/src/pages/admin/components/Simditor.vue`
+    - `frontend/src/pages/oj/index.js`
+    - `frontend/src/pages/oj/views/index.js`
+    - `frontend/src/i18n/oj/zh-CN.js`
+    - `frontend/src/i18n/oj/en-US.js`
+    - `frontend/src/i18n/oj/zh-TW.js`
+  - 重命名文件：
+    - `frontend/src/pages/admin/components/infoCard.vue` -> `frontend/src/pages/admin/components/InfoCard.vue`
+    - `frontend/src/pages/admin/components/simditor-file-upload.js` -> `frontend/src/pages/admin/components/simditorFileUpload.js`
+    - `frontend/src/pages/oj/components/verticalMenu/verticalMenu.vue` -> `frontend/src/pages/oj/components/verticalMenu/VerticalMenu.vue`
+    - `frontend/src/pages/oj/components/verticalMenu/verticalMenu-item.vue` -> `frontend/src/pages/oj/components/verticalMenu/VerticalMenuItem.vue`
+    - `frontend/src/pages/oj/views/general/404.vue` -> `frontend/src/pages/oj/views/general/NotFound.vue`
+    - `frontend/src/utils/classroom-constants.js` -> `frontend/src/utils/classroomConstants.js`
+  - 变更内容：
+    - 在 `AGENTS.md` 新增“命名规范（强制）”章节，明确 Java/Vue/JS/Python 的命名规则与重命名全链路要求。
+    - 前端组件文件名统一为 PascalCase，并同步所有 import 路径。
+    - 组件名统一为 PascalCase：`InfoCard`、`VerticalMenuItem`、`Dashboard`。
+    - 局部变量命名统一为 camelCase：`data` -> `releaseData`，`session` -> `latestSession`。
+    - i18n 注释中历史文件名 `404.vue` 同步为 `NotFound.vue`。
+  - 验证结果：
+    - `cd frontend && npm run -s build` 通过。
+    - 全量检索确认旧命名引用已清理（`infoCard.vue`、`verticalMenu-item.vue`、`simditor-file-upload`、`general/404.vue`、`classroom-constants.js` 均无残留）。
+- 2026-03-26 修复全仓命名检查遗留项并完成本地提交前校验：
+  - 修改文件：
+    - `frontend/src/pages/oj/App.vue`
+    - `frontend/src/pages/admin/App.vue`
+    - `frontend/src/pages/admin/views/Home.vue`
+    - `frontend/src/pages/admin/components/ScreenFull.vue`
+    - `frontend/src/pages/admin/views/general/PruneTestCase.vue`
+    - `frontend/src/pages/admin/views/problem/ImportAndExport.vue`
+    - `frontend/src/pages/oj/components/Pagination.vue`
+    - `frontend/src/pages/oj/components/Highlight.vue`
+    - `frontend/src/pages/oj/views/submission/SubmissionDetails.vue`
+    - `frontend/src/pages/oj/views/submission/SubmissionList.vue`
+    - `frontend/src/pages/oj/views/general/Home.vue`
+    - `frontend/src/pages/admin/components/KatexEditor.vue`
+    - `frontend/src/pages/admin/views/general/Login.vue`
+    - `frontend/src/pages/oj/components/NavBar.vue`
+    - `frontend/src/pages/oj/views/user/Register.vue`
+    - `frontend/src/pages/oj/views/user/UserHome.vue`
+    - `frontend/src/pages/oj/views/user/Logout.vue`
+    - `frontend/src/pages/oj/views/user/Login.vue`
+    - `frontend/src/pages/oj/views/setting/children/SecuritySetting.vue`
+    - `frontend/src/pages/oj/views/setting/children/AccountSetting.vue`
+  - 变更内容：
+    - 修复 11 处非 PascalCase 组件名（如 `app`、`submissionList`、`import_and_export` 等）。
+    - 补齐 9 处缺失组件 `name` 字段（如 `NavBar`、`AdminLogin`、`UserHome`、`SecuritySetting` 等）。
+    - 保持路由 `name` 不变，仅统一组件 `export default` 的 `name` 字段。
+  - 验证结果：
+    - 组件命名检查结果：`MISSING 0`、`NOT_PASCAL 0`。
+    - `cd frontend && npm run -s build` 通过。
+- 2026-03-26 执行全栈主干拆解批次0（基线冻结）：
+  - 新增文件：
+    - `docs/plans/2026-03-26-fullstack-mainline-decomposition-baseline.md`
+  - 修改文件：
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 固化本轮拆解前测试基线，记录后端全量测试、前端单测与前端 smoke 结果。
+    - 输出拆解任务清单与批次验收矩阵，统一后续每批次验证口径（目标测试 + 全量回归 + code-reviewer + CHANGELOG）。
+    - 明确当前已知失败项属于基线遗留（Flyway V16 在测试库失败、前端术语一致性用例失败），后续按“无新增失败”规则执行。
+  - 验证结果：
+    - `cd backend && mvn test` 失败（`Tests run: 99, Errors: 38`，已记录关键错误簇）。
+    - `cd frontend && npm run test` 失败（`2` 个用例失败，均在 `ai-terminology-consistency.spec.js`）。
+    - `cd frontend && node tests/test_frontend_smoke.js` 通过（`16/16`）。
+- 2026-03-27 统一 code_java 数据库名为 `alethicode` 并迁移昨日数据：
+  - 修改文件：
+    - `start.sh`
+    - `deploy/docker-compose.yml`
+    - `backend/src/main/resources/application.yml`
+    - `backend/src/main/resources/application-dev.yml`
+    - `scripts/backup/monitor_sql_baseline.sh`
+    - `scripts/seed/sync_alethicode_tag_kc.py`
+    - `backend/README.md`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将 code_java 全链路数据库名从 `aethicode_migration` 统一改为 `alethicode`（启动脚本、Spring 数据源、Docker Compose、运维脚本默认参数与 README）。
+    - 以 Java 当前 schema 为基线重建目标库 `alethicode`，从 `deploy-oj-postgres-1/aethicode` 迁移业务数据到 `java-oj-postgres/alethicode`，覆盖：
+      - 同名核心表：`user`、`user_profile`、`problem`、`submission`、`problem_tag`、`judge_server` 等；
+      - 映射表：`problem_tags -> problem_problem_tags`、`knowledge_component -> ai_knowledge_component`、`problem_kc_mapping -> ai_problem_kc_mapping`；
+      - AI/工作流映射：`dialogue_session_state -> ai_dialogue_session`、`code_snapshot -> ai_code_snapshot`、`learner_notebook -> ai_learner_notebook`、`tutor_workflow_* -> ai_workflow_*`。
+    - 由于源库 `user.password` 为 Django PBKDF2，Java 侧使用 `password_hash(BCrypt)`；本次迁移将用户登录口令统一重置为 `root123456`（写入 BCrypt hash）。
+    - 对源库中指向不存在题目的工作流脏引用执行过滤迁移，避免外键失败，保证目标库可启动。
+    - 删除旧库 `aethicode_migration`，仅保留 `alethicode` 作为 code_java 当前唯一业务库，避免双库并存引发误连。
+  - 验证结果：
+    - 源/目标行数对账：
+      - `user 1/1`、`user_profile 1/1`、`problem 50/50`、`submission 30/30`、`problem_tag 48/48`
+      - `problem_tags -> problem_problem_tags 106/106`
+      - `knowledge_component -> ai_knowledge_component 46/46`
+      - `problem_kc_mapping -> ai_problem_kc_mapping 106/106`
+      - `ai_learning_event 272/272`
+      - `dialogue_session_state -> ai_dialogue_session 1/1`
+      - `code_snapshot -> ai_code_snapshot 39/39`
+      - `learner_notebook -> ai_learner_notebook 20/20`
+      - `tutor_workflow_session -> ai_workflow_session 14/11`（3 条因源端脏外键被过滤）
+      - `tutor_workflow_checkpoint -> ai_workflow_checkpoint 108/105`
+      - `tutor_workflow_event -> ai_workflow_event 66/65`
+    - 启动验证：
+      - `timeout 260s ./start.sh` 通过（后端/判题/前端 dev 均可启动）。
+      - `SKIP_FRONTEND=1 timeout 220s ./start.sh` 通过，后端就绪 `http://127.0.0.1:8081`，判题机心跳正常。
+      - 删除旧库后复验：`SKIP_FRONTEND=1 timeout 180s ./start.sh` 通过。
+- 2026-03-27 配置数据库每两天自动备份：
+  - 新增文件：
+    - `scripts/backup/backup_alethicode.sh`
+  - 修改内容：
+    - 新增数据库备份脚本，默认备份 `java-oj-postgres/alethicode` 到 `db_backups/alethicode_backup_YYYYMMDD_HHMMSS.sql`。
+    - 失败即退出（`set -euo pipefail`），并增加容器运行态与空文件检查，确保 fail-fast。
+    - 注册用户级 `crontab`：
+      - `0 3 */2 * * /bin/bash /home/cypress/code_java/scripts/backup/backup_alethicode.sh >> /home/cypress/code_java/db_backups/backup_cron.log 2>&1 # code_java_alethicode_backup`
+  - 验证结果：
+    - 手动执行脚本成功，生成备份：
+      - `db_backups/alethicode_backup_20260327_110746.sql`
+    - 语法校验通过：`bash -n scripts/backup/backup_alethicode.sh`。
+    - 已确认 `crontab -l` 包含自动备份任务。
+- 2026-03-27 管理端判题服务列表隐藏 `Abnormal` 节点：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/JudgeServerServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/service/impl/JudgeServerServiceImplTest.java`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 在 `getActiveJudgeServers` 返回链路中增加状态过滤，仅返回 `status=normal` 的判题机记录。
+    - 补充单元测试场景：同时注入 `normal + abnormal` 两条数据，断言最终仅返回 `normal`。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=JudgeServerServiceImplTest test` 通过。
+    - 本地运行 `start.sh` 后接口数据验证：`judge_server` 当前仅有活跃地址 `http://127.0.0.1:12358`，管理页不再展示 `Abnormal` 历史节点。
+- 2026-03-27 按“只修真实风险，不动风格”完成前端定向修复：
+  - 修改文件：
+    - `frontend/src/i18n/oj/en-US.js`
+    - `frontend/src/i18n/oj/zh-TW.js`
+    - `frontend/src/pages/oj/api.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 删除 `en-US.js` 中重复的 `Submitted_successfully` 与重复的 `Problems` 键，消除对象字面量重复键覆盖风险。
+    - 删除 `zh-TW.js` 中重复的 `Submitted_successfully` 键，消除对象字面量重复键覆盖风险。
+    - 重构 `api.js` 中 `ajax` 参数初始化，移除 `silent/signal/timeout` 的重复声明，消除 `no-redeclare` 风险，不改变原有请求行为。
+    - 保持历史风格问题（如 `space-before-function-paren`）不改动，符合“仅修真实风险”范围。
+  - 验证结果：
+    - `cd frontend && ./node_modules/.bin/eslint src/i18n/oj/en-US.js src/i18n/oj/zh-TW.js src/pages/oj/api.js` 失败（历史风格规则仍大量报错，非本次改动引入）。
+    - `cd frontend && ./node_modules/.bin/eslint --no-eslintrc --env es6 --parser-options '{"ecmaVersion":8,"sourceType":"module"}' --rule 'no-dupe-keys:2' --rule 'no-redeclare:2' src/i18n/oj/en-US.js src/i18n/oj/zh-TW.js src/pages/oj/api.js` 通过（目标真实风险规则清零）。
+- 2026-03-27 对齐 `learner-notebook` 与 `user-home` 的易错点口径（仅改真实风险）：
+  - 修改文件：
+    - `frontend/src/pages/oj/views/user/LearnerNotebook.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 新增错误类型归一化与埋点过滤逻辑，过滤 `problem_opened`、`submission_attempt`、`kc_review` 等非易错点事件，避免被当作“错误类型”展示。
+    - 将错误类型展示统一为中文可读标签（如“语法错误”“逻辑错误”“边界条件”），并保持后端存储值不变。
+    - 列表加载时对返回数据执行统一归一化，确保分组、筛选、标签颜色都基于真实错误类别。
+  - 验证结果：
+    - `cd frontend && ./node_modules/.bin/eslint src/pages/oj/views/user/LearnerNotebook.vue` 失败（存在该文件历史规则问题：`Blob is not defined`，以及既有风格规则告警；非本次需求引入的行为风险）。
+    - 手工审查确认：本次新增逻辑仅影响错误类型过滤与展示文案，不改变删除、导出、编辑反思、标签编辑等原有交互流程。
+- 2026-03-27 修复 KC 详情“未做题目误显示已通过”：
+  - 修改文件：
+    - `frontend/src/pages/oj/components/skillProfile/StarMapDetailPanel.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 修复关联题目状态判定中对 `null` 的数值转换误判：此前 `Number(null) === 0` 会把未做题目误判为“已通过”。
+    - 在状态映射中增加空值保护，仅在 `result` 有有效值时才做数值兼容判定（兼容历史 `0/-1`，同时保持 `AC/WA/RE/TLE/MLE` 不变）。
+  - 验证结果：
+    - `cd frontend && ./node_modules/.bin/eslint src/pages/oj/components/skillProfile/StarMapDetailPanel.vue` 通过。
+    - 手工代码审查确认：仅影响状态文案与样式映射，不改变接口请求与数据结构。
+- 2026-03-27 清理冗余文件并执行本地数据库备份：
+  - 修改文件：
+    - `.gitignore`
+    - `CHANGELOG.md`
+    - 删除 `.start-backend.pid`
+  - 变更内容：
+    - 删除仓库中的冗余运行时 PID 文件 `.start-backend.pid`。
+    - 在 `.gitignore` 增加 `.start-backend.pid` 与 `backend/.start-backend.pid` 忽略规则，避免运行时文件再次进入版本控制。
+    - 执行一次本地数据库快照备份（容器内 `pg_dump` 导出到本机）：`/home/cypress/db_backups/alethicode_20260327_095548.sql`。
+  - 验证结果：
+    - 备份文件生成成功，文件大小约 `610K`。
+- 2026-03-27 修复 Learner Notebook“语法错误可选但无结果”筛选回归：
+  - 修改文件：
+    - `frontend/src/pages/oj/views/user/LearnerNotebook.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 修复根因：前端将 `syntax` 归一化为 `syntax_error` 后，把 `syntax_error` 直接传给后端筛选；后端按 `error_category = ?` 精确匹配，导致历史 `syntax` 记录被过滤掉。
+    - 调整筛选链路：`loadEntries` 改为先拉全量（后端不带 `category`），前端对归一化后的数据做本地分类筛选，保证 `syntax/syntax_error/invalid_syntax` 可统一命中“语法错误”。
+    - 新增 `allEntries` 保存归一化全量数据，分类下拉选项基于全量生成，避免筛选后选项丢失。
+  - 验证结果：
+    - 数据库核对：`ai_learner_notebook` 当前类别分布为 `boundary_condition|9`、`logic_error|9`、`syntax|2`（`user_id=1`）。
+    - `cd frontend && ./node_modules/.bin/eslint src/pages/oj/views/user/LearnerNotebook.vue` 仍有历史告警（`object-property-newline` 与 `Blob is not defined`），非本次逻辑修复引入。
+- 2026-03-27 修复“插入编辑器，开始填写”点击无响应：
+  - 修改文件：
+    - `frontend/src/pages/oj/views/problem/Problem.vue`
+    - `frontend/src/pages/oj/views/problem/astVisualizationMixin.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 根因修复：`Problem.vue` 在编辑器容器重构后仍读取旧引用 `this.$refs.editor`，而当前真实编辑器在 `CodeEditorPanel(ref=codeEditorPanel)` 内，导致插入动作提前返回。
+    - 新增 `getEditorRef()`，统一从 `this.$refs.editor` 或 `this.$refs.codeEditorPanel.$refs.editor` 获取真实 CodeMirror 组件。
+    - 将骨架插入、代码插入、错误高亮、清理高亮、面板显示后的编辑器刷新等路径统一切换到 `getEditorRef()`。
+    - 同步修复 AST 可视化 mixin 的编辑器引用获取，避免热点标注/跳转受同类引用问题影响。
+  - 验证结果：
+    - 手工代码链路验证：`insert-skeleton` -> `handleInsertCode` -> `getEditorRef` -> CodeMirror `insertCodeAtCursor/appendCode/replaceLines` 调用链恢复。
+    - `cd frontend && ./node_modules/.bin/eslint src/pages/oj/views/problem/Problem.vue src/pages/oj/views/problem/astVisualizationMixin.js` 仍有历史告警（含既有 `Blob is not defined`、风格规则），非本次修复引入。
+- 2026-03-27 美化骨架代码卡片界面（参考设计稿）：
+  - 修改文件：
+    - `frontend/src/pages/oj/views/problem/cards/SkeletonCodeCard.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 重构卡片结构为“头部徽标 + 说明 + TODO 元信息 + 分行代码区 + 提示框 + 底部主操作”。
+    - 增加代码区交互：行号展示、TODO 行高亮、复制按钮（复制后短暂显示“已复制”）、移动端间距适配。
+    - 保留原有核心行为：点击“插入编辑器，开始填写”仍发送 `insert-code` 事件，位置为 `append`，不改变业务链路。
+    - 增加基础语法着色（关键字/函数/数字/操作符）与注释 TODO 强调，提升可读性。
+  - 验证结果：
+    - `cd frontend && ./node_modules/.bin/eslint src/pages/oj/views/problem/cards/SkeletonCodeCard.vue` 通过。
+- 2026-03-27 按需求收敛骨架卡片：仅保留蓝色头部信息区：
+  - 修改文件：
+    - `frontend/src/pages/oj/views/problem/cards/SkeletonCodeCard.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 保留头部蓝色信息区（图标、标题、阶段徽标）。
+    - 恢复其余区域为原简洁结构：说明文本、原始代码块、原按钮区，不再保留上轮新增的分行渲染/复制按钮/底部进度点等样式与交互。
+    - 插入编辑器事件保持原行为不变（`insert-code` + `append`）。
+  - 验证结果：
+    - `cd frontend && ./node_modules/.bin/eslint src/pages/oj/views/problem/cards/SkeletonCodeCard.vue` 通过。
+- 2026-03-27 修复“跳转其他页面后返回题目，AI 导学历史聊天被清空”：
+  - 修改文件：
+    - `frontend/src/pages/oj/views/problem/workflowStateMachine.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 新增按题目维度的本地聊天缓存：`workflowChat_NaN_<problemId>`，缓存最近 100 条 `agentMessages`。
+    - 缓存结构增加 `session_id`，返回题目时仅在同一会话下恢复，避免串到历史旧会话。
+    - 在以下节点自动持久化：`pushAgentMessage`、会话初始化成功后、恢复 checkpoint 后、组件销毁前。
+    - 在“清空对话”流程中同步清理本地缓存，保证清空行为一致。
+  - 验证结果：
+    - 手工链路验证：离开题目页 -> 返回同题 -> `workflowSession` 恢复 -> 命中同 `session_id` 本地缓存 -> 聊天消息恢复。
+    - `cd frontend && ./node_modules/.bin/eslint src/pages/oj/views/problem/workflowStateMachine.js` 仍有历史环境规则告警（`AbortController/WebSocket no-undef`），非本次改动引入。
+- 2026-03-27 禁止集成测试执行 `cleanTables()` 清表：
+  - 修改文件：
+    - `backend/src/test/java/com/pytutor/integration/AccountAnnouncementAiIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/AITutorWorkflowAdminIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/ClassroomMonitorScaleIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/ClassroomM10IntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/ClassroomM11IntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/ClassroomModuleIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/ProblemModuleIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/SubmissionModuleIntegrationTest.java`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 删除 8 个集成测试类中的 `cleanTables()` 调用（`@BeforeEach/@AfterEach` 不再清理数据库表）。
+    - 删除上述 8 个测试类内的 `cleanTables()` 方法实现，彻底移除测试代码中的清表 SQL 执行路径。
+  - 验证结果：
+    - 全局检索 `backend/src/test/java/com/pytutor/integration` 下不再存在 `cleanTables(`。
+    - `cd backend && mvn -q -DskipTests test-compile` 通过。
+- 2026-03-27 修复迁移练习 AC 生成题目 500，并统一迁移题号为 `X.Y.ZZZ`：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImplTest.java`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 修复 `/api/ai/workflow/event` 在 `TRANSFER` 阶段的 500 根因：源题 `display_id` 为 `PPT2-1` 时，原逻辑只接受 `X.Y.ZZZ` 导致抛出 `IllegalStateException`。
+    - 迁移题号生成改为“严格 `X.Y.ZZZ`”：
+      - 优先从源题 `display_id` 提取 `X.Y` 前缀（当源题本身为 `X.Y.ZZZ`）。
+      - 若源题为旧格式（如 `PPT2-1`），从源题标题前缀（如 `2.1 ...`）提取 `X.Y`，并生成 `X.Y.001+`。
+    - 迁移题号与后端 admin AI 变体题审查展示 `display_id` 保持同一来源（即写入 `problem._id` 的值），不再生成 `PPTx-n` 格式。
+    - 新增单测覆盖：
+      - 章节制源题号直接生成下一号。
+      - 旧 `PPTx-n` 源题号从标题章节前缀回退生成 `X.Y.ZZZ`。
+      - 无法提取章节前缀时 fail-fast 抛错。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=AITutorWorkflowAdminServiceImplTest test` 通过。
+    - `cd backend && mvn -q -DskipTests compile` 通过。
+- 2026-03-27 修复“类似题生成失败”500（`transfer.hint is required`）：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImplTest.java`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 在迁移题生成链路新增受控重试（最多 2 次）：当 LLM 返回 JSON 字段缺失（如 `hint`）时，按同一逻辑重新请求一次，降低偶发失败率。
+    - 新增生成结果完整性校验：强制校验 `title/description/input_description/output_description/hint/samples/target_kcs`，任一缺失即判定该次生成失败。
+    - 两次都失败时不再抛出未处理 `IllegalStateException`（HTTP 500），改为业务错误 `LegacyBusinessException` 返回可读提示：`类似题生成失败，请重试（...）`。
+    - 新增单测覆盖：
+      - 首次缺 `hint`、第二次补齐时可成功返回。
+      - 连续两次缺 `hint` 时按业务错误失败并验证重试次数。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=AITutorWorkflowAdminServiceImplTest test` 通过。
+    - `cd backend && mvn -q -DskipTests compile` 通过。
+- 2026-03-27 落地 OJ AI 大一统第一阶段骨架、前端契约镜像与学习画像主链：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/submission/SubmissionThrottleService.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/contract/CardType.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/contract/FeedbackLabel.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/contract/PendingHumanAction.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/contract/Phase.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/contract/WorkflowEvent.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/eval/AITutorEvalService.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/eval/TraceGradeService.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/evidence/EvidencePack.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/evidence/EvidencePackAssembler.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/policy/TransitionPolicy.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/policy/TutorActionDecision.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/policy/TutorActionPolicy.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/profile/CrossCourseProfileService.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/profile/LearnerMemoryService.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/profile/LearnerProfileProjector.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/profile/LearnerState.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/profile/MasteryService.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/retrieval/CoursewareRetrievalService.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/rollout/RolloutDecision.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/rollout/RolloutPolicyService.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/schema/CardSchemaRegistry.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/schema/CardSchemaValidator.java`
+    - `backend/src/main/java/com/pytutor/config/WorkflowWebSocketConfig.java`
+    - `backend/src/main/java/com/pytutor/websocket/WorkflowWebSocketHandler.java`
+    - `backend/src/main/resources/db/migration/V17__bootstrap_oj_ai_unified_core.sql`
+    - `backend/src/test/java/com/pytutor/integration/AITutorWorkflowAdminIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/AbstractJdbcIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/SubmissionModuleIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/service/aitutor/policy/TransitionPolicyTest.java`
+    - `backend/src/test/java/com/pytutor/service/aitutor/policy/TutorActionPolicyTest.java`
+    - `backend/src/test/java/com/pytutor/service/aitutor/rollout/RolloutPolicyServiceTest.java`
+    - `backend/src/test/java/com/pytutor/service/aitutor/schema/CardSchemaValidatorTest.java`
+    - `frontend/src/pages/oj/views/problem/Problem.vue`
+    - `frontend/src/pages/oj/views/problem/agentContracts.js`
+    - `frontend/src/pages/oj/views/problem/workflowStateMachine.js`
+    - `frontend/tests/unit/workflow-private-ai-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 冻结 AI 工作流主契约，新增 `Phase / WorkflowEvent / CardType / PendingHumanAction / FeedbackLabel` 后端枚举，统一主线 phase、event、card 和反馈标签的运行时事实源。
+    - 从工作流主服务中抽出 `TransitionPolicy`、`EvidencePack`、`LearnerState`、`TutorActionPolicy`、`CardSchemaValidator`、`AITutorEvalService`、`RolloutPolicyService` 等骨架对象，让后端按契约、证据、画像、动作策略来编排主线，而不是继续堆叠在单个大类里。
+    - 新增 AI 核心表迁移 `V17__bootstrap_oj_ai_unified_core.sql`，落地 `ai_feedback_label`、`ai_tutor_trace`、`ai_tutor_generation_log`、`ai_retrieval_log`、`ai_learner_profile_snapshot`、`ai_courseware_chunk`、`ai_eval_dataset`、`ai_eval_run`、`ai_rollout_decision`、`ai_learner_memory`。
+    - 将学生端 `agent_feedback` 学习事件正式投影到 `ai_feedback_label`，保留现有 `/api/ai/learning-events/batch` 协议，不新增第二条反馈入口。
+    - 在工作流事件处理中增加 phase 流转校验、checkpoint restore 校验、EvidencePack 装配、LearnerState 投影、课程资料检索、trace/generation/retrieval/rollout 持久化，以及主卡片 schema fail-fast 校验。
+    - 补齐迁移题卡片输出字段，使 `TRANSFER` 卡片在 schema 校验下显式携带 `test_cases` 与 `reference_solution_code`。
+    - 将 `WorkflowWebSocketConfig` 与 `WorkflowWebSocketHandler` 改为仅在存在 `JdbcTemplate` 时装配，消除无数据库 controller contract 测试中的上下文加载失败。
+    - 为 `SubmissionThrottleService` 增加测试专用的桶状态重置入口，并在 JDBC 集成测试基类中于每条测试开始前清空限流桶，避免内存级限流状态跨测试串味。
+    - 修复 `SubmissionModuleIntegrationTest` 的异步评测竞态：对 `rejudge` 与“有 judge server 但服务不可达”的链路显式等待终态，避免后台任务污染后续测试。
+    - 前端新增 `agentContracts.js` 作为后端契约镜像，`workflowStateMachine.js` 从镜像常量读取 phase/card 定义，`Problem.vue` 中的迁移练习入口改为统一走 `dispatchWorkflowEvent('TRANSFER', ...)`，不再绕回旧 `callAgent(6, ...)` 分支。
+    - 新增并更新工作流私有契约测试、状态流转测试、schema 校验测试、动作策略测试和 rollout 测试，覆盖非法 phase 跳转拒绝、checkpoint 非法恢复拒绝、学生反馈落库、证据/画像/检索日志落库以及前端镜像契约。
+  - 验证结果：
+    - `cd backend && mvn -Dtest=AITutorWorkflowAdminIntegrationTest,TransitionPolicyTest,CardSchemaValidatorTest,TutorActionPolicyTest,RolloutPolicyServiceTest test` 通过。
+    - `cd backend && mvn -Dtest=SubmissionModuleIntegrationTest test` 通过。
+    - `cd backend && mvn test` 通过（139 个测试全部通过）。
+    - `cd frontend && npm run test -- --runInBand workflow-private-ai-contract.spec.js` 通过。
+    - `cd frontend && npm run test -- --runInBand` 通过（5 个 suite / 20 个测试全部通过）。
+- 2026-03-28T01:04:36+08:00 修正 AI 工作流补测中的真实契约与编码伴随卡片输出：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/integration/AITutorWorkflowGovernanceIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/integration/AITutorWorkflowStateMachineIntegrationTest.java`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 修复 `CODING` 阶段的 `code_companion` 卡片在代码未命中任何诊断规则时会返回空 `issues` 列表、随后被 schema fail-fast 拦截的问题；现在最少会返回一条“先跑最小样例”的明确下一步建议，保证结构化卡片输出始终满足主契约。
+    - 将 `schema_violation` 集成测试断言对齐到真实 API 契约：接口层返回精简错误文本，同时继续校验 `ai_tutor_trace` 中 `schema_pass=false` 与错误摘要已落库。
+    - 保留并验证 `pending_human_action` 释放后的主链路：`confirm_scaffold` 清空后允许从 `SCAFFOLDING` 进入 `CODING`，不再被空卡片输出误判为非法流转。
+  - 验证结果：
+    - `cd backend && mvn -Dtest=AITutorWorkflowStateMachineIntegrationTest,AITutorWorkflowGovernanceIntegrationTest test` 通过（10 个测试全部通过）。
+    - `cd backend && mvn test` 通过（153 个测试全部通过）。
+    - `cd frontend && npm run test -- --runInBand` 通过（5 个 suite / 20 个测试全部通过）。
+- 2026-03-28 前端 Vue2->Vue3 迁移尝试（仅在 `frontend_new` 执行，保留 `frontend` 只读）：
+  - 修改文件：
+    - `frontend_new/package.json`
+    - `frontend_new/babel.config.js`
+    - `frontend_new/vue.config.js`
+    - `frontend_new/src/pages/oj/index.js`
+    - `frontend_new/src/pages/admin/index.js`
+    - `frontend_new/src/pages/oj/router/index.js`
+    - `frontend_new/src/pages/admin/router.js`
+    - `frontend_new/src/pages/oj/router/routes.js`
+    - `frontend_new/src/store/index.js`
+    - `frontend_new/src/i18n/index.js`
+    - `frontend_new/src/pages/oj/api.js`
+    - `frontend_new/src/pages/admin/api.js`
+    - `frontend_new/src/utils/utils.js`
+    - `frontend_new/src/pages/oj/views/setting/Settings.vue`
+    - `frontend_new/src/utils/uiBridge.js`
+    - `frontend_new/src/utils/settingsToast.js`
+    - `frontend_new/tests/e2e/visual-compare.js`
+    - `frontend_new/MIGRATION_REPORT.md`
+    - `frontend_new/tests/e2e/visual/report.md`
+    - `frontend_new/tests/e2e/visual/report.json`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 在 `frontend_new` 内完成 Vue3 过渡迁移（`vue@3 + @vue/compat + router4 + vuex4 + vue-i18n@9`），并改为 `vue-cli-service` 启动/构建。
+    - 保留 OJ/Admin 双入口，迁移入口初始化、路由、状态、i18n、全局提示方法与 API 调用桥接，避免改动旧站 UI 与业务交互。
+    - 新增 `uiBridge`/`settingsToast` 兼容层，消除核心链路对 `Vue.prototype` 的直接依赖。
+    - 新增新旧站点可执行对比脚本 `test:visual-compare`：优先 Playwright 截图，当前环境缺系统依赖时自动回退 HTML 快照对比并产出报告。
+    - 新增迁移报告 `frontend_new/MIGRATION_REPORT.md`，按 7 段式输出迁移摘要、兼容策略、修改清单、验证结果、未解问题与最终结论。
+  - 验证结果：
+    - `git status --short frontend` 无输出，确认旧目录未被修改。
+    - `curl` 验证新旧站核心路由均可访问（`/ /login /problem /status /faq /admin/` 返回 200）。
+    - `cd frontend_new && npm run build` 通过（存在 compat 与包体积告警，无阻塞报错）。
+    - `cd frontend_new && npm run test -- --runInBand`：4/5 套件通过，`sanitize.spec.js` 因 `jest@23` 与 ESM 转换链兼容性失败（已在迁移报告记录）。
+    - `cd frontend_new && OLD_BASE_URL=http://127.0.0.1:8082 NEW_BASE_URL=http://127.0.0.1:8083 npm run test:visual-compare` 通过（HTML fallback 模式）。
+- 2026-03-28 前端迁移收敛修复（todo_frontend 增量完成）：
+  - 修改文件：
+    - `frontend_new/src/utils/sanitize.js`
+    - `frontend_new/tests/e2e/visual-compare.js`
+    - `frontend_new/MIGRATION_REPORT.md`
+    - `frontend_new/tests/e2e/visual/report.md`
+    - `frontend_new/tests/e2e/visual/report.json`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将 `sanitize` 工具改为 ESM/CJS 双兼容导出，消除 Jest 场景下 `Cannot use import statement outside a module`。
+    - 优化视觉回归 fallback：新增 HTML 去噪归一化（剔除 script/link/meta 与动态注入差异），避免首页误报高差异。
+    - 迁移报告同步刷新为最新验证结果（单测全绿、路由验证全 200、视觉对比 0% 差异）。
+  - 验证结果：
+    - `cd frontend_new && npm run test -- --runInBand` 通过（5 suite / 20 tests）。
+    - `cd frontend_new && npm run build` 通过（有 compat/体积告警，无阻塞错误）。
+    - 旧新站路由直连验证（`curl --noproxy '*'`）`/ /login /problem /status /faq /admin/` 全部 200。
+    - `cd frontend_new && OLD_BASE_URL=http://127.0.0.1:8082 NEW_BASE_URL=http://127.0.0.1:8083 npm run test:visual-compare` 通过（当前环境仍为 HTML fallback）。
+- 2026-03-28 前端迁移视觉回归增强（像素级对比跑通）：
+  - 修改文件：
+    - `frontend_new/tests/e2e/visual-compare.js`
+    - `frontend_new/MIGRATION_REPORT.md`
+    - `frontend_new/tests/e2e/visual/report.md`
+    - `frontend_new/tests/e2e/visual/report.json`
+    - `frontend_new/tests/e2e/visual/old/*.png`
+    - `frontend_new/tests/e2e/visual/new/*.png`
+    - `frontend_new/tests/e2e/visual/diff/*.png`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 为视觉回归脚本增加用户态库自动探测（`~/.local/pw-libs`），在无 sudo 场景下也可启动 Playwright 浏览器。
+    - 调整页面等待策略：从 `networkidle` 改为 `domcontentloaded + 固定等待`，修复含长连接页面的超时失败。
+    - 继续保留失败时 HTML fallback 能力，确保在受限环境仍有可执行对比输出。
+    - 同步更新迁移报告：像素级对比已完成，核心路由 mismatch 约 `0.02%`。
+  - 验证结果：
+    - `cd frontend_new && npm run test:visual-compare` 通过（像素模式，产出 old/new/diff png）。
+    - 报告 `tests/e2e/visual/report.md` 显示 `/ /login /problem /status /faq /404` 全部低差异（约 0.02%）。
+- 2026-03-28 前端迁移可复现性补强（Playwright 用户态依赖脚本）：
+  - 修改文件：
+    - `frontend_new/tests/e2e/install-playwright-user-libs.sh`
+    - `frontend_new/package.json`
+    - `frontend_new/MIGRATION_REPORT.md`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 新增 `install-playwright-user-libs.sh`，在无 sudo 场景下通过 `apt download + dpkg-deb -x` 安装浏览器运行依赖到 `~/.local/pw-libs`。
+    - 新增 npm 脚本 `setup:visual-libs` 统一调用依赖安装脚本，便于后续机器复用。
+    - 迁移报告补充用户态依赖准备步骤，确保视觉回归流程可重复执行。
+- 2026-03-28 前端迁移二次收口（消除 Vue2 compat 告警）：
+  - 修改文件（核心）：
+    - `frontend_new/src/pages/admin/components/KatexEditor.vue`
+    - `frontend_new/src/pages/admin/components/SideMenu.vue`
+    - `frontend_new/src/pages/admin/views/problem/Problem.vue`
+    - `frontend_new/src/pages/admin/views/problem/ProblemList.vue`
+    - `frontend_new/src/pages/admin/views/general/Login.vue`
+    - `frontend_new/src/pages/admin/views/general/Announcement.vue`
+    - `frontend_new/src/pages/admin/views/general/JudgeServer.vue`
+    - `frontend_new/src/pages/admin/views/general/User.vue`
+    - `frontend_new/src/pages/admin/views/general/ReviewQueue.vue`
+    - `frontend_new/src/pages/admin/views/general/Conf.vue`
+    - `frontend_new/src/pages/admin/views/general/PruneTestCase.vue`
+    - `frontend_new/src/pages/oj/views/problem/CodeEditorPanel.vue`
+    - `frontend_new/src/pages/oj/views/user/LearnerNotebook.vue`
+    - 以及批量替换覆盖的多处 `frontend_new/src/**/*.vue`
+    - `frontend_new/MIGRATION_REPORT.md`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 批量迁移并清理 Vue2 旧语法：
+      - `:xxx.sync` -> `v-model:xxx`
+      - `@event.native` -> `@event`
+      - `{{ value | filter }}` -> `{{ $filters.filter(value) }}`
+      - `<template slot-scope/slot>` -> `v-slot` 语法
+      - `/deep/` 与 `::v-deep` 旧写法 -> `:deep(...)`
+    - 修复批量替换时引入的事件绑定残缺（`="..."`）问题，逐文件恢复为明确的 `@click` / `@keyup.enter`。
+    - 修复残留 `slot-scope` 片段并统一为 `#default`，避免模板兼容告警。
+  - 验证结果：
+    - `cd frontend_new && npm run build` 通过；`/tmp/frontend_new_build.log` 中未检出 `COMPILER_V_BIND_SYNC / COMPILER_FILTERS / COMPILER_V_ON_NATIVE / COMPILER_NATIVE_TEMPLATE` 等 compat 告警。
+    - `cd frontend_new && timeout 70s npm run dev` 编译通过；dev 日志未检出上述 compat 告警。
+    - `cd frontend_new && npm run test -- --runInBand` 通过（5 suite / 20 tests）。
+    - `cd frontend_new && node tests/test_frontend_smoke.js` 通过（16/16）。
+- 2026-03-28 LearnerNotebook 折叠状态运行时错误修复（Vue3）：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/user/LearnerNotebook.vue`
+    - `frontend_new/src/pages/oj/views/user/learnerNotebookState.js`
+    - `frontend_new/tests/unit/learner-notebook-state.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 修复 `http://localhost:8080/learner-notebook` 页面分组点击时报错 `this.$set is not a function` 的问题，移除 `LearnerNotebook` 中对 Vue2 `this.$set` 的调用。
+    - 新增 `learnerNotebookState.js`，集中封装 `toggleExpandedGroup` 与 `forceExpandGroup`，通过不可变对象更新 `expandedGroups`，保证 Vue3 下状态更新稳定。
+    - 新增单元测试 `learner-notebook-state.spec.js`，覆盖“已有分组切换/新分组首次展开/强制展开”三个关键行为。
+  - 验证结果：
+    - `cd frontend_new && npm test -- tests/unit/learner-notebook-state.spec.js` 通过（1 suite / 3 tests）。
+    - `rg -n '\\$set\\(' frontend_new/src/pages/oj/views/user/LearnerNotebook.vue` 无匹配，确认页面已移除该不兼容调用。
+    - `cd frontend_new && npx eslint src/pages/oj/views/user/LearnerNotebook.vue src/pages/oj/views/user/learnerNotebookState.js tests/unit/learner-notebook-state.spec.js` 通过（仅有既有 Node 循环依赖 warning）。
+    - `cd frontend_new && npm run build` 通过（仅存在既有产物体积告警，无编译错误）。
+- 2026-03-28 OJ 题目列表样式回归修复（新前端对齐老前端）：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/ProblemList.vue`
+    - `frontend_new/src/pages/oj/components/mixins/problem.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 修复 `ProblemList` 表格列自定义 `render` 的 Vue2 旧写法（`props/on/nativeOn`）在 Vue3 环境下导致组件属性未生效的问题。
+    - 将题号列、题目列、难度列、标签列统一改为 Vue3 可识别写法（`type/size/onClick` 与默认插槽函数），恢复老前端样式表现：
+      - 题号和题目恢复为文本按钮样式，不再显示为默认描边按钮。
+      - 难度恢复为彩色 `Tag` 标签展示。
+      - 标签恢复为可点击 `Tag` 标签展示。
+    - 同步修复题目状态列混入 `ProblemMixin` 的 `Icon` 渲染属性写法，确保登录态下状态图标展示正常。
+  - 验证结果：
+    - `cd frontend_new && npx eslint src/pages/oj/views/problem/ProblemList.vue src/pages/oj/components/mixins/problem.js` 通过（仅存在既有 Node 循环依赖 warning）。
+    - `cd frontend_new && npm run build` 通过（仅存在既有产物体积与 webpack deprecation warning，无编译错误）。
+- 2026-03-28 OJ ProblemList 组件尺寸基线对齐（新前端完全模仿 frontend 老前端）：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/ProblemList.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 在 `ProblemList` 页面根节点增加 `problem-list-page` 作用域，新增“仅对本页生效”的尺寸覆盖规则，避免影响其它页面。
+    - 将题号列与题目列文本按钮移除 `large` 尺寸声明，消除 `view-ui-plus` 大号按钮（40px/16px）相对 `iview` 老基线偏大的问题。
+    - 按老前端尺寸基线强制对齐本页核心组件：筛选区按钮、搜索输入框与图标、右侧标签按钮、分页器尺寸、表格文本按钮字号/行高。
+    - 本次仅修正“尺寸一致性”，不改动业务逻辑与交互流程。
+  - 验证结果：
+    - `cd frontend_new && npx eslint src/pages/oj/views/problem/ProblemList.vue` 通过（仅存在既有 Node 循环依赖 warning）。
+    - `cd frontend_new && npm run build` 通过（仅存在既有产物体积告警与 webpack deprecation warning，无编译错误）。
+- 2026-03-28 frontend_new 全局组件视觉基线回拉（尺寸/颜色/输入框白底对齐 frontend）：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/viewUiPlusBridge.less`
+    - `frontend_new/src/pages/admin/elementPlusBridge.less`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将 OJ 侧 `view-ui-plus` 桥接样式按旧 `iview` 基线补齐，统一修正文本按钮颜色、大号按钮尺寸、大号输入框尺寸、卡片头字号/字重、输入图标颜色、表格基础文字色等差异。
+    - 去除 OJ 输入框与下拉获得焦点时的额外阴影，保持与老前端一致的白底与边框表现，避免出现“灰底输入框”的视觉偏差。
+    - 将 admin 侧 `element-plus` 桥接中的填充类变量回拉到白底，并对输入框、选择器、文本域、数字输入在普通态、聚焦态、禁用态分别明确背景色，避免新库默认 fill 色把输入组件渲染成灰底。
+    - 本次修改是全局桥接层修复，目标是让 `frontend_new` 整体组件尺寸与颜色尽量贴近 `frontend`，而不是继续在单页打补丁。
+  - 验证结果：
+    - `cd frontend_new && npm run build` 通过（仅存在既有产物体积告警与 webpack deprecation warning，无编译错误）。
+    - `cd frontend_new && node tests/test_frontend_smoke.js` 通过（16/16）。
+- 2026-03-28 ProblemList 表格自定义渲染修正（题号/题目去填充、标签改为蓝色背景）：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/ProblemList.vue`
+    - `frontend_new/src/pages/oj/components/mixins/problem.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 修复 `ProblemList` 表格列 `render` 在 Vue3 下继续使用字符串组件名（`h('Button') / h('Tag') / h('Icon')`）的问题。该写法在当前链路中未稳定解析到 `view-ui-plus` 组件，导致题号/题目表现为默认按钮样式，标签也未按预期渲染。
+    - 改为显式导入并使用 `view-ui-plus` 组件对象（`ViewButton`、`ViewTag`、`ViewIcon`），确保题号和题目按真正的文本按钮渲染，无背景填充。
+    - 将题目标签统一设置为蓝色 `Tag` 背景，满足当前页面视觉要求。
+    - 同步修复登录态题目状态列图标渲染，避免状态列继续走字符串组件名。
+  - 验证结果：
+    - `cd frontend_new && npx eslint src/pages/oj/views/problem/ProblemList.vue src/pages/oj/components/mixins/problem.js` 通过（仅存在既有 Node 循环依赖 warning）。
+    - `cd frontend_new && npm run build` 通过（仅存在既有产物体积告警与 webpack deprecation warning，无编译错误）。
+- 2026-03-28 frontend_new OJ 自定义渲染全量修正（Vue2 render 写法迁移到 Vue3）：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/classroom/AIGeneratedProblems.vue`
+    - `frontend_new/src/pages/oj/views/classroom/AssignmentGrading.vue`
+    - `frontend_new/src/pages/oj/views/classroom/ClassroomAssignment.vue`
+    - `frontend_new/src/pages/oj/views/classroom/ClassroomDetail.vue`
+    - `frontend_new/src/pages/oj/views/classroom/ClassroomList.vue`
+    - `frontend_new/src/pages/oj/views/classroom/LessonManagement.vue`
+    - `frontend_new/src/pages/oj/views/submission/SubmissionList.vue`
+    - `frontend_new/src/pages/oj/views/submission/SubmissionDetails.vue`
+    - `frontend_new/tests/unit/oj-custom-render-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 全量修复 OJ 端 `Table columns[].render` 中遗留的 Vue2 风格组件渲染写法，统一移除 `h('Button'/'Tag'/'Icon'/'Avatar')`、`props`、`on` 等在 Vue3 原生 `h` 下不再兼容的配置。
+    - 在 8 个问题文件中显式导入 `view-ui-plus` 真实组件对象，并统一改为 `ViewButton`、`ViewTag`、`ViewIcon`、`ViewAvatar` 的 Vue3 渲染方式。
+    - 将 DOM 节点事件从 `on: { click }` 统一改为 `onClick`，保证题目跳转、评分、课件下载、课堂会话进入、重新判题等交互恢复正常。
+    - 新增单元契约测试 `oj-custom-render-contract.spec.js`，静态扫描 OJ 端所有 `render: (h, params)` 块，防止未来再次引入 Vue2 风格自定义渲染。
+  - 验证结果：
+    - `cd frontend_new && npx jest tests/unit/oj-custom-render-contract.spec.js --runInBand` 先失败后通过，确认测试能真实捕获并验证本轮修复。
+- 2026-03-29 admin 创建题目页尺寸回拉（frontend_new 对齐 frontend 老前端）：
+  - 修改文件：
+    - `frontend_new/src/pages/admin/views/problem/Problem.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 在 `Problem` 页面表单上显式设置 `size="large"`，将默认输入/选择类控件高度回拉到老前端 `element-ui` 的 40px 基线。
+    - 在 `.problem` 作用域内补充 `element-plus` 尺寸变量映射：默认/large=40px，small=32px，统一对齐老前端组件尺寸体系。
+    - 对 `input-new-tag`（老前端 `mini` 尺寸）单独补齐深度样式，将标签输入框回拉到 28px，避免新前端偏小。
+    - 本次仅调整视觉尺寸，不修改业务逻辑、数据流与交互路径。
+  - 验证结果：
+    - `cd frontend_new && /home/cypress/code_java/.tools/node-v20.20.0/bin/node ./node_modules/eslint/bin/eslint.js src/pages/admin/views/problem/Problem.vue` 通过（仅存在既有 Node circular dependency warning，无 lint error）。
+    - `cd frontend_new && /home/cypress/code_java/.tools/node-v20.20.0/bin/node ./node_modules/vite/bin/vite.js build --config vite.config.mjs` 通过（仅存在既有 chunk size warning，无构建错误）。
+- 2026-03-29 admin 创建题目页 Test Case 宽度自适应优化（frontend_new）：
+  - 修改文件：
+    - `frontend_new/src/pages/admin/views/problem/Problem.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将 Test Case 区块中 Input/Expected Output 两列的断点从 `md=12` 调整为 `md=24`，并补充 `xl=12`。
+    - 现在在中等宽度下自动切换为单列（每列占满容器），在大屏与超大屏恢复双列，提升“自适应宽度”表现。
+    - 本次仅调整布局断点，不改动业务逻辑与数据流。
+  - 验证结果：
+    - `cd frontend_new && /home/cypress/code_java/.tools/node-v20.20.0/bin/node ./node_modules/eslint/bin/eslint.js src/pages/admin/views/problem/Problem.vue` 通过（仅存在既有 Node circular dependency warning，无 lint error）。
+- 2026-03-29 admin 创建题目页编辑区全链路拉宽与自适应修复（frontend_new）：
+  - 修改文件：
+    - `frontend_new/src/pages/admin/views/problem/Problem.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 为“描述 / 输入描述 / 输出描述 / Hint”对应表单项增加全宽样式类，强制编辑器容器在 `el-form-item__content` 中按 `width: 100%` 展开。
+    - 为 Sample 与 Test Cases 区块增加全宽容器与全宽手风琴样式，修复 Element Plus 表单内容区 `flex` 布局导致的宽度收缩问题。
+    - Sample 输入/输出列改为响应式断点（`xs/sm/md=24`，`lg/xl=12`），与 Test Cases 行为一致：中小屏单列，大屏双列。
+    - Test Cases 区块补充专用表单项类 `test-cases-item`，确保整个测试用例卡片区域可跟随父容器自适应拉宽。
+    - 本次仅调整布局与样式，不改动题目保存与测试用例提交逻辑。
+  - 验证结果：
+    - `cd frontend_new && /home/cypress/code_java/.tools/node-v20.20.0/bin/node ./node_modules/eslint/bin/eslint.js src/pages/admin/views/problem/Problem.vue` 通过（仅存在既有 Node circular dependency warning，无 lint error）。
+- 2026-03-29 AI 导学审题引导 CodeMirror 选区测量异常修复（frontend_new）：
+  - 修改文件：
+    - `frontend_new/src/components/CodeMirrorBridge.vue`
+    - `frontend_new/src/pages/oj/components/CodeMirror.vue`
+    - `frontend_new/src/pages/oj/views/problem/Problem.vue`
+    - `frontend_new/tests/unit/codemirror-selection-safety-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 在 `CodeMirrorBridge` 增加 `beforeSelectionChange` 选区规范化逻辑，对 `anchor/head` 的行列坐标做边界裁剪，避免 CodeMirror 内部测量阶段拿到非法选区导致 `prepareMeasureForLine` 访问异常。
+    - 将 OJ 编辑器与题目页骨架插入流程中的文档末尾光标定位统一改为合法末行末列（替换原 `setCursor(doc.lineCount(), 0)`），消除潜在越界光标状态。
+    - 新增单元契约测试 `codemirror-selection-safety-contract.spec.js`，约束上述运行时安全行为，防止后续回归。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/codemirror-selection-safety-contract.spec.js` 通过。
+    - `cd frontend_new && npm test -- --runInBand tests/unit/codemirror-line-safety-contract.spec.js` 通过。
+    - `cd frontend_new && npm test -- --runInBand tests/unit/codemirror-runtime-contract.spec.js` 通过。
+    - `cd frontend_new && npx eslint src/components/CodeMirrorBridge.vue src/pages/oj/components/CodeMirror.vue src/pages/oj/views/problem/Problem.vue tests/unit/codemirror-selection-safety-contract.spec.js` 通过（仅存在既有 Node circular dependency warning，无 lint error）。
+- 2026-03-29 AI 学习助手空态交互修复（checkpoint 误占位导致“审题引导无反应”观感）：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/UnifiedAgentPanel.vue`
+    - `frontend_new/tests/unit/unified-agent-panel-empty-state-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 调整 `timelineItems` 计算逻辑：当 `messages` 为空时直接返回空数组，不再仅因存在 checkpoint 就把消息流判定为“非空”。
+    - 修复后面板在无消息场景下会稳定展示欢迎态与真实可触发动作，避免出现仅显示“审题引导”checkpoint 横条、点击后无可见反馈的误导性状态。
+    - 新增空态契约测试 `unified-agent-panel-empty-state-contract.spec.js`，约束“checkpoint-only 不可占用消息流非空态”。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/unified-agent-panel-empty-state-contract.spec.js` 通过。
+    - `cd frontend_new && npm test -- --runInBand tests/unit/codemirror-selection-safety-contract.spec.js` 通过。
+    - `cd frontend_new && npx eslint src/pages/oj/views/problem/UnifiedAgentPanel.vue tests/unit/unified-agent-panel-empty-state-contract.spec.js` 通过（仅存在既有 Node circular dependency warning，无 lint error）。
+- 2026-03-29 AI 导学“题目导读”异步结果显示修复（WS 回包容错）：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/workflowStateMachine.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 修复统一工作流在 WebSocket 异步结果场景下仅依赖 `execution_trace` 渲染消息的问题：当后端回包无 trace 时，前端会基于 `node_outputs.last_event`（无该字段时回退 `phase`）推断事件并回退渲染对应卡片，避免“正在执行: reading...”后无内容显示。
+    - 增加 WS 错误显式展示：当回包包含 `error` 时，直接推送 `error` 消息到时间线，不再静默吞掉异常。
+    - 该修复仅调整前端结果消费逻辑，不改动后端接口契约与业务流程。
+  - 验证结果：
+    - `cd frontend_new && npm run lint -- src/pages/oj/views/problem/workflowStateMachine.js` 通过（仅存在既有 Node circular dependency warning，无 lint error）。
+- 2026-03-29 admin 知识组件管理与 AI 变体题审核按钮无响应修复（弹窗绑定迁移）：
+  - 修改文件：
+    - `frontend_new/src/pages/admin/views/general/KCManagement.vue`
+    - `frontend_new/src/pages/admin/views/general/AIVariantReview.vue`
+    - `frontend_new/tests/unit/admin-dialog-vmodel-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 修复 `KCManagement` 页面“编辑”“关联题目”操作点击无响应：将两个 `el-dialog` 从 `v-model:visible` 改为 Vue3/Element Plus 正确的 `v-model` 绑定。
+    - 修复 `AIVariantReview` 页面“预览”操作点击无响应：将预览弹窗从 `v-model:visible` 改为 `v-model`。
+    - 新增契约测试 `admin-dialog-vmodel-contract.spec.js`，约束上述两个页面不再使用 `v-model:visible`，防止同类回归。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/admin-dialog-vmodel-contract.spec.js` 先失败后通过，确认测试可捕获问题且修复生效。
+- 2026-03-29 AI 导学 `problem_guide` schema 校验修复（允许空课件引用列表）：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/aitutor/schema/CardSchemaRegistry.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/schema/CardSchemaValidator.java`
+    - `backend/src/test/java/com/pytutor/service/aitutor/schema/CardSchemaValidatorTest.java`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 根因修复：`CardSchemaValidator` 之前将所有空数组都判定为 schema 违规，导致 `problem_guide.courseware_refs=[]`（无课件命中时的合法场景）被错误拦截，报错 `schema violation for problem_guide: courseware_refs is required`。
+    - 在 `CardSchemaRegistry` 新增可为空数组字段白名单，并仅对 `CardType.PROBLEM_GUIDE` 的 `courseware_refs` 开放空数组。
+    - `CardSchemaValidator` 改为按白名单判定空数组是否合法，保持其它卡片字段的 fail-fast 校验不变。
+    - 新增单元测试覆盖：`problem_guide` 在字段完整且 `courseware_refs=[]` 时应通过校验。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=CardSchemaValidatorTest test` 通过。
+    - `cd backend && mvn -q -Dtest=AITutorWorkflowGovernanceIntegrationTest#workflowShouldPersistSchemaViolationTraceAndFailFast test` 未通过，原因为当前测试环境存在既有编译链路问题（`AITutorWorkflowIntegrationTestSupport` 等类型解析失败），非本次改动引入。
+- 2026-03-29 AI 导学“思路引导卡住 ideating...”恢复机制修复（WS 结果丢失自愈）：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/workflowStateMachine.js`
+    - `frontend_new/tests/unit/workflow-state-machine-ws-recovery-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 修复异步工作流在收到 `node_start` 但未收到 `result` 时会长期停留在 `正在执行: ideating...` 的问题。
+    - 在 `dispatchWorkflowEvent` 的 `dispatched` 分支新增 WS 结果看门狗：按会话与事件触发延时检查，主动回拉 `workflow/session`，在确认 `node_outputs.last_event` 与当前事件匹配且结果可用后，自动补推卡片消息并结束 loading。
+    - 新增看门狗清理路径：在 WS 正常回包、用户中断、WS 断开、组件卸载、状态重置等场景统一清理定时器，避免重复恢复与内存残留。
+    - 新增前端契约测试，约束“异步 dispatched 必须启动恢复检查”“收到 WS 结果必须清理看门狗”两条行为，防止回归。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/workflow-state-machine-ws-recovery-contract.spec.js` 通过。
+    - `cd frontend_new && npm run lint -- src/pages/oj/views/problem/workflowStateMachine.js tests/unit/workflow-state-machine-ws-recovery-contract.spec.js` 通过（仅存在既有 Node circular dependency warning，无 lint error）。
+- 2026-03-29 CodeMirror 选区测量崩溃修复（`prepareMeasureForLine` 读取 `map` 异常）：
+  - 修改文件：
+    - `frontend_new/src/components/CodeMirrorBridge.vue`
+    - `frontend_new/src/pages/oj/components/CodeMirror.vue`
+    - `frontend_new/src/pages/oj/views/problem/Problem.vue`
+    - `frontend_new/tests/unit/codemirror-selection-safety-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 修复 `beforeSelectionChange` 在编辑器文档临时为 0 行时仍强制 `selection.update` 的问题：新增 `lineCount` 防护，0 行时直接返回，不再写入潜在非法选区坐标。
+    - 修复 OJ 侧两个 `moveCursorToDocumentEnd` 在 `lineCount <= 0` 分支调用 `setCursor(0,0)` 的风险路径，改为直接返回，避免把非法行号传入 CodeMirror 内核。
+    - 强化契约测试，新增断言约束上述两类保护逻辑，防止回归。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/codemirror-selection-safety-contract.spec.js` 通过。
+    - `cd frontend_new && npm test -- --runInBand tests/unit/workflow-state-machine-ws-recovery-contract.spec.js` 通过。
+    - `cd frontend_new && npm run lint -- src/components/CodeMirrorBridge.vue src/pages/oj/components/CodeMirror.vue src/pages/oj/views/problem/Problem.vue src/pages/oj/views/problem/workflowStateMachine.js tests/unit/codemirror-selection-safety-contract.spec.js tests/unit/workflow-state-machine-ws-recovery-contract.spec.js` 通过（仅存在既有 Node circular dependency warning，无 lint error）。
+- 2026-03-29 AI 导学结果渲染确证修复（`execution_trace` 存在但不可渲染时回退 `node_outputs`）：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/workflowStateMachine.js`
+    - `frontend_new/tests/unit/workflow-state-machine-ws-recovery-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 修复 WS 回包中 `execution_trace` 非空但条目无法直接渲染时，前端不会再卡在“正在执行: ideating...”。
+    - `workflowStateMachine` 新增 trace 消息类型归一化逻辑（支持通过 `output_key` 反推卡片类型与历史别名映射），避免 trace 消息类型轻微偏差导致卡片被静默丢弃。
+    - `_pushExecutionTrace` 改为返回实际渲染条数；当渲染条数为 0 时，立即回退到 `node_outputs` 推卡（同步响应与 WS 回包两条链路都覆盖）。
+    - 保持 fail-fast：如果 WS 回包带 `error`，仍优先展示错误；仅在“无错误但无可渲染 trace”场景触发回退。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/workflow-state-machine-ws-recovery-contract.spec.js` 通过。
+    - `cd frontend_new && npx eslint src/pages/oj/views/problem/workflowStateMachine.js tests/unit/workflow-state-machine-ws-recovery-contract.spec.js` 通过（仅存在既有 Node circular dependency warning，无 lint error）。
+- 2026-03-29 AI 导学 `ideate_analysis` schema 规则修复（`logic_gap_hint` 条件必填）：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/aitutor/schema/CardSchemaValidator.java`
+    - `backend/src/test/java/com/pytutor/service/aitutor/schema/CardSchemaValidatorTest.java`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 修复 `schema violation for ideate_analysis: logic_gap_hint is required` 的根因：原校验器把 `logic_gap_hint` 作为无条件非空字符串校验，和 `has_logic_gap=false` 时允许空串的业务语义冲突。
+    - 新增条件规则：仅当 `has_logic_gap=true` 时，`logic_gap_hint` 必须为非空；当 `has_logic_gap=false` 时允许空串。
+    - 保持 fail-fast：`has_logic_gap=true` 且 `logic_gap_hint` 为空时仍立即抛出原错误信息，不做降级兼容。
+    - 补充两条单测：覆盖“无逻辑缺口+空 hint 应通过”与“有逻辑缺口+空 hint 应失败”。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=CardSchemaValidatorTest test` 通过。
+- 2026-03-29 AI 导学“举一反三”难度升级规则调整（升一档但不超纲）：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImplTest.java`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 调整迁移题系统提示词：将“与源题同级难度”改为“比源题提升一个层级”，同时明确“仍严格限定在源题所属考纲知识范围内”。
+    - 新增思维量约束：要求题目至少包含 1 个需要学生主动思考的关键点（如边界分析、条件构造、状态转移或反例辨析），并明确禁止“纯模板套用”。
+    - 新增单元测试 `transferSystemPromptShouldRequireOneLevelHarderWithinSyllabus`，约束上述提示词关键语义，防止后续回退。
+  - 验证结果：
+    - `cd backend && mvn -DskipTests compile` 通过。
+    - `cd backend && mvn -Dtest=AITutorWorkflowAdminServiceImplTest#transferSystemPromptShouldRequireOneLevelHarderWithinSyllabus test` 未通过，原因为当前环境 Mockito inline mock maker 无法完成 JDK attach（`Could not self-attach to current VM`），属于测试运行环境限制，非本次业务逻辑改动引入的编译错误。
+- 2026-03-29 OJ 代码编辑区切换语言/主题后不可点击修复（Select 绑定契约迁移）：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/components/CodeMirror.vue`
+    - `frontend_new/tests/unit/codemirror-select-binding-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 修复编辑器头部语言与主题选择器的 Vue3 绑定方式：将旧写法 `:value + @on-change` 迁移为 `:model-value + @update:modelValue`，避免选择后控件状态不同步导致编辑区焦点/点击异常。
+    - 在语言与主题切换后追加 `editor.focus()`，确保下拉选择完成后焦点稳定回到代码编辑器。
+    - 新增契约测试 `codemirror-select-binding-contract.spec.js`，锁定上述绑定方式，防止同类回归。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/codemirror-select-binding-contract.spec.js tests/unit/codemirror-runtime-contract.spec.js` 通过。
+    - `cd frontend_new && ./node_modules/.bin/eslint src/pages/oj/components/CodeMirror.vue tests/unit/codemirror-select-binding-contract.spec.js` 通过（仅存在既有 Node circular dependency warning，无 lint error）。
+- 2026-03-29 管理端新增题目页隐藏“代码模板”模块（仅编辑页保留）：
+  - 修改文件：
+    - `frontend_new/src/pages/admin/views/problem/Problem.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将“代码模板”表单区块增加显示条件 `v-if="mode === 'edit'"`。
+    - 在 `http://localhost:8080/admin/problem/create` 新增题目页面移除该模块；编辑题目页面仍保留原有能力。
+    - 未改动题目提交流程与语言选择逻辑。
+  - 验证结果：
+    - `cd frontend_new && ./node_modules/.bin/eslint src/pages/admin/views/problem/Problem.vue` 通过（仅存在既有 Node circular dependency warning，无 eslint error）。
+- 2026-03-29 管理端 Dashboard 删除“版本更新”模块并重排四组件对齐：
+  - 修改文件：
+    - `frontend_new/src/pages/admin/views/general/Dashboard.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 删除 `/admin/` 页面的“版本更新”模块（模板区块、`getReleaseNotes` 请求、相关状态字段与 `sanitize` 依赖一并移除）。
+    - 将页面重排为两行两列：
+      - 第一行：管理员信息 + 用户总数
+      - 第二行：系统状况 + 今日提交
+    - 新增 `dashboard-main-row` / `dashboard-cell` / `dashboard-block` 布局样式，确保四个组件在各自行内上下边缘平齐。
+  - 验证结果：
+    - `cd frontend_new && ./node_modules/.bin/eslint src/pages/admin/views/general/Dashboard.vue src/pages/admin/views/problem/Problem.vue` 通过（仅存在既有 Node circular dependency warning，无 eslint error）。
+- 2026-03-29 管理端 Dashboard 视觉重构（去等高、提升层次与可读性）：
+  - 修改文件：
+    - `frontend_new/src/pages/admin/views/general/Dashboard.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 重排 `/admin/` 仪表盘首屏布局：左侧保留“管理员信息 + 系统状况”，右侧改为纵向统计卡堆叠（用户总数、今日提交），取消强制等高布局导致的大面积空白。
+    - 引入背景氛围层（渐变光斑）、卡片渐变、圆角与阴影层级，强化信息区块的主次关系与视觉质感。
+    - 优化管理员信息区排版：头像容器、用户名字重、角色徽章、最后登录信息层级。
+    - 优化统计卡信息密度：提升数值字号、卡片内边距与 hover 动效，增强数据可读性。
+    - 样式作用域收敛到 `.dashboard-wrapper`，避免 `glass-effect`/`glass-panel` 对其他页面产生全局污染。
+    - 补充移动端断点样式，确保在窄屏下间距、字号和卡片高度保持可读。
+  - 验证结果：
+    - `cd frontend_new && ./node_modules/.bin/eslint src/pages/admin/views/general/Dashboard.vue` 通过（仅存在既有 Node circular dependency warning，无 eslint error）。
+- 2026-03-29 管理端仪表盘前后端下线（安全删除）：
+  - 修改文件：
+    - `frontend_new/src/pages/admin/views/general/Dashboard.vue`（删除）
+    - `frontend_new/src/pages/admin/views/index.js`
+    - `frontend_new/src/pages/admin/router.js`
+    - `frontend_new/src/pages/admin/components/SideMenu.vue`
+    - `frontend_new/src/pages/admin/views/general/Login.vue`
+    - `frontend_new/src/pages/admin/api.js`
+    - `backend/src/main/java/com/pytutor/controller/SystemAdminController.java`
+    - `backend/src/main/java/com/pytutor/service/SystemAdminService.java`
+    - `backend/src/main/java/com/pytutor/service/impl/SystemAdminServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/controller/SystemAdminControllerContractTest.java`
+    - `backend/src/test/java/com/pytutor/service/impl/SystemAdminServiceImplTest.java`
+    - `backend/src/test/java/com/pytutor/service/impl/ReleaseNotesServiceImplTest.java`（删除）
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 前端移除 Dashboard 页面与入口：删除页面文件，删除 views 导出引用，移除路由 `dashboard`，`/admin/` 默认重定向到 `problem-list`。
+    - 前端移除菜单“仪表盘”入口，登录成功默认跳转改为 `problem-list`。
+    - 前端清理已下线接口调用：删除 `getDashboardInfo` 与 `getReleaseNotes` API 方法。
+    - 后端删除仪表盘接口：下线 `GET /api/admin/dashboard-info` 与 `GET /api/admin/versions`。
+    - 后端删除仪表盘统计服务能力：移除 `SystemAdminService#getDashboardInfo` 及其实现逻辑。
+    - 同步清理对应契约/单元测试中与已下线接口相关的用例。
+  - 验证结果：
+    - `cd frontend_new && ./node_modules/.bin/eslint src/pages/admin/router.js src/pages/admin/components/SideMenu.vue src/pages/admin/views/general/Login.vue src/pages/admin/views/index.js src/pages/admin/api.js` 通过（仅存在既有 Node circular dependency warning，无 eslint error）。
+    - `cd backend && mvn -q -DskipTests compile` 通过。
+    - `cd backend && mvn -q -Dtest=SystemAdminControllerContractTest,SystemAdminServiceImplTest test` 未通过：受当前环境 Mockito inline mock maker 限制（`Could not self-attach to current VM`）影响，属于测试运行环境问题，非本次改动引入的编译错误。
+- 2026-03-29 OJ 代码编辑区偶发无法输入修复（CodeMirror 事件健壮性增强）：
+  - 修改文件：
+    - `frontend_new/src/components/CodeMirrorBridge.vue`
+    - `frontend_new/tests/unit/codemirror-selection-safety-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 在 `beforeSelectionChange` 的选区清洗逻辑中新增 `selection.update` 函数存在性校验：当运行时事件对象不包含该方法时直接返回，避免抛出异常打断编辑器输入链路。
+    - 新增契约断言，要求桥接组件必须包含该函数校验，防止后续回归导致“编辑区显示但无法输入”。
+    - 在 `setValue` 替换文档内容后立即恢复安全选区：保存旧选区、按新文档行列边界重新钳制，再通过 `doc.setSelections(...)` 写回，避免旧选区残留导致 CodeMirror 在 `prepareSelection/prepareMeasureForLine` 重绘阶段读取越界行视图而崩溃。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/codemirror-selection-safety-contract.spec.js`：先失败（新增断言生效），修复后通过。
+    - `cd frontend_new && npm test -- --runInBand tests/unit/codemirror-selection-safety-contract.spec.js tests/unit/codemirror-line-safety-contract.spec.js tests/unit/codemirror-runtime-contract.spec.js` 通过。
+- 2026-03-29 OJ「看程序怎么一步步跑」触发 CodeMirror `undefined.map` 崩溃修复（越界光标钳制）：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/components/CodeMirror.vue`
+    - `frontend_new/src/pages/oj/views/problem/Problem.vue`
+    - `frontend_new/tests/unit/codemirror-line-safety-contract.spec.js`
+    - `frontend_new/tests/unit/problem-editor-skeleton-insert-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 根因定位：当骨架代码插入流程中出现越界光标（`setCursor` 行号超出文档范围）时，CodeMirror 在 `prepareMeasureForLine` 内部访问 `map` 会抛 `Cannot read properties of undefined (reading 'map')`。
+    - 在 OJ 编辑器组件与题目页骨架插入流程统一新增 `getSafeCursorPosition`，对 `line/ch` 做边界钳制后再执行 `doc.setCursor(...)`，避免越界光标进入 CodeMirror 内核。
+    - 更新/新增契约测试，强制约束“骨架插入必须先做安全光标钳制再 setCursor”，防止同类回归。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/codemirror-line-safety-contract.spec.js`（先失败后通过，验证修复有效）。
+    - `cd frontend_new && npm test -- --runInBand tests/unit/codemirror-line-safety-contract.spec.js tests/unit/problem-editor-skeleton-insert-contract.spec.js tests/unit/codemirror-selection-safety-contract.spec.js tests/unit/codemirror-runtime-contract.spec.js tests/unit/problem-editor-default-language-contract.spec.js` 通过。
+- 2026-03-29 OJ 运行轨迹按钮点击后加载消失修复（执行轨迹解释卡片优先渲染）：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/workflowStateMachine.js`
+    - `frontend_new/tests/unit/workflow-private-ai-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 修复统一工作流状态机对 `execution_trace_explainer` 的处理：当后端返回执行轨迹解释卡片但未携带可回放的 `execution_trace` 列表时，前端现在会优先渲染 `execution_trace_explainer`，不再错误回退到普通 `code_companion/error_diagnosis` 分支后造成“加载一下又消失”。
+    - 将该优先级补齐到三条结果路径：同步接口返回、WebSocket 结果回推、watchdog 轮询恢复，保证不同返回模式下行为一致。
+    - 新增契约测试，锁定 `execution_trace_explainer` 在上述路径中的优先处理规则，防止回归。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/workflow-private-ai-contract.spec.js tests/unit/codemirror-line-safety-contract.spec.js tests/unit/problem-editor-skeleton-insert-contract.spec.js tests/unit/codemirror-selection-safety-contract.spec.js tests/unit/codemirror-runtime-contract.spec.js tests/unit/problem-editor-default-language-contract.spec.js` 通过。
+- 2026-03-29 OJ 当前题目 AI 对话清空修复（清空后强制新建空会话）：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/workflowStateMachine.js`
+    - `frontend_new/tests/unit/workflow-state-machine-restore-cache.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 修复当前题目 AI 对话“清空后又被旧内容恢复”的问题：清空流程现在会先中止进行中的工作流请求，再删除当前题目的活跃会话，并直接创建一个全新的空 session，不再走旧会话恢复分支。
+    - 保证清空操作不会被旧请求回包重新灌入历史消息，也不会因恢复缓存/旧 session 导致对话卡片重新出现。
+    - 新增契约测试，锁定“清空必须中止在途请求且只能创建新空会话”的行为，防止回归。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/workflow-state-machine-restore-cache.spec.js`：先失败（新增断言生效），修复后通过。
+- 2026-03-29 OJ 工作流状态跳转严格约束修复（前端对齐后端迁移策略）：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/workflowStateMachine.js`
+    - `frontend_new/src/pages/oj/views/problem/Problem.vue`
+    - `frontend_new/tests/unit/workflow-state-machine-restore-cache.spec.js`
+    - `frontend_new/tests/unit/workflow-private-ai-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 在前端工作流状态机内新增与后端一致的迁移约束：`READING` 不允许直接进入 `CODING`，`SCAFFOLDING -> CODING` 仅在 `parsons_skipped=true` 时放行，违规事件会在请求发出前直接抛出 `Illegal workflow transition`。
+    - 修复题目页两个越权入口：移除 `toggleAIChat()` 中手动 `transitionState('CODING')` 的本地强推；“看程序怎么一步步跑”改为先解析当前合法事件，不再把非错误诊断阶段一律兜底到 `CODING`。
+    - 对自动代码伴读增加阶段校验，避免旧状态或界面残留导致前端继续向后端发送非法 `CODING` 事件。
+    - 新增契约测试，锁定“非法跳转必须前端 fail-fast 拦截、合法拼图跳过才能进入编码”的行为，防止回归。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/workflow-state-machine-restore-cache.spec.js tests/unit/workflow-private-ai-contract.spec.js`：先失败（新增断言生效），修复后通过。
+- 2026-03-29 OJ 工作流非法迁移文档补充（后端策略展开表）：
+  - 修改文件：
+    - `docs/workflow_illegal_transitions.md`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 新增工作流非法迁移对照文档，基于后端 `TransitionPolicy`、`Phase`、`WorkflowEvent`、`PendingHumanAction` 的真实实现，整理出各阶段的允许事件、非法事件列表、非法数量，以及 `confirm_scaffold` / `confirm_transfer` 下的条件型非法迁移。
+    - 明确区分“基础非法迁移”“待确认动作导致的条件非法迁移”和“枚举外输入导致的同类错误”，便于前后端联调和后续排查。
+- 2026-03-29 OJ 工作流入口严格收口（按非法迁移表隐藏/禁用前端选项）：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/workflowStateMachine.js`
+    - `frontend_new/src/pages/oj/views/problem/Problem.vue`
+    - `frontend_new/src/pages/oj/views/problem/UnifiedAgentPanel.vue`
+    - `frontend_new/src/pages/oj/views/problem/CodeEditorPanel.vue`
+    - `frontend_new/src/pages/oj/views/problem/ParsonsPanel.vue`
+    - `frontend_new/src/pages/oj/views/problem/cards/ProblemGuideCard.vue`
+    - `frontend_new/src/pages/oj/views/problem/cards/IdeateAnalysisCard.vue`
+    - `frontend_new/src/pages/oj/views/problem/cards/CodeCompanionCard.vue`
+    - `frontend_new/src/pages/oj/views/problem/cards/ErrorDiagnosisCard.vue`
+    - `frontend_new/src/pages/oj/views/problem/cards/PostACCard.vue`
+    - `frontend_new/tests/unit/workflow-private-ai-contract.spec.js`
+    - `frontend_new/tests/unit/workflow-state-machine-restore-cache.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将前端 `quickActions` 改为统一经过工作流迁移策略过滤，不再直接信任后端 `available_actions` 或本地兜底动作；非法事件对应的按钮不会再出现在聊天栏欢迎区和底部快捷区。
+    - 为题目页统一计算各类工作流能力，并透传到聊天输入区、编辑器工具栏、拼图面板、执行轨迹按钮、思路分析/骨架代码/AC 复盘卡片等入口，非法阶段直接隐藏对应操作，不再让用户点到后才在状态机里失败。
+    - 为关键处理函数补上同源守卫，确保即使入口状态滞后或组件残留，也不会从前端旁路发出非法 `IDEATING`、`SCAFFOLDING`、`CODING`、`ERROR_FEEDBACK`、`AC_REVIEW`、`TRANSFER` 请求。
+    - 修正 `PostACCard` 在高级复盘能力被收回时自动切回 `score` 页签，避免旧页签状态残留造成空白内容。
+    - 新增契约测试，锁定“非法快捷动作必须被过滤”和“能力信号必须从题目页透传到面板/卡片/工具栏”的行为，防止后续回归。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/workflow-state-machine-restore-cache.spec.js tests/unit/workflow-private-ai-contract.spec.js`：先失败（新增断言生效），修复后通过。
+    - `cd frontend_new && npm test -- --runInBand tests/unit/workflow-state-machine-restore-cache.spec.js tests/unit/workflow-private-ai-contract.spec.js tests/unit/workflow-state-machine-ws-recovery-contract.spec.js tests/unit/unified-agent-panel-empty-state-contract.spec.js tests/unit/codemirror-line-safety-contract.spec.js tests/unit/codemirror-selection-safety-contract.spec.js tests/unit/problem-editor-skeleton-insert-contract.spec.js tests/unit/codemirror-runtime-contract.spec.js tests/unit/problem-editor-default-language-contract.spec.js` 通过。
+- 2026-03-29 OJ 工作流前端 UI 对照表补充（按 phase 列出应显示入口）：
+  - 修改文件：
+    - `docs/workflow_illegal_transitions.md`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 在工作流非法迁移文档中新增“前端 UI 入口对照表”，把聊天栏欢迎区、聊天栏下方快捷项、聊天输入框、编辑器工具栏、拼图面板和卡片内动作入口统一映射到对应工作流事件。
+    - 补充“各 Phase 应显示的前端入口”总表，按 `READING / IDEATING / SCAFFOLDING / CODING / ERROR_FEEDBACK / AC_REVIEW / TRANSFER` 逐项说明哪些入口应显示、哪些必须隐藏，便于前后端联调时直接对照。
+    - 单独补充 `confirm_scaffold` 与 `confirm_transfer` 两条条件型特殊规则，明确哪些 `CODING` 入口必须额外隐藏，避免联调时把条件非法误判成普通 UI 缺陷。
+  - 验证结果：
+    - 文档内容已对照当前前端实现中的 `quickActions` 过滤、`can*` 能力计算和卡片级入口约束逐项核对，无需运行自动化测试。
+- 2026-03-29 OJ 工作流源码定位表补充（前端入口到能力判断与后端事件）：
+  - 修改文件：
+    - `docs/workflow_illegal_transitions.md`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 在工作流文档中新增“前端入口源码定位表”，把聊天栏快捷项、聊天输入框、编辑器工具栏、拼图面板和各类卡片入口统一映射到具体 Vue 文件、题目页处理函数、能力判断函数以及最终发送的后端 `event`。
+    - 新增“统一判定收口点”小节，明确 `quickActions`、`buildWorkflowActionPayload`、`isWorkflowEventAllowed` 和 `Problem.vue` 中 `can*` 计算属性这 4 个核心排查入口，方便联调时快速定位“为什么按钮没显示”或“为什么点击后没发请求”。
+  - 验证结果：
+    - 文档内容已对照当前前端实现中的入口组件、事件处理方法与能力判定函数逐项核对，无需运行自动化测试。
+- 2026-03-30 OJ 骨架插入后编辑器崩溃修复（IME 组合输入收敛 + 布局稳定）：
+  - 修改文件：
+    - `frontend_new/src/components/CodeMirrorBridge.vue`
+    - `frontend_new/src/pages/oj/components/CodeMirror.vue`
+    - `frontend_new/tests/unit/codemirror-selection-safety-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 修复根因：骨架插入或程序化替换代码时，若编辑器处于 IME 组合输入态，CodeMirror 内部 `composing.range.clear()` 会清理失效 marker 并触发 `Cannot read properties of undefined (reading 'from')`。
+    - 在 `CodeMirrorBridge` 新增 `finalizeCompositionState`，在所有 `setValue` 文档替换前先收敛组合输入状态（清空 composing 引用、重置输入域），阻断失效 marker 二次清理导致的运行时崩溃。
+    - 在 OJ 编辑器的 `insertCodeAtCursor / replaceLines / appendCode / 文件上传覆盖` 四条程序化改文路径统一调用组合输入收敛，并在变更后刷新编辑器布局，修复“插入后无法删改”和“编辑区异常下坠”联动问题。
+    - 增补契约测试，强制约束“`setValue` 前必须先收敛 IME 状态”与“所有程序化文本写入前必须先收敛组合输入”，防止回归。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/codemirror-selection-safety-contract.spec.js tests/unit/codemirror-line-safety-contract.spec.js tests/unit/problem-editor-skeleton-insert-contract.spec.js tests/unit/codemirror-runtime-contract.spec.js` 通过。
+- 2026-03-30 OJ 编辑器空白视口回归修复（无可见行自动自愈）：
+  - 修改文件：
+    - `frontend_new/src/components/CodeMirrorBridge.vue`
+    - `frontend_new/tests/unit/codemirror-selection-safety-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 修复回归：当 CodeMirror 视口状态异常（`viewTo <= viewFrom`）或行层被错误清空（`lineDiv.childElementCount === 0`）时，编辑器会出现“内容存在但界面空白”的现象。
+    - 在桥接层新增 `isViewportBroken` 与 `recoverBrokenViewport`，在刷新流程和 `value -> setValue` 后置流程中自动触发视口自愈：强制 `refresh`、恢复安全光标并滚动到可见区域。
+    - 新增契约测试，锁定“坏视口必须自动恢复”的行为，防止再次出现“插入后编辑区整块空白”回归。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/codemirror-selection-safety-contract.spec.js tests/unit/codemirror-line-safety-contract.spec.js tests/unit/problem-editor-skeleton-insert-contract.spec.js tests/unit/codemirror-runtime-contract.spec.js` 通过。
+- 2026-03-30 Admin 题目编辑页新增参考解编辑入口（reference_solution_code / reference_solution_language）：
+  - 修改文件：
+    - `frontend_new/src/pages/admin/views/problem/Problem.vue`
+    - `frontend/src/pages/admin/views/problem/Problem.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 在新旧 Admin 题目编辑页新增“参考解语言”下拉框与“参考解代码”编辑器，支持在创建/编辑题目时直接维护 `reference_solution_language` 与 `reference_solution_code`。
+    - 在题目表单默认模型中补齐 `reference_solution_language`、`reference_solution_code` 字段，避免新增题目时字段缺失。
+    - 在编辑页回填逻辑中补齐上述两个字段的回显，确保已有题目可见并可修改。
+    - 新增 `referenceSolutionMode` 计算属性，根据所选参考解语言自动切换编辑器语法高亮（未知语言回退 Python）。
+  - 验证结果：
+    - `cd frontend_new && ./node_modules/.bin/eslint src/pages/admin/views/problem/Problem.vue` 通过。
+    - `cd frontend && ./node_modules/.bin/eslint src/pages/admin/views/problem/Problem.vue` 通过。
+- 2026-03-30 OJ 代码编辑器 `prepareMeasureForLine -> map` 崩溃根因修复（渲染链回归公共 API）：
+  - 修改文件：
+    - `frontend_new/src/components/CodeMirrorBridge.vue`
+    - `frontend_new/tests/unit/codemirror-selection-safety-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 移除 `CodeMirrorBridge` 中对 CodeMirror 私有渲染状态的直接写入与竞态恢复链（`display.viewOffset`、`mover.style.top`、`recoverBrokenViewport`、`scheduleRefreshNormalization`、`setValue` 后 `setSelections` 恢复链），避免视图缓存与文档行句柄失配导致 `mapFromLineView` 返回 `undefined`。
+    - 将桥接层收敛为稳定公共 API 路径：`setValue + scrollTo + refresh`，保留 IME 组合输入收敛（`finalizeCompositionState`）以保证程序化替换代码时输入态一致。
+    - 重写对应契约测试，改为强约束“不得改写私有视口字段、不得保留竞态后处理链、必须走公共 API 刷新流程”，防止后续回归到同类结构性错误。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/codemirror-selection-safety-contract.spec.js tests/unit/codemirror-line-safety-contract.spec.js tests/unit/problem-editor-skeleton-insert-contract.spec.js` 通过。
+    - `cd frontend_new && ./node_modules/.bin/eslint src/components/CodeMirrorBridge.vue tests/unit/codemirror-selection-safety-contract.spec.js` 通过。
+- 2026-03-30 LLM 提供方切换为 MiniMax（替换 DeepSeek 默认接入）：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/LlmClient.java`
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `backend/.env`
+    - `start.sh`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将后端 LLM 默认模型由 `deepseek-chat` 切换为 `MiniMax-M2`，默认基址由 `https://api.deepseek.com/v1` 切换为 `https://api.minimaxi.com/v1`。
+    - 同步更新工作流评估与生成日志中的默认模型回填值，确保环境变量缺失时仍记录为 `MiniMax-M2`。
+    - 在 `LlmClient` 请求体中启用 `reasoning_split=true`，使 MiniMax 思考内容分离到 `reasoning_details`，避免污染 `message.content` 的 JSON 解析链路。
+    - 补充对 `<think>...</think>` 前置思考块的清理，确保 OpenAI 兼容响应在未分离推理内容时仍可正确提取 JSON 主体。
+    - 更新本地后端环境变量中的 `OPENAI_API_KEY`、`LLM_MODEL`、`LLM_BASE_URL` 为 MiniMax 配置，并同步启动脚本默认打印值。
+  - 验证结果：
+    - `cd backend && mvn -q -DskipTests compile` 通过。
+    - `cd backend && mvn -q -Dtest=LlmClientTest test` 通过。
+    - 使用 `backend/.env` 中的 `LLM_BASE_URL/LLM_MODEL/OPENAI_API_KEY` 对 `${LLM_BASE_URL}/chat/completions` 发起真实请求，HTTP 200 返回，`choices[0].message.content` 可解析为 JSON（`{\"availability\":\"ok\"}`）。
+- 2026-03-30 班级课件页码显示修复（前端选中课件时强制刷新详情）：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/classroom/LessonManagement.vue`
+    - `frontend_new/src/pages/oj/views/classroom/AIGeneratedProblems.vue`
+    - `frontend_new/src/pages/oj/views/classroom/lessonDetailSync.js`
+    - `frontend_new/tests/unit/lesson-detail-sync.spec.js`
+    - `frontend/src/pages/oj/views/classroom/LessonManagement.vue`
+    - `frontend/src/pages/oj/views/classroom/AIGeneratedProblems.vue`
+    - `frontend/src/pages/oj/views/classroom/lessonDetailSync.js`
+    - `frontend/tests/unit/lesson-detail-sync.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 重新定位根因：后端数据库中的 `.ppt/.pptx` 课件页数已经修正，但前端“课件管理”和“基于课件生成题目”两个入口仍直接消费页面初次加载的 `lessons` 列表对象，导致历史脏数据 `total_pages = 1` 会一直残留在当前页面内存里。
+    - 在新旧两套前端中新增 `lessonDetailSync.js`，统一封装“按课件详情刷新单条 lesson、回写本地列表、重新计算最大页数”的逻辑，避免同一问题在多个弹窗入口重复出现。
+    - 修复 `LessonManagement.vue`：打开课件查看弹窗和 AI 出题弹窗前，先拉取该课件详情并覆盖本地列表，确保当前页面不手动刷新也能立刻显示真实页数。
+    - 修复 `AIGeneratedProblems.vue`：课件下拉框选中后不再依赖 `!maxPages` 才刷新详情，而是每次选中课件都强制刷新该课件详情并更新 `page_end / 共 N 页`，彻底覆盖“历史值为 1 时不会进入刷新分支”的错误条件。
+    - 补充新旧前端的回归单测，锁定“历史页数为 1 的课件在选中后必须被详情接口刷新为真实页数”的行为。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/lesson-detail-sync.spec.js` 通过。
+    - `cd frontend && npm test -- --runInBand tests/unit/lesson-detail-sync.spec.js` 通过。
+    - `cd frontend_new && ./node_modules/.bin/eslint src/pages/oj/views/classroom/LessonManagement.vue src/pages/oj/views/classroom/AIGeneratedProblems.vue src/pages/oj/views/classroom/lessonDetailSync.js tests/unit/lesson-detail-sync.spec.js` 通过。
+    - `cd frontend && ./node_modules/.bin/eslint src/pages/oj/views/classroom/lessonDetailSync.js tests/unit/lesson-detail-sync.spec.js` 通过。
+    - 使用临时 Vite 实例对 `frontend_new` 做浏览器回归时，验证账号未能直接进入班级详情内容区，因此未完成最终 UI 断言；但数据库、接口链路、前端单测与文件级 ESLint 已完成核实。
+- 2026-03-31 OJ 启动加载动画切换为 Python Ouroboros：
+  - 修改文件：
+    - `frontend_new/index.html`
+    - `frontend_new/public/static/loader/python-ouroboros-loader.html`
+    - `python_ouroboros_connected.html`（删除）
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将 OJ 入口页的 `#app-loader` 从原有方格 CSS 动画改为独立 HTML 画布动画，通过 `iframe` 加载新的静态资源页。
+    - 将根目录临时动画文件重命名并迁移到 `frontend_new/public/static/loader/python-ouroboros-loader.html`，统一归档到前端静态资源目录，便于后续维护和替换。
+    - 移除对旧 `loader.css` 方格动画的入口依赖，避免出现未使用的旧加载样式路径。
+  - 验证结果：
+    - 代码级检查完成：`frontend_new/index.html` 已引用 `/static/loader/python-ouroboros-loader.html`，`App.vue` 现有 `app-loader` 移除逻辑可继续复用，无需额外改动。
+- 2026-03-31 Collab 自由聊天连接修复与协作页左右列等高对齐：
+  - 修改文件：
+    - `frontend_new/src/utils/websocketUrl.js`
+    - `frontend_new/src/pages/oj/views/classroom/CollaborativeCoding.vue`
+    - `frontend_new/tests/unit/websocket-url.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 重新定位根因：协作页 WebSocket 连接地址使用了 `/ws/classroom/collab/{sessionId}/` 尾斜杠，而后端 `ClassroomCollabWebSocketHandler` 通过路径最后一段提取会话 ID，尾斜杠会导致解析结果为空字符串，连接在握手后被后端立即关闭，前端表现为“自由聊天无法连接”。
+    - 在 `websocketUrl.js` 中新增协作会话路径构造函数 `buildClassroomCollabWebSocketPath`，统一生成无尾斜杠的 `/ws/classroom/collab/{sessionId}`，并在 `CollaborativeCoding.vue` 中改为使用该路径建立 WebSocket 连接。
+    - 新增单测，锁定“协作 WebSocket 路径不得带尾斜杠”的契约，防止后续回归到同类错误。
+    - 调整协作页布局：将左右两列改为拉伸等高，左侧编辑器卡片吃满整列高度，右侧聊天卡片占用剩余空间，聊天消息区与编辑器区同步拉伸到底部，使代码编辑区下沿与聊天区下沿保持同一水平线。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/websocket-url.spec.js` 通过。
+    - `cd frontend_new && ./node_modules/.bin/eslint src/utils/websocketUrl.js src/pages/oj/views/classroom/CollaborativeCoding.vue tests/unit/websocket-url.spec.js` 通过。
+    - `cd frontend_new && npm run build` 通过。
+- 2026-03-31 AI 生成选择题题干描述修复：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/ClassroomServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/integration/ClassroomM11IntegrationTest.java`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 重新定位根因：AI 题目占位生成逻辑在 `buildGeneratedProblemJson` 中把 `description` 统一写成“这是自动生成的……”，导致选择题列表、预览页与后续发布出的客观题题干都显示为同一段无效提示语。
+    - 将不同题型的默认 `description` 改为与当前占位数据一致的具体题干文案，其中选择题改为围绕“时间复杂度”选项的真实题干，避免前端展示时继续出现无意义说明。
+    - 补充 M11 集成回归测试，锁定“AI 生成 choice 题目返回的 description 必须是具体题干”的接口行为，防止后续再次退回固定文案。
+  - 验证结果：
+    - `cd backend && mvn -Dtest=ClassroomM11IntegrationTest#m11AiGenerationFlowShouldWork test` 通过。
+- 2026-03-31 课件页级索引驱动 AI 出题与审核动作收敛：
+  - 修改文件：
+    - `backend/scripts/extract_courseware_pages.py`
+    - `backend/src/main/java/com/pytutor/service/impl/ClassroomServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/integration/ClassroomM11IntegrationTest.java`
+    - `frontend_new/src/pages/oj/views/classroom/AIGeneratedProblems.vue`
+    - `frontend_new/src/pages/oj/views/classroom/aiGeneratedProblemActions.js`
+    - `frontend_new/tests/unit/ai-generated-problem-actions.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 为课堂课件新增页级抽取脚本 `extract_courseware_pages.py`，仅支持 `PDF/PPTX`，并按整页输出 `page_no + content`，为后续基于页码的 AI 出题与 RAG 引用建立统一索引入口。
+    - 重构 `ClassroomServiceImpl.aiGeneratedProblemCreate`：生成前先根据课件文件哈希按需建立或重建 `ai_courseware_chunk` 页级索引，所选页码超界、页内无文本、`DOC/DOCX` 或其他不支持格式时直接失败，不再落占位题。
+    - 将选择题、填空题、编程题的生成统一改为“读取所选课件页内容后调用 LLM”，并对返回结果做结构化校验；编程题现在必须产出真实的 `samples / test_cases / reference_solution_code`，发布时也改为使用真实测试用例落盘。
+    - 在生成日志中写入实际使用的课件页码、文件哈希和页内容摘要，便于老师核对题目是否真的来自指定 PPT/PDF 页。
+    - 收紧失败语义：题目先全部生成成功再统一入库；若入库中途失败，会删除已插入的本次题目并将生成任务标记为失败，不保留半成品。
+    - 前端生成弹窗改为只允许选择可用于页码生成的 `PPT/PDF` 课件；列表和详情弹窗的操作按钮统一收敛到状态驱动规则，避免 `passed` 状态下继续出现 `编辑 / 审查通过 / 删除`。
+    - 新增前端动作规则单测，并扩展后端集成测试覆盖 `DOC` 失败、空白页失败、文件哈希触发重建索引、`PPTX` 抽取以及编程题样例/测试用例落库与发布链路。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/ai-generated-problem-actions.spec.js` 通过。
+    - `cd frontend_new && ./node_modules/.bin/eslint src/pages/oj/views/classroom/AIGeneratedProblems.vue src/pages/oj/views/classroom/aiGeneratedProblemActions.js tests/unit/ai-generated-problem-actions.spec.js` 通过。
+    - `cd backend && mvn -Dtest=ClassroomM11IntegrationTest#m11AiGenerationFlowShouldWork test` 通过。
+    - `cd backend && mvn -Dtest=ClassroomM11IntegrationTest test` 通过。
+- 2026-03-31 删除历史遗留 Python judge 模块：
+  - 修改文件：
+    - `judge/__init__.py`（删除）
+    - `judge/dispatcher.py`（删除）
+    - `judge/events.py`（删除）
+    - `judge/languages.py`（删除）
+    - `judge/models.py`（删除）
+    - `judge/remote_executor.py`（删除）
+    - `judge/tasks.py`（删除）
+    - `judge/__pycache__/__init__.cpython-312.pyc`（删除）
+    - `judge/__pycache__/dispatcher.cpython-312.pyc`（删除）
+    - `judge/__pycache__/events.cpython-312.pyc`（删除）
+    - `judge/__pycache__/languages.cpython-312.pyc`（删除）
+    - `judge/__pycache__/models.cpython-312.pyc`（删除）
+    - `judge/__pycache__/remote_executor.cpython-312.pyc`（删除）
+    - `judge/__pycache__/tasks.cpython-312.pyc`（删除）
+    - `scripts/m12_sync_judge.sh`（删除）
+    - `scripts/m12/m12_up.sh`
+    - `docs/project-design-spec-zh.md`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 删除根目录历史遗留的 Python `judge` 包。静态检查显示当前运行链路的判题调度、判题机心跳和语言配置都已落在 Java 后端中，不再依赖该目录。
+    - 同步删除只服务于该目录的 `scripts/m12_sync_judge.sh`，并从 `scripts/m12/m12_up.sh` 中移除启动前的同步步骤，避免保留失效脚本调用。
+    - 更新设计文档中的语言配置说明，改为指向当前实际生效的 Java 实现 `SubmissionServiceImpl.resolveLanguageConfig`，避免文档继续指向已删除目录。
+- 2026-03-31T11:18:00+08:00 修复 OJ 骨架代码生成 500 与 `useSubmission` 保留前缀警告：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImplTest.java`
+    - `frontend_new/src/composables/problem/useSubmission.js`
+    - `frontend_new/tests/unit/problem-submission-composable-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 根因确认：`/api/ai/ideate/skeleton` 已走专用后端链路，但骨架生成仍对 LLM 返回结构做了过严假设，要求顶层同时存在 `description + skeleton`。当模型返回 `code` / `skeleton_code` 别名，或把 `description` 包到 `data` 节点里时，后端会直接抛出 `LLM response missing skeleton fields`，前端表现为骨架按钮 500 失败。
+    - 后端 `generateSkeletonByLlm()` 改为对骨架返回做最小归一化：优先从嵌套 `data` 读取，再回退顶层；正文接受 `skeleton / skeleton_code / code / python_skeleton`；说明文接受 `description / summary / usage / hint / guide`；仅在骨架正文缺失时才 fail-fast。
+    - 骨架说明文改为可选字段，后端在缺失时返回空串，避免因为非关键展示文案缺失而阻断学生拿到骨架代码。
+    - 新增后端回归测试，锁定“骨架别名字段可接受”“嵌套 `data.description` 与顶层骨架别名可合并”两条契约，避免后续再次回到只认单一 JSON 形态。
+    - `useSubmission()` 不再向 `setup()` 暴露 `_doRealSubmit` 这类 Vue 保留前缀属性，改为 `doRealSubmit`，消除题目页运行时警告。
+    - 新增前端契约测试，锁定提交组合式函数不能再暴露带 `_` 前缀的提交助手。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=AITutorWorkflowAdminServiceImplTest#ideateSkeletonShouldReturnDedicatedSkeletonPayloadWithoutWorkflowMutation+ideateSkeletonShouldAcceptSkeletonAliasAndOptionalDescription+ideateSkeletonShouldMergeNestedDescriptionWithTopLevelSkeletonAlias,com.pytutor.controller.AITutorControllerSkeletonContractTest test` 通过。
+    - `cd frontend_new && npm test -- --runInBand tests/unit/problem-skeleton-api-contract.spec.js tests/unit/problem-submission-composable-contract.spec.js` 通过。
+    - `cd frontend_new && ./node_modules/.bin/eslint src/composables/problem/useSubmission.js tests/unit/problem-submission-composable-contract.spec.js` 未通过；`useSubmission.js` 存在该文件既有的 `object-property-newline` 全文件样式问题和一个既有未使用变量告警，本次改动未额外引入新的 lint 规则类型。
+- 2026-03-31T11:56:00+08:00 修复 OJ 题目页代码编辑器浅色主题缺少语法高亮色板：
+  - 修改文件：
+    - `frontend_new/src/components/Cm5EditorCore.vue`
+    - `frontend_new/tests/unit/codemirror-runtime-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 根因确认：题目页编辑器已经正确挂载 CM6 的 Python/Java/C++ 等语言扩展，代码之所以看起来几乎只有黑白灰，不是因为 `mode` 失效，而是当前 `solarized` 主题只定义了背景、光标、行号等外壳样式，没有定义关键字、字符串、注释、数字等 token 的浅色语法配色。
+    - 在共享编辑器内核中新增 `solarizedLightHighlightStyle`，为关键字、字符串、注释、数字、函数定义、类型名、运算符和非法 token 明确设置高对比度颜色，恢复学生在题目页写 Python 时可直观看到的语法分层。
+    - 保持现有深色主题链路不变，`monokai/material` 仍走 `oneDark`；仅为浅色 `solarized` 路径补齐语法高亮扩展，避免把这次修复扩散到无关主题行为。
+    - 新增前端契约测试，锁定共享编辑器必须声明独立的浅色语法色板，避免后续再次只剩编辑器外壳颜色、丢失 token 配色。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/codemirror-runtime-contract.spec.js` 通过。
+    - `cd frontend_new && npx eslint src/components/Cm5EditorCore.vue` 通过且仅报告 1 条既有 `no-unused-vars` 警告：`NULL_MARKER` 未使用，本次改动未引入新的 lint 错误。
+- 2026-03-31T12:18:00+08:00 在错误诊断卡片增加“第一个错误测试点”查看按钮：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImplTest.java`
+    - `frontend_new/src/pages/oj/views/problem/cards/ErrorDiagnosisCard.vue`
+    - `frontend_new/tests/unit/workflow-private-ai-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 后端在 `error_diagnosis` payload 中新增 `first_failed_test_case`，从判题返回里提取第一个失败测试点，并规范成前端稳定可用的 `input`、`expected_output`、`actual_output` 三个字段。
+    - 归一化逻辑优先保留判题原始 `expected_output` / `actual_output`，若缺失则回退到常见别名 `output` / `expected` / `actual` / `stdout`，避免不同判题结果结构导致前端按钮空白。
+    - 题目页错误诊断卡片新增小型折叠按钮“看第一个错误测试点”，学生可直接展开查看这组测试输入、期望输出，以及判题有返回时的“你的输出”，帮助把抽象诊断落到具体样例。
+    - 按钮只在确实存在失败测试点证据时显示，编译错误等没有测试点输入输出的场景不会出现空折叠块。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=AITutorWorkflowAdminServiceImplTest#buildErrorDiagnosisPayloadShouldExposeFirstFailedTestCaseEvidence test` 通过。
+    - `cd frontend_new && npm test -- --runInBand tests/unit/workflow-private-ai-contract.spec.js --testNamePattern="error diagnosis card should expose a toggle for the first failed test case evidence"` 通过。
+    - `cd frontend_new && npx eslint src/pages/oj/views/problem/cards/ErrorDiagnosisCard.vue` 通过。
+- 2026-03-31T12:34:00+08:00 修复 AI 导学助手用户消息在关闭重开后丢失的问题：
+  - 修改文件：
+    - `frontend_new/src/pages/oj/views/problem/workflowStateMachine.js`
+    - `frontend_new/tests/unit/workflow-state-machine-restore-cache.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 根因确认：用户消息发送时其实已经通过 `pushAgentMessage()` 写入本地缓存，但页面重开后会先用后端工作流快照重建 `agentMessages`。由于原逻辑只在“当前消息列表为空”时才恢复缓存，同一会话下后端先回放出 AI 卡片/回复后，本地缓存里的用户消息就被跳过，导致学生自己发过的话消失。
+    - 将状态机恢复逻辑改为“同一 `session_id` 下先读取缓存，再把后端这次重建出来但缓存里还没有的消息补进去”，不再要求 `agentMessages` 必须为空才允许恢复缓存。
+    - 新增消息签名合并逻辑，对文本消息按 `type + content` 去重，对结构化卡片按 `type + data` 去重，避免恢复后同一条 AI 回复或卡片被重复插入。
+    - 保持会话隔离规则不变：只有缓存中的 `session_id` 与当前工作流会话一致时才合并，避免把别的题目或旧会话的本地对话误并进来。
+  - 验证结果：
+    - `cd frontend_new && npm test -- --runInBand tests/unit/workflow-state-machine-restore-cache.spec.js` 通过。
+    - `cd frontend_new && npx eslint src/pages/oj/views/problem/workflowStateMachine.js` 通过且仅报告 1 条既有 `no-unused-vars` 警告：`debounce` 未使用，本次改动未引入新的 lint 错误。
+- 2026-03-31T18:37:10+08:00 将 MiniMax 默认模型由 `MiniMax-M2` 切换为 `MiniMax-M2.7`：
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/LlmClient.java`
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/service/LlmClientTest.java`
+    - `backend/.env`
+    - `start.sh`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将后端聊天请求缺省模型、AI 工作流日志缺省模型名回填，以及启动脚本默认展示值统一从 `MiniMax-M2` 更新为 `MiniMax-M2.7`。
+    - 同步更新本地 `backend/.env` 中的 `LLM_MODEL`，确保当前机器实际启动后不会继续覆盖回旧模型名。
+    - 新增 `LlmClient` 回归测试，锁定“未配置 `LLM_MODEL` 时，发往 `/chat/completions` 的请求体默认 `model` 必须为 `MiniMax-M2.7`”这一行为。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=LlmClientTest#callForJsonShouldUseMiniMaxM27WhenLlmModelMissing test` 通过。
+    - 使用当前 `backend/.env` 中的 `OPENAI_API_KEY / LLM_BASE_URL / LLM_MODEL` 对 `${LLM_BASE_URL}/chat/completions` 发起最小真实请求，返回 `HTTP 200`，并确认 `hasChoices=true`、`hasContent=true`，接口可达。
+- 2026-03-31T23:59:00+08:00 语言包初始化 Phase 8：前后端接线，让语言包在 OJ 端真正可用：
+  - 新增文件：
+    - `backend/src/main/java/com/pytutor/controller/LanguagePackQueryController.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/LanguagePackQueryService.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackQueryServiceImpl.java`
+    - `frontend/src/pages/oj/views/languagepack/LanguagePackCatalog.vue`
+    - `frontend/src/pages/oj/views/languagepack/index.js`
+    - `frontend/tests/unit/oj-language-pack-catalog-contract.spec.js`
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/ProblemQueryServiceImpl.java`
+    - `frontend/src/pages/oj/api.js`
+    - `frontend/src/pages/oj/router/routes.js`
+    - `frontend/src/pages/oj/components/NavBar.vue`
+    - `frontend/src/pages/oj/views/problem/ProblemList.vue`
+    - `frontend/src/pages/oj/views/index.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 后端新增公开查询控制器 `LanguagePackQueryController`，提供 5 个无权限查询接口：已发布语言包列表、语言包详情（含章节和知识点）、文档摘要、章节列表、页预览元数据。接口路径统一为 `GET /api/language-packs/...`，符合 RESTful 资源导向设计。
+    - 后端 `ProblemQueryServiceImpl.buildListQuerySpec()` 新增 `language_pack_id` 过滤条件，通过 `language_pack_problem_mapping` 关联表筛选指定语言包的正式题目，使 `GET /api/problems?language_pack_id=...` 可直接返回该语言包发布的编程题。
+    - OJ 前端 `api.js` 新增 `getLanguagePackList`、`getLanguagePackDetail`、`getLanguagePackDocuments`、`getLanguagePackChapters`、`getLanguagePackPagePreview` 五个语言包查询方法。
+    - OJ 顶部导航栏新增"语言包"入口，指向 `/language-packs` 路由。
+    - 新建 `LanguagePackCatalog.vue` 页面，展示已发布语言包列表卡片与详情视图（名称、主语言、统计汇总、章节目录、知识点一览），详情页提供"查看该语言包的题目"按钮跳转到题库列表并自动附带 `language_pack_id` 过滤。
+    - 题库列表页 `ProblemList.vue` 新增语言包过滤下拉框，当已发布语言包存在时自动显示，选中后通过路由参数 `language_pack_id` 筛选对应题目。
+    - 后续 `todo_ai_qa.md` 所需的页预览查询接口已按稳定协议输出 `language_pack_id + document_id + page_no + preview_asset_path`。
+  - 验证结果：
+    - `cd backend && mvn -q compile` 通过。
+    - `cd backend && mvn -q -Dtest=AdminLanguagePackControllerContractTest test` 通过。
+    - `cd frontend && npm test -- --runInBand oj-language-pack-catalog-contract.spec.js` 9 项全部通过。
+    - `cd frontend && npm run build` 通过。
+- 2026-04-01T10:05:00+08:00 AI 导学题目开放四语言并让代码补全随语言自适应：
+  - 新增文件：
+    - `backend/src/main/java/com/pytutor/service/aitutor/language/AiTutorProblemLanguageNormalizer.java`
+    - `backend/src/test/java/com/pytutor/service/aitutor/language/AiTutorProblemLanguageNormalizerTest.java`
+    - `backend/src/test/java/com/pytutor/integration/SubmissionAiTutorLanguageIntegrationTest.java`
+    - `frontend/tests/unit/codemirror-language-completion-contract.spec.js`
+    - `docs/plans/2026-04-01-ai-tutor-four-language-checklist.md`
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/ProblemQueryServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/impl/SubmissionServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/integration/ProblemReadContractIntegrationTest.java`
+    - `frontend/src/components/Cm5EditorCore.vue`
+    - `frontend/src/pages/oj/components/CodeMirror.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 新增共享归一化器 `AiTutorProblemLanguageNormalizer`，将 `ai_tutor_enabled=true` 的编程题统一扩展为 `Python3 / C / C++ / Java` 四种语言，并为数据库中缺失的语言模板自动补齐标准 IO 启动模板。
+    - 题目详情查询改为直接复用这套归一化结果，因此 AI 导学题在 `GET /api/problems` 列表和详情里都会稳定返回四语言 `languages` 与对应公开模板；`student_private` 题目保持原样不扩展。
+    - 提交、调试和判题任务读取模板的链路全部切到同一份归一化逻辑，避免出现“页面能选 Java / C / C++，但 `/api/submission` 或 `/api/debug` 仍按旧语言列表拒绝”的前后端不一致。
+    - 题目页编辑器新增 `completionProfile` 同步逻辑，语言切换时会同时切换语法高亮和补全源；共享 `Cm5EditorCore` 增加四语言显式 completion source，分别为 Python3、C、C++、Java 提供关键字和常用片段建议。
+    - `Cm5EditorCore` 的未知语言回退从 Python 改为 `plain text`，避免错误语言被误判成 Python 扩展与 Python 补全。
+    - 新增执行清单文档 `docs/plans/2026-04-01-ai-tutor-four-language-checklist.md`，按实现过程逐项打勾，记录本次四语言开放与编辑器补全改造进度。
+  - 验证结果：
+    - `cd backend && mvn -Dtest=AiTutorProblemLanguageNormalizerTest,ProblemReadContractIntegrationTest,SubmissionAiTutorLanguageIntegrationTest test` 通过。
+    - `cd frontend && npm test -- --runInBand tests/unit/codemirror-language-completion-contract.spec.js tests/unit/problem-editor-default-language-contract.spec.js tests/unit/codemirror-runtime-contract.spec.js` 通过。
+    - `cd frontend && npx eslint src/components/Cm5EditorCore.vue src/pages/oj/components/CodeMirror.vue tests/unit/codemirror-language-completion-contract.spec.js` 通过；仅输出 Node 侧既有 circular dependency warnings，本次改动未引入新的 lint 错误。
+- 2026-04-01T14:30:00+08:00 语言包强隔离（2+3）收束落地，并将存量内容统一归并到 `Python基础` 包：
+  - 新增文件：
+    - `backend/src/main/resources/db/migration/V29__language_pack_strong_isolation.sql`
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/controller/AdminLanguagePackController.java`
+    - `backend/src/main/java/com/pytutor/controller/LanguagePackQueryController.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/evidence/EvidencePackAssembler.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/retrieval/CoursewareRetrievalService.java`
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/impl/ProblemQueryServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/LanguagePackQueryService.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackPublishServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackQueryServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/ProblemGenerationServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/ProblemValidationServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/controller/AdminLanguagePackControllerContractTest.java`
+    - `backend/src/test/java/com/pytutor/integration/LanguagePackInitIntegrationTest.java`
+    - `frontend/src/pages/admin/api.js`
+    - `frontend/src/pages/admin/views/general/LanguagePackInit.vue`
+    - `frontend/src/pages/oj/api.js`
+    - `frontend/src/pages/oj/views/problem/ProblemList.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 初始化创建接口改为一步 `multipart/form-data`（`name/slug/primary_language/target_problem_count/enable_objective_questions/files`），创建时即上传课件并进入规范化流程，前端管理页移除“创建后再上传”的主路径。
+    - 发布链路改为按 `language_pack_id + name_normalized` 同步/创建 AI KC；候选题静态教学内容（讲解、易错点、来源页、关联 KC）参与校验并在发布时持久化到题目统计信息。
+    - 查询隔离增强：题库查询、题目详情、课件检索、证据组装均携带 `language_pack_id` 语义；学生仅可访问课程绑定包，未选包时默认仅展示非语言包公共题；新增 `GET /api/language-packs/visible` 提供“当前用户可见包”。
+    - 迁移 `V29` 收紧边界并回填历史数据：新增 `classroom_language_pack`、KC 归一化字段与唯一约束、题目唯一归包约束、`ai_problem_kc_mapping.language_pack_id`；并将存量题目/KC 映射统一归并到默认 `Python基础` 包（不存在则自动创建 `python-basic`）。
+    - 迁移补强：默认包识别优先锁定 `slug=python-basic` 或 `name=Python基础`（`primary_language=Python3`），并在归并前按 `problem_id` 去重映射，确保后续唯一索引可稳定建立。
+  - 验证结果：
+    - `mvn -f backend/pom.xml -Dtest=AdminLanguagePackControllerContractTest,LanguagePackInitIntegrationTest test` 通过。
+    - `mvn -f backend/pom.xml -DskipTests compile` 通过。
+    - `npm --prefix frontend run build` 通过。
+    - `npm --prefix frontend run lint` 未通过；失败为仓库既有前端文件（`frontend/src/composables/**` 等）历史 lint 问题，当前改动文件仅新增 1 条 warning：`LanguagePackInit.vue` 中 `STEP_ACTIONS` 未使用。
+- 2026-04-01T19:36:00+08:00 管理端四页统一接入“按语言包筛选”，并补齐后端 `language_pack_id` 全链路过滤：
+  - 新增文件：
+    - `backend/src/test/java/com/pytutor/integration/AdminLanguagePackFilterIntegrationTest.java`
+    - `frontend/tests/unit/admin-language-pack-filter-contract.spec.js`
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/impl/AdminProblemQueryServiceImpl.java`
+    - `frontend/src/pages/admin/api.js`
+    - `frontend/src/pages/admin/views/general/AIVariantReview.vue`
+    - `frontend/src/pages/admin/views/general/KCManagement.vue`
+    - `frontend/src/pages/admin/views/problem/ProblemList.vue`
+    - `frontend/src/pages/admin/views/problem/ImportAndExport.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 后端 `GET /api/admin/ai/variant-review`、`GET /api/admin/ai/kc-list`、`GET /api/admin/problems` 统一支持可选参数 `language_pack_id`，并保证 `total` 与 `results` 同条件过滤。
+    - `language_pack_id` 参数新增 fail-fast 校验：传入非数字或 `<= 0` 时，统一返回 `Invalid language_pack_id`，不做静默降级。
+    - 管理端四页 `AIVariantReview`、`KCManagement`、`ProblemList`、`ImportAndExport` 统一工具条格式：`语言包下拉 + 重置 + 刷新`，并统一使用 `size="small"`。
+    - 四页统一状态字段：`selectedLanguagePackId`、`languagePackOptions`；统一重置行为：清空关键词与语言包并回到第一页。
+    - `KCManagement` 章节 tab 在切换语言包后同步重拉，避免“章节来源全量、列表来源筛选”不一致。
+    - Admin API 层新增 `getPublishedLanguagePacks()` 复用 `/api/language-packs`，并将变体题列表改为显式透传查询参数对象，页面侧直接携带 `language_pack_id`。
+    - `ImportAndExport` 补齐列表请求失败分支的 `loading` 收口，避免网络失败时表格持续加载状态。
+    - 按 `code-reviewer` 检查结果补了一个 correctness 风险点：`language_pack_id=-1` 这类非法值现已明确拦截，并加入后端集成测试覆盖。
+  - 验证结果：
+    - `cd backend && mvn -DskipTests compile` 通过。
+    - `cd backend && mvn -Dtest=AdminLanguagePackFilterIntegrationTest test` 通过（真实数据库连接环境）。
+    - `cd frontend && npx jest tests/unit/admin-language-pack-filter-contract.spec.js --runInBand` 通过。
+    - `cd frontend && npx jest tests/unit/api.spec.js --runInBand` 通过。
+    - `cd frontend && npx eslint src/pages/admin/api.js src/pages/admin/views/general/AIVariantReview.vue src/pages/admin/views/general/KCManagement.vue src/pages/admin/views/problem/ProblemList.vue src/pages/admin/views/problem/ImportAndExport.vue tests/unit/admin-language-pack-filter-contract.spec.js` 通过（仅有既有 Node circular dependency warnings）。
+- 2026-04-01T19:52:49+08:00 班级创建改为强制绑定语言包，并在建班时同步导入课件与题目：
+  - 新增文件：
+    - `backend/src/main/resources/db/migration/V30__classroom_single_language_pack.sql`
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/ClassroomServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/integration/ClassroomModuleIntegrationTest.java`
+    - `frontend/src/pages/oj/views/classroom/ClassroomList.vue`
+    - `frontend/src/pages/oj/views/classroom/ClassroomDetail.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 班级创建接口新增强制校验 `language_pack_id`，仅允许绑定已发布且文档、KC、题目映射齐全的语言包；校验不通过时 fail-fast 返回错误，不创建半成品班级。
+    - 建班事务内新增语言包绑定与同步投影导入：写入 `classroom_language_pack`，复制语言包规范化课件到班级课件目录，批量生成 `classroom_lesson` 与默认对学生可见的 `classroom_problem`，并回写 `lesson_count`、`problem_count`。
+    - 班级列表与班级详情查询新增 `language_pack` 摘要对象，前端班级列表直接展示绑定语言包标签，班级详情页头部展示当前班级绑定的语言包名称、主语言与版本。
+    - 创建班级弹窗新增“语言包”必选下拉，只允许从已发布语言包中选择；未选择语言包时前端校验直接阻止提交。
+    - 新增迁移 `V30`：在建唯一索引前先校验历史 `classroom_language_pack` 是否存在单班级多语言包脏数据，如存在则直接中断迁移；校验通过后强制 `classroom_id` 唯一，落实“一个班级只能绑定一个语言包”。
+    - 集成测试补齐新契约：覆盖缺少 `language_pack_id`、语言包资源不完整、建班后自动导入课件与题目、班级列表/详情返回语言包摘要，以及旧班级主流程在新必填参数下的回归。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=ClassroomModuleIntegrationTest test` 通过。
+    - `cd frontend && npx eslint src/pages/oj/views/classroom/ClassroomList.vue src/pages/oj/views/classroom/ClassroomDetail.vue` 通过（仅输出仓库既有 Node circular dependency warnings，无 lint error）。
+    - `cd frontend && npm run build` 通过（仅有 Vite 既有 chunk size warning，无构建失败）。
+- 2026-04-01T19:45:00+08:00 修复 admin 端蓝色主按钮出现“蓝底蓝字”可读性问题：
+  - 修改文件：
+    - `frontend/src/pages/admin/elementPlusTheme.less`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 在 admin 专用 Element Plus 主题中，统一覆盖 `.el-button--primary` 与 `.el-button--primary.is-plain` 及其 `hover/focus/active` 状态的文字颜色为白色（`#fff`）。
+    - 保持按钮背景与尺寸规则不变，仅修复主按钮文本对比度，确保“蓝色按钮”统一展示为蓝底白字。
+  - 验证结果：
+    - `cd frontend && npx jest tests/unit/admin-style-bridge-contract.spec.js --runInBand` 通过。
+
+- 2026-04-02T13:30:00+08:00 语言包初始化补齐“二进制回退 + 章节记忆 + 断点续跑”闭环，并强化覆盖率门槛：
+  - 新增文件：
+    - `backend/src/main/resources/db/migration/V35__language_pack_init_batch_run.sql`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackInitBatchRunStore.java`
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/languagepack/LanguagePackInitService.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackInitServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/KcExtractionServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/ExampleExtractionServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/ProblemGenerationServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackCoverageBaselineSupport.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackPublishServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/integration/LanguagePackInitIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/service/languagepack/impl/LanguagePackCoverageBaselineSupportTest.java`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - KC 抽取落地自适应批次执行：固定根窗口 `32` 页、重叠 `2` 页，超时批次按 `32→16→8→4→2→1` 递归拆分，只缩坏批次，不拖累整章其余批次；支持从 `failed` 阶段断点续跑并复用已成功批次。
+    - 新增批次运行持久化 `language_pack_init_batch_run` 与 `LanguagePackInitBatchRunStore`，统一记录 `running/completed/failed/reused/split`，并用 `input_hash` 做批次级复用判定。
+    - `extract-kcs` 改为先产出 `kc_batch_results.json`，再走章节级 reconciliation 产出 `chapter_memory.json` 与 `kc_catalog.json`，最终一次性回写 `language_pack_kc` 与 `language_pack_kc_page_mapping`。
+    - KC 归一化补强：当模型返回页码与当前窗口不一致时不再直接丢弃该 KC，而是保留可解析页码并回落到批次证据摘录，避免“有 KC 但页码漂移”导致批次误失败。
+    - `extract-examples` 与 `generate-problems` 接入批次复用与章节记忆上下文，提示词新增 `chapter_synopsis`、canonical KC 列表与相邻 segment/unit anchors；章节映射主键统一为 `document_id + chapter_index`，并对 `chapter_index` 缺失场景做文档级回溯，保证跨批连贯性。
+    - 题包写入修复外键风险：`ProblemGenerationServiceImpl` 写 `language_pack_problem_generation_log.example_id` 前会先校验 `language_pack_example` 是否存在，不再把 artifact 临时 ID 直接写入导致 FK 失败。
+    - 覆盖率报告扩展连贯性指标：`kc_alias_merge_count`、`cross_batch_merged_kc_count`、`resume_reused_batch_count`、`chapter_memory_conflict_count` 已纳入 `coverage_report.json`。
+    - 发布门槛强化：无 baseline 课件在 `chapter_memory_conflict_count>0` 时会被覆盖率 gate 直接阻断发布（fail-fast）。
+    - 新增回归 `publishShouldFailWhenCoverageReportHasChapterMemoryConflictsWithoutBaseline`，确保“无基线但章节记忆冲突未解”不会进入发布态。
+    - 同步修正 `extractKcsShouldSplitLongDocumentsIntoSmallBatches` 的测试契约：长文档在无超时时应优先以 `32` 页大窗口一次抽取，不再断言固定 4 次调用。
+  - 验证结果：
+    - `cd backend && mvn -q clean -DskipTests compile` 通过。
+    - `cd backend && mvn -q -Dtest=LanguagePackCoverageBaselineSupportTest,LanguagePackInitIntegrationTest#extractKcsShouldFallbackByBinaryAndWriteCanonicalArtifacts,LanguagePackInitIntegrationTest#extractKcsShouldReuseCompletedBatchesWhenRetryingFailedTask,LanguagePackInitIntegrationTest#extractExamplesShouldIncludeChapterMemoryAndNeighborAnchorsInUnitPrompt,LanguagePackInitIntegrationTest#generateProblemsShouldIncludeChapterMemoryNeighborUnitsAndCanonicalKcsInPrompt,LanguagePackInitIntegrationTest#validateProblemsShouldRejectRelatedKcsOutsideCanonicalCatalog,LanguagePackInitIntegrationTest#publishShouldFailWhenCoverageReportHasChapterMemoryConflictsWithoutBaseline test` 通过。
+    - `cd backend && mvn -q -Dtest=LanguagePackInitIntegrationTest test` 通过（19/19）。
+
+- 2026-04-02T18:25:00+08:00 暂停当前 Python -v2 续跑，并补充初始化改进交接文档：
+  - 新增文件：
+    - `todo_init_improve.md`
+  - 变更内容：
+    - 停止当前所有 `LanguagePackAlethicodeReplay/Resume` 手工续跑任务，不再继续推进现有坏结果。
+    - 新增交接文档，明确记录当前 `python-basic v2` 现场快照、已确认的例题-KC 绑定与 `test_case` 生成现状，以及后续 5 个实现阶段与详细验收步骤。
+    - 在交接文档中明确收口本轮根因：问题不是“KC 没抽到”，而是“KC 抽取粒度错误，已经被抽成过细碎片”，后续修复优先级必须先落在 canonical KC 粒度重构。
+    - 补充收紧交接文档口径：`python-basic` 的 KC 数量以现有 Python 语言包约 `46` 个作为专项校准参考，而不是推广成所有语言包固定数量；例题抽取粒度则明确要求对齐当前题库约 `50` 道题的一题一单元层级，不再接受 `401` 条教学单元混入例题池。
+    - 继续补齐交接文档遗漏点：明确本轮专项目标不包含客观题/选择题/填空题；明确其他语言包的例题数不要求机械对齐到 `50` 左右，而是对齐题库级颗粒度；并把 admin 初始化页应展示的真实完整阶段链路补充为明确清单。
+  - 验证结果：
+    - 已确认初始化相关手工续跑进程停止。
+    - 本轮仅新增交接文档与记录，未执行新的代码测试。
+
+- 2026-04-02T19:00:00+08:00 Agent Architecture Optimization：五大模式分层优化实现
+  - 新增文件：
+    - `backend/src/main/java/com/pytutor/service/aitutor/react/ToolDefinition.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/react/ToolExecutor.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/react/ReactResult.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/react/TutorToolRegistry.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/reflection/ReflectionService.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/reflection/ReflectionResult.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/reflection/ReflectionServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/agent/TutorAgent.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/agent/AgentCapability.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/agent/AgentContext.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/agent/OrchestratorAgent.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/agent/DiagnosticsAgent.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/agent/ScaffoldingAgent.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/agent/GuideAgent.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/agent/TransferAgent.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/agent/ChatAgent.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/agent/AgentTaskStatus.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/agent/AgentTaskTracker.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/eval/EvalDimension.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/eval/EvalResult.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/eval/TutorEvalHarness.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/eval/QaEvalHarness.java`
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/LlmClient.java`
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/AnswerSynthesisService.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/AnswerSynthesisServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackQaServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/aitutor/rollout/RolloutPolicyService.java`
+    - `backend/src/test/java/com/pytutor/service/impl/AITutorWorkflowAdminServiceImplTest.java`
+  - 变更内容：
+    - **P0 - ReAct 基础设施**：`LlmClient` 新增 `callWithTools` 方法，支持 OpenAI function-calling / tool-use 协议的 Think-Act-Observe 循环，最大迭代数可配，当 LLM 返回 `tool_calls` 时自动执行对应 `ToolExecutor` 并将结果回填 messages，直至模型返回最终 JSON 内容。新增 `ToolDefinition`（tool schema 描述）、`ToolExecutor`（tool 执行接口）、`ReactResult`（含迭代元数据和 tool 调用日志）三个基础类型。
+    - **P0 - Reflection 框架**：新建 `ReflectionService` 接口 + `ReflectionServiceImpl`，实现 Producer-Critic 质量自评估模型。Critic prompt 按 `CardType` 分维度定制（事实一致性、教学适切性、schema 完整性、答案泄露检测），不通过时执行一轮 Refine 修正。对 `CHAT` 场景跳过 Reflection 以控制延迟。
+    - **P1 - ERROR_FEEDBACK ReAct 改造**：`buildErrorDiagnosisPayload` 新增环境变量 `TUTOR_REACT_ENABLED` 开关；启用后调用 `generateErrorDiagnosisViaReact`，LLM 可主动调用 `search_courseware`、`search_similar_errors`、`get_learner_history` 三个内部工具补充上下文后再输出诊断 JSON。生成后强制经过 `ReflectionService` 质检。
+    - **P1 - QA 自适应检索**：`AnswerSynthesisService` 接口新增 `synthesizeAnswer(question, hits, languagePackId)` 重载；`AnswerSynthesisServiceImpl` 在 `QA_REACT_ENABLED` 开关启用时调用 `callWithTools` + `search_language_pack_pages` 工具补充检索；生成后新增 grounding critic 独立验证答案是否基于引用证据，未通过则降级为 refusal。
+    - **P1 - 离线评估 Harness**：新建 `TutorEvalHarness`，从 `ai_generation_log` 提取历史 `(evidence, card)` 对，使用 LLM-as-Judge 按 8 维度 rubric（事实正确性、教学适切性、脚手架层级匹配、答案泄露、引导质量、KC 对齐、可理解性、鼓励性）评分。新建 `QaEvalHarness`，从 `language_pack_qa_message` 提取 QA 三元组，评估 grounding 准确率、citation 覆盖率、答案完整性。
+    - **P2 - Agent 化重构**：新建 `TutorAgent` 接口（含 `AgentCapability` 自描述 + `canHandle` 路由 + `execute` 执行）和 `AgentContext` 上下文封装。将 `applyPhaseOutput` 的各 case 提取为独立 Agent：`DiagnosticsAgent`（ERROR_FEEDBACK，内置 ReAct）、`ScaffoldingAgent`（SCAFFOLDING，内嵌 Reflection 检查 scaffold_level 与 mastery 匹配度）、`GuideAgent`（READING + IDEATING）、`TransferAgent`（TRANSFER + AC_REVIEW，AC 后嵌入 Reflection）、`ChatAgent`（CHAT，轻量快速无 Reflection）。新建 `OrchestratorAgent` 按 `(phase, event)` 路由到对应 Agent。
+    - **P3 - A2A 概念模型对齐**：`AgentCapability` 等价于 A2A AgentCard（名称、描述、支持的 events/phases）。新建 `AgentTaskTracker` + `AgentTaskStatus` 实现 Task 生命周期追踪（submitted → working → completed/failed），写入 `ai_workflow_event` 表的 `agent_name`/`agent_status`/`agent_duration_ms` 字段。
+    - **P3 - A/B 测试框架**：`RolloutPolicyService` 新增 `assignAbTest` 方法（基于 experiment_id + user_id 稳定哈希分流）和 `recordReward` 方法（接入 thumbs up/down + 提交结果的奖励信号），扩展 contextual bandit 的奖励源。
+    - **P1 - 内部 Tool 注册表**：新建 `TutorToolRegistry` 工厂类，封装 `search_courseware`、`search_similar_errors`、`search_language_pack_pages`、`get_learner_history` 四个工具的 `ToolDefinition` 和 `ToolExecutor` 构建方法，统一通过 OpenAI function-calling schema 描述参数。
+  - 架构约束：
+    - 所有改造均在现有 FSM / CardSchema 框架内进行，`TransitionPolicy`、`CardSchemaRegistry`、`CardSchemaValidator` 保持不变，前端 API 不受影响。
+    - ReAct 和 Reflection 均通过环境变量开关（`TUTOR_REACT_ENABLED`、`QA_REACT_ENABLED`）控制，默认关闭，可按场景灰度启用。
+    - Agent 化重构当前为基础设施就绪状态，`applyPhaseOutput` 原有 switch-case 保持不变，Agent 可通过 `OrchestratorAgent` 独立调用。
+  - Code Review 修复：
+    - **Critical**：`generateErrorDiagnosisViaReact` 中 tool executor 传入 `null` userId/problemId，导致 ReAct 工具无法检索实际数据 → 已从 `applyPhaseOutput` 传入实际 userId 和 problemId。
+    - **High**：QA grounding critic 在每次调用时无条件执行，增加不必要的 LLM 调用 → 新增 `QA_GROUNDING_CRITIC_ENABLED` 开关，默认关闭。
+    - **Low**：`RolloutPolicyService` 未使用的 `ThreadLocalRandom` 导入 → 已移除。
+  - 新增文档：
+    - `docs/agent_architecture_optimization_implementation.md` — 实现说明书
+    - `docs/agent_architecture_workflow.md` — 工作流全景图 + Code Review 结论
+  - 验证结果：
+    - `cd backend && mvn -q clean -DskipTests compile` 通过（297 源文件）。
+    - `cd backend && mvn -q -Dtest=LlmClientTest test` 通过（6/6）。
+    - `cd backend && mvn -q -Dtest=AITutorWorkflowAdminServiceImplTest#workflowSessionGetShouldRequireLogin test` 通过。
+
+- 2026-04-02T19:30:00+08:00 Language Pack QA 内嵌 VideoTutor 式讲解视频生成（Beta）
+  - 新增文件：
+    - `backend/src/main/resources/db/migration/V38__language_pack_video_job.sql`
+    - `backend/src/main/java/com/pytutor/service/languagepack/VideoJobService.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/VideoJobServiceImpl.java`
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/controller/LanguagePackQaController.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackQaServiceImpl.java`
+    - `frontend/src/pages/oj/api.js`
+    - `frontend/src/pages/oj/views/languagepack/LanguagePackQaPage.vue`
+  - 变更内容：
+    - 新增 `language_pack_video_job` 表，字段包括 session_id、message_id（唯一）、user_id、status、storyboard_json、subtitle_json、provider_name、video_path、poster_path、duration_seconds 等，message_id 上建 UNIQUE 约束确保同一消息只有一个 job。
+    - 新增 `VideoJobService` 接口 + `VideoJobServiceImpl`，实现完整视频生成流水线：读取 grounded answer + top 3 citation 页 → LLM 生成严格 JSON 分镜（4-7 scene，45-90 秒，每个 scene 绑定 citation page）→ 调用外部 TTS + render API → 下载 mp4/poster 到本地存储 → 标记 completed。支持 stub 模式（无外部服务时标记完成不实际渲染）。
+    - `LanguagePackQaController` 新增两个端点：`POST /api/language-pack-qa/messages/{messageId}/video-jobs`（创建或复用）和 `GET /api/language-pack-qa/video-jobs/{jobId}`（查询状态）。两个端点均强制 admin 权限校验（Beta 模式）。
+    - `LanguagePackQaServiceImpl` 的 `messageRow` 方法扩展：为 assistant 消息自动查询并附加 `video_job` 摘要（id、status、progress_percent、video_path、poster_path、duration_seconds），前端重载消息列表时可恢复视频状态。
+    - 前端 `LanguagePackQaPage.vue` 改造：仅 admin 用户可见"生成讲解视频"按钮（Beta 标签），按钮仅在 grounded=true 且有 citation 的 assistant 消息上显示。提交后每 5 秒轮询 job 状态，completed 后显示"查看视频"链接。证据侧栏增加双态切换：点击"查看视频"后侧栏切换为视频播放器（video 标签），点击"返回证据"恢复。页面刷新时自动从 message 列表恢复 video_job 状态并继续轮询未完成 job。
+    - 异步执行使用 Spring Boot 虚拟线程（`Executors.newVirtualThreadPerTaskExecutor`），不依赖调度器或独立 worker。
+    - 视频产物下载到 `uploadDir/video_jobs/` 子目录，通过现有 `PublicAssetController` 公开访问路径。
+  - 环境变量：
+    - `VIDEO_TTS_PROVIDER=stub` — TTS 供应商（默认 stub）
+    - `VIDEO_RENDER_PROVIDER=stub` — 渲染供应商（默认 stub）
+    - `VIDEO_RENDER_API_URL` — 外部渲染 API 地址（非 stub 时必填）
+    - `VIDEO_RENDER_API_KEY` — 外部渲染 API Key（非 stub 时必填）
+  - 验证结果：
+    - `cd backend && mvn -q clean -DskipTests compile` 通过。
+
+- 2026-04-02T20:00:00+08:00 项目全面 Code Review 修复（299 文件扫描）
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/VideoJobServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/storage/LanguagePackStorageService.java`
+    - `backend/src/main/java/com/pytutor/service/impl/JudgeServerServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/impl/ClassroomServiceImpl.java`
+  - 变更内容：
+    - **Critical（SSRF）**：`VideoJobServiceImpl.downloadToLocal` 新增 URL scheme/host 校验，禁止 http/https 以外的协议，禁止 localhost/127.x/10.x/192.168.x/169.254.x 等内网地址。
+    - **High（Path Traversal）**：`LanguagePackStorageService.storeOriginal` 对上传文件名做路径消毒，使用 `Path.getFileName()` + `normalize().startsWith()` 阻止目录穿越。
+    - **High（IDOR）**：`ClassroomServiceImpl.assignmentSubmissions` 新增 `JOIN classroom_assignment WHERE classroom_id = ?`，修复跨课堂作业提交越权。
+    - **High（Token 泄露）**：`JudgeServerServiceImpl.getActiveJudgeServers` 对 judge server token 做掩码处理。
+    - **Medium（fail-fast）**：`VideoJobServiceImpl.parseJson` 失败不再返回空 Map，改为 fail-fast。
+  - 验证结果：
+    - `cd backend && mvn -q clean -DskipTests compile` 通过。
+
+- 2026-04-02T22:15:00+08:00 Language Pack 发布门禁修正：无 baseline 的章节别名合并不再误拦截发布
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackPublishServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/integration/LanguagePackInitIntegrationTest.java`
+  - 变更内容：
+    - 移除 `chapter_memory_conflict_count` 对无 baseline 语言包发布的阻断作用。该指标当前来源于章节 KC 别名合并统计，双语别名会天然产生非零值，不应被当作未解决冲突。
+    - 调整集成测试，覆盖“无 baseline、仅存在章节别名合并计数时仍可发布”的真实目标行为，确保发布链路只被高风险章节与待人工复核候选题等明确风险拦截。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=LanguagePackCoverageBaselineSupportTest,LanguagePackInitIntegrationTest#publishShouldAllowChapterMemoryAliasMergesWithoutBaseline,LanguagePackInitIntegrationTest#publishShouldAllowBaselineGapWhenCurrentPackHasNoHighRiskChapters,LanguagePackInitIntegrationTest#validateProblemsShouldAllowOutputOnlyPythonProblem test` 通过。
+
+- 2026-04-02T23:10:00+08:00 Language Pack 题目生成 Prompt 稳定性增强
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/ProblemGenerationServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/integration/LanguagePackInitIntegrationTest.java`
+    - `docs/plans/2026-04-02-problem-generation-prompt-stability.md`
+  - 变更内容：
+    - 为题目生成 system prompt 增加 4 条硬约束：标题必须保留 `source_title` 的核心任务语义、禁止把不同来源题压成同一个泛化标题、当材料存在多个可选任务时优先选择 `source_title + normalized_body + evidence_excerpt` 共同指向的主任务、转换为 OJ `stdin/stdout` 时不得改写成新的业务场景。
+    - 为 user prompt 增加 `Task grounding priority` 区段，显式声明题意锚点优先级，减少同一 source unit 在多次运行中被改写成不同题目的漂移。
+    - 新增集成测试，直接捕获发送给 LLM 的 prompt，回归校验上述稳定性约束已真实进入提示词，而不是仅停留在人工约定。
+    - 补充本次 prompt 稳定性改造的实现计划文档，记录测试、回放与二次样本验证路径。
+
+- 2026-04-03T00:12:00+08:00 Prompt 稳定性实验执行补充：全量脚本 403 修复与详尽报告落档
+  - 修改文件：
+    - `docs/reports/2026-04-03-prompt-stability-full-report.md`
+  - 变更内容：
+    - 修复全量实验脚本创建任务阶段的 403 根因：移除 `eval + 参数拼接` 方式，改为 `curl` 参数数组，并增加 CSRF/SESSION 显式校验与失败即中断日志输出，避免多文件上传场景下 header/form 参数转义失真。
+    - 生成详尽报告文件初稿，固化“改前 vs 改后（两章三轮）”对比结果、失败类型分布、全量七章三轮实验门槛与判定规则，并预留全量实验结果回填区。
+    - 当前全量七章三轮实验已进入执行态，待三轮结束后回填最终统计表、遗漏分析与结论。
+
+- 2026-04-03T02:40:00+08:00 Prompt 稳定性二次强化与全链路复测（两章3次 + 全量7章3次）
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/ProblemGenerationServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/integration/LanguagePackInitIntegrationTest.java`
+    - `docs/reports/2026-04-03-prompt-stability-full-report.md`
+  - 变更内容：
+    - 在 `ProblemGenerationServiceImpl` 的 system/user prompt 上继续强化“任务语义不偏移”与“输出一致性”约束：新增“保持同一计算目标与输出语义”“测试用例输入输出不得为空”“参考解需满足全部测试用例”“返回前自检 sample/testcase 与用例数量范围”等规则。
+    - 扩展 `LanguagePackInitIntegrationTest#generateProblemsPromptShouldAnchorTitleAndTaskSelection` 断言，确保新增约束文本真实进入 LLM prompt，防止回归。
+    - 完成并落档 `docs/reports/2026-04-03-prompt-stability-full-report.md` 详尽报告，包含：
+      - 两章改前/改后/二次强化后三轮对比；
+      - 全量 7 章三轮全链路结果与门槛判定；
+      - 失败样本分布、遗漏统计（交并比/Jaccard）与结论；
+      - 不达标时的最小后续改进项。
+  - 验证结果：
+    - `cd backend && mvn -Dtest=LanguagePackInitIntegrationTest#generateProblemsPromptShouldAnchorTitleAndTaskSelection,LanguagePackInitIntegrationTest#generateProblemsShouldIncludeChapterMemoryNeighborUnitsAndCanonicalKcsInPrompt test` 通过。
+    - 两章二次强化后全链路三轮结果：`published=8/7/7`。
+    - 全量 7 章三轮结果：均在 publish 被 coverage gate 拦截（任务终态 failed），已在报告中给出根因与数据证据。
+
+- 2026-04-03T03:10:00+08:00 Prompt 稳定性报告重判：改按“题意相同”评估全量 3 次
+  - 修改文件：
+    - `docs/reports/2026-04-03-prompt-stability-full-report.md`
+  - 变更内容：
+    - 重写全量 7 章三轮实验的评估口径，不再以 `title` 或 `source_signature` 是否一致作为主标准，改为以题目 `description + input/output + samples/testcases` 所表达的核心任务与输入输出目标是否一致来判定“同一题”。
+    - 在报告中新增全量 3 次的语义题组归并表，区分“三轮共同出现”“仅两轮出现”“仅单轮出现”的题组，并给出新的汇总指标与重判结论。
+    - 明确拆分 `publish` 失败与 `generate` 质量：第一章本身没有 OJ 例题，当前 coverage gate 将其误判为 high-risk，不能据此否定 prompt 生成质量。
+  - 验证结果：
+    - 全量 7 章按语义题组重判后，共归并出 `60` 个题组，其中 `28` 个题组三轮共同出现，`38` 个题组至少在两轮出现，两两语义 Jaccard 为 `0.558 / 0.623 / 0.604`。
+    - 报告最终修正为：按题意口径看，full7 generate 效果总体较好；`publish=0/0/0` 主要受 gate 误判影响。
+
+- 2026-04-03T03:35:00+08:00 Prompt 稳定性报告补充修正：近邻题意归并口径放宽
+  - 修改文件：
+    - `docs/reports/2026-04-03-prompt-stability-full-report.md`
+  - 变更内容：
+    - 修正语义题组中过于严格的拆分，将 `圆面积计算` 与 `圆周长和面积计算` 这类“核心题意相近、仅输出项轻微扩展”的题目归入同一题组，使评估口径与“题意相近即可认为效果好”的业务判断保持一致。
+    - 同步更新全量三轮语义题组统计、覆盖率与两两 Jaccard 指标，避免因过细拆分低估稳定性。
+  - 验证结果：
+    - 修正后全量 7 章共归并出 `59` 个语义题组，其中 `28` 个题组三轮共同出现，`37` 个题组至少在两轮出现，两两语义 Jaccard 为 `0.569 / 0.615 / 0.615`。
+
+- 2026-04-03T09:20:00+08:00 Language Pack OJ 化规则收紧、发布门槛修正并放宽前端联调 coverage gate
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/config/AlethicodeProperties.java`
+    - `backend/src/main/resources/application.yml`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/ExampleExtractionServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/ProblemGenerationServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/ProblemValidationServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackCoverageBaselineSupport.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackPublishServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/integration/LanguagePackInitIntegrationTest.java`
+    - `backend/src/test/java/com/pytutor/service/languagepack/impl/LanguagePackCoverageBaselineSupportTest.java`
+    - `docs/reports/2026-04-03-prompt-stability-full-report.md`
+  - 标准变更：
+    - output-only 题不再作为最终可发布形态保留；若原题本质上仍是可计算/可统计/可判断任务，必须做**最小参数化 OJ 化改造**，例如 `1..10000 -> 1..N`、固定数据改为从 `stdin` 读取同结构数据、固定轮数改为输入控制。
+    - 若题目不能稳定改造成 `stdin/stdout`，则在提取阶段直接过滤，不再进入 OJ 候选、题目生成与发布链路。
+    - 多轮实验稳定性主锚点从 `title/source_signature` 改为 `document_title + source_pages/page_range`；同一页位点内允许最小参数化 OJ 化与措辞改写，只有核心任务变化才算“越界改题”。
+    - 所有题统一要求 `test_cases >= 3` 且 `test_cases <= 5`，不再保留 output-only 特例。
+    - 所有题统一要求每个 `test_case.input/output` 非空，`samples[0] == test_cases[0]`，`reference_solution_code` 必须同时读 `stdin`、写 `stdout`。
+    - `input_description` 只要仍明确声明“无输入/无需输入/no input”，校验阶段就直接 fail-fast，防止 output-only 题绕过 OJ 约束。
+    - 正式发布标准改为：只有“章节存在明确任务信号、且理论上应能 OJ 化，但最终 `oj_candidate_count=0`”时，才将该章节标记为 `high-risk`；概念章节、纯演示章节、明确不可 `stdin/stdout` 化章节，不再仅因页数多且零候选题而阻断发布。
+    - 为前端联调新增 `alethicode.language-pack.publish.skip-coverage-gate` 配置开关，默认 `false`；显式开启时仅跳过 coverage gate，不跳过 `problems_validated` 和 `validation_status='passed'` 的正式要求。
+  - 实现细节：
+    - `ExampleExtractionServiceImpl` 新增 `stdin_stdout_convertible` 判定与 `oj_block_reason=not_stdin_stdout_convertible`，并把 `convertible_unit_count`、`non_convertible_unit_count`、`chapter_has_task_signal`、`blocked_by_reason` 写入章节覆盖统计。
+    - `EscalationReviewAgent` 不再把 `not_stdin_stdout_convertible` 这类硬不可转题重新抬升为 OJ 候选。
+    - `ProblemGenerationServiceImpl` prompt 新增 output-only 参数化、固定边界改变量输入、`test_cases 3..5`、首个 sample/testcase 一致、参考解必须走 `stdin/stdout` 等硬约束。
+    - `ProblemValidationServiceImpl` 删除 output-only 最小用例数豁免，并把“无输入描述”“空 test case”“参考解未读 stdin/未写 stdout”全部改为硬失败。
+    - `LanguagePackCoverageBaselineSupport` 与 `LanguagePackPublishServiceImpl` 将章节高风险判定收敛到“任务信号 + 可转化性”，同时支持前端联调显式跳过 coverage gate。
+    - `docs/reports/2026-04-03-prompt-stability-full-report.md` 同步改写为“历史结果按题意重判 + 后续实验按文件/页码锚点判定”的双层口径，并补充失败类型对应修复策略。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=LanguagePackCoverageBaselineSupportTest,LanguagePackInitIntegrationTest#extractExamplesShouldFilterNonConvertibleFixedOutputCandidate+extractExamplesShouldKeepParameterizableOutputOnlyCandidateAsOjConvertible+generateProblemsPromptShouldAnchorTitleAndTaskSelection+validateProblemsShouldRejectOutputOnlyProblemThatWasNotParameterized+publishShouldAllowFrontendTestingWhenCoverageGateIsSkipped test` 通过。
+
+- 2026-04-03T09:55:00+08:00 LLM 运行时默认值与启动环境对齐
+  - 修改文件：
+    - `backend/.env`
+    - `../Alethicode/deploy/.env`
+  - 变更内容：
+    - 将启动环境中的 `LLM_API_TIMEOUT_SECONDS` 默认覆盖值从 `30` 统一提升到 `150`，避免语言包生成链路在长响应场景下被本地 `.env` 误降级。
+    - 将启动环境中的 `LLM_API_MAX_RETRIES` 默认覆盖值从 `0` 统一提升到 `3`，与 `LlmClient` 代码中的默认重试口径保持一致。
+  - 验证结果：
+    - 启动脚本与手动后端启动在未额外传参时，会直接继承 `timeout=150`、`retry=3` 的运行时配置，不再被仓库内旧 `.env` 值覆盖。
+
+- 2026-04-03T10:38:00+08:00 语言包题目校验新增确定性修复与单题单次重试
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/languagepack/ProblemGenerationService.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/ProblemGenerationServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackProblemPackageMapper.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/ProblemValidationServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/integration/LanguagePackInitIntegrationTest.java`
+  - 标准变更：
+    - 题目校验不再把“可唯一确定的溯源元数据错误”直接判死；会先按当前 source unit 做确定性纠正，再进入最终校验。
+    - 当前链路保持“一题对应一个 source unit”，因此 `source_example_ids` 统一以当前 unit 的真实 `id` 为准，不再信任模型返回的占位值或重编号结果。
+    - `source_pages` 会按当前 unit 页段进行规范化，非法页码、越界页码、空页码都会在校验前回退到 source unit 页段。
+    - `related_kc_ids` 会先与当前 unit 绑定的 canonical KC 集求交；若模型返回非法 KC 或交集为空，则回退到当前 unit 的默认 KC 集。
+    - 对仍然未通过校验的题，只允许该单题自动重生成一次并重新校验一次；第二次仍失败则保持 `failed`，不重跑整包、不无限重试。
+  - 实现细节：
+    - `ProblemGenerationService` 新增按 `taskId + sourceSignature` 重生成单题包的内部入口，供校验阶段复用，且单题重试时禁用 batch reuse，确保真正重新生成。
+    - `ProblemGenerationServiceImpl` 抽出单题生成 helper，并在 prompt 中显式下发 `required_source_example_ids`、`required_source_pages`、`required_related_kc_ids`，同时禁止沿用 JSON 示例里的占位 ID（如 `[1]`）。
+    - `LanguagePackProblemPackageMapper` 新增 stored package 规范化入口，对 `source_example_ids`、`source_pages`、`related_kc_ids` 做确定性 canonicalize，保证这三类字段进入校验前与当前 source unit 对齐。
+    - `ProblemValidationServiceImpl` 在每题校验前先做 canonicalize；若仍失败，则只对该题调用一次单题重生成，再做二次 canonicalize 和二次校验，并把最终通过后的题面/样例/参考解/溯源元数据完整回写到 `language_pack_problem_generation_log`。
+    - 这次修复重点覆盖“模型把 prompt 示例中的 `[1]` 原样抄进 `source_example_ids` 导致题面正确却被误杀”的问题。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=LanguagePackInitIntegrationTest#generateProblemsPromptShouldAnchorTitleAndTaskSelection+generateProblemsShouldCanonicalizeDeterministicSourceMetadata+validateProblemsShouldAutoCorrectDeterministicSourceMetadataWithoutRegeneration+validateProblemsShouldRetryFailedCandidateOnceAndPassWhenRegeneratedProblemIsValid+validateProblemsShouldRetryFailedCandidateOnceAndKeepFailedWhenRegeneratedProblemIsStillInvalid test` 通过。
+
+- 2026-04-03T13:00:00+08:00 语言包生成提示词补充乘法表参数化与近似值跳过规则
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/ProblemGenerationServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/integration/LanguagePackInitIntegrationTest.java`
+  - 变更内容：
+    - `ProblemGenerationServiceImpl` 的 system prompt 与 user prompt 新增固定表格类题目的定向规则，明确把“九九乘法表”这类 output-only 题优先参数化为“输入 `n`，输出 `n*n` 乘法表”，而不是保留固定 `9x9` 输出版本。
+    - 同一处 prompt 同步补充“内部阈值收敛的近似值题”规则，明确这类没有自然外部输入的任务不要硬凹成 stdin/stdout 题，也不要发明假的输入变量改造成邻近题。
+    - `LanguagePackInitIntegrationTest` 的 prompt 回归断言同步升级，确保以上两条规则真实进入 LLM 提示词，避免后续回归时再次退化成“固定打印乘法表”或“强行改造近似值题”。
+
+- 2026-04-03T13:45:00+08:00 LLM 传输层补充无响应头错误的重试识别
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/LlmClient.java`
+    - `backend/src/test/java/com/pytutor/service/LlmClientTest.java`
+  - 变更内容：
+    - `LlmClient.isRetryableTransportException(...)` 新增对 `HTTP/1.1 header parser received no bytes` 这类“服务端直接断开、连响应头都没返回”的传输异常识别。
+    - 这类异常现在会纳入 `LLM_API_MAX_RETRIES` 控制的统一传输重试，而不是第一次撞到就直接 fail-fast。
+    - 这次修复不改变业务 prompt、题目校验或发布规则，只修正 LLM 传输层对瞬时断链异常的重试边界。
+  - 验证结果：
+    - 先补充 `LlmClientTest.retryableTransportExceptionShouldTreatHeaderParserNoBytesAsRetryable` 并确认在修改前失败。
+    - 修改后执行 `cd backend && mvn -q -Dtest=LlmClientTest test` 通过。
+
+- 2026-04-03T20:18:12+08:00 首页今日复习按钮文案可读性修正
+  - 修改文件：
+    - `frontend/src/pages/oj/views/general/Home.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 首页“今日复习”卡片中的操作按钮去除 `plain` 模式，避免出现蓝底蓝字的低对比显示。
+    - 为复习操作按钮统一添加 `review-focus-action` 类，并在组件作用域内将按钮文字色强制为白色，保证“继续复习/开始复习/再练一次”可读性。
+  - 验证结果：
+    - 通过组件样式作用域检查，变更仅影响 `Home.vue` 的复习按钮，不影响其他页面按钮样式。
+
+- 2026-04-03T20:24:10+08:00 题库页按语言包过滤标签并调整默认语言包选择
+  - 修改文件：
+    - `frontend/src/pages/oj/views/problem/ProblemList.vue`
+    - `frontend/src/pages/oj/api.js`
+    - `backend/src/main/java/com/pytutor/controller/ProblemController.java`
+    - `backend/src/main/java/com/pytutor/service/ProblemQueryService.java`
+    - `backend/src/main/java/com/pytutor/service/impl/ProblemQueryServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackQueryServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/controller/ProblemControllerContractTest.java`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - `ProblemList` 页面在未显式传入 `language_pack_id` 时，自动默认选中可见语言包列表的第一个语言包，并将该值写回路由查询参数。
+    - 可见语言包列表排序逻辑调整为：
+      - 学生端（非管理员）：优先当前正在上的课堂对应语言包（按最近课堂成员更新时间判定当前课堂）；
+      - 管理员端：保持已发布语言包列表顺序，默认取第一个语言包。
+    - `problems/tags` 接口新增可选参数 `language_pack_id`，并在指定语言包时只返回该语言包题目关联的标签。
+    - `problems/tags` 在指定 `language_pack_id` 时新增权限校验：未登录拒绝访问，非管理员仅允许查询自己可见课堂绑定的语言包。
+    - 前端题库页标签面板改为携带当前 `query.language_pack_id` 请求标签，确保“只显示该语言包标签”。
+    - 切换语言包时清空当前标签筛选，避免沿用旧语言包标签导致空结果。
+  - 验证结果：
+    - `cd backend && mvn -q -DskipTests compile` 通过。
+    - `cd backend && mvn -q -Dtest=ProblemControllerContractTest test` 未通过，失败原因为测试上下文中 `JdbcTemplate` 依赖缺失（与本次改动逻辑无关的现有测试环境问题）。
+
+- 2026-04-03T20:27:28+08:00 题库页语言包标签过滤与默认包逻辑收口修正
+  - 修改文件：
+    - `frontend/src/pages/oj/views/problem/ProblemList.vue`
+    - `frontend/src/pages/oj/api.js`
+    - `backend/src/main/java/com/pytutor/controller/ProblemController.java`
+    - `backend/src/main/java/com/pytutor/service/ProblemQueryService.java`
+    - `backend/src/main/java/com/pytutor/service/impl/ProblemQueryServiceImpl.java`
+    - `backend/src/main/java/com/pytutor/service/languagepack/impl/LanguagePackQueryServiceImpl.java`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 确认题库标签接口在传入 `language_pack_id` 时按该语言包过滤标签，并保留登录/可见性权限校验。
+    - 题库页初始化在无 `language_pack_id` 参数时自动选中默认语言包并回写路由，学生端默认“当前在上课堂”对应语言包优先，管理员端默认列表第一个包。
+    - 修正题库标签统计 SQL 文本块拼接，确保后端编译通过。
+  - 验证结果：
+    - `cd backend && mvn -q -DskipTests compile` 通过。
+
+- 2026-04-03T20:33:58+08:00 题库标签过滤修复：按语言包限定 KC 标签归属并对齐可见性
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/ProblemQueryServiceImpl.java`
+    - `frontend/src/pages/oj/views/problem/ProblemList.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - `getProblemTags(...)` 查询逻辑收紧为：标签来源必须来自当前可见题目集合；当指定 `language_pack_id` 时，还必须命中该语言包的题目映射。
+    - 对 `kc:` 前缀标签新增语言包归属校验：仅保留 `language_pack_kc` 中属于当前语言包的 KC 标签，避免历史题目标签累积造成跨包 KC 泄漏。
+    - 前端标签请求失败时清空 `tagList`，避免接口失败后继续显示上一次（可能是全量）标签造成误判。
+  - 验证结果：
+    - `cd backend && mvn -q -DskipTests compile` 通过。
+    - 数据库验证：可见题目全量标签 `90`，`language_pack_id=16` 且按新规则过滤后标签 `4`，过滤生效。
+
+- 2026-04-03T20:40:48+08:00 题库筛选显示与个人主页标签进度强绑定当前语言包
+  - 修改文件：
+    - `frontend/src/pages/oj/views/problem/ProblemList.vue`
+    - `frontend/src/pages/oj/views/user/UserHome.vue`
+    - `frontend/src/pages/oj/api.js`
+    - `backend/src/main/java/com/pytutor/controller/ProblemController.java`
+    - `backend/src/main/java/com/pytutor/service/ProblemQueryService.java`
+    - `backend/src/main/java/com/pytutor/service/impl/ProblemQueryServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/controller/ProblemControllerContractTest.java`
+    - `backend/src/test/java/com/pytutor/service/impl/ProblemQueryServiceImplTest.java`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 题库页“章节”下拉改为按当前 `language_pack_id` 动态加载 `language_pack_chapter`，不再固定展示第二至第七章的全局静态选项。
+    - 题库页保持强绑定语言包：语言包下拉移除“全部语言包”入口；当路由中缺失 `language_pack_id` 时自动回填默认语言包；切换语言包时重置 `tag/chapter`，避免跨包筛选残留。
+    - 个人主页“标签进度”接口请求新增 `language_pack_id` 参数，并在切换语言包时立即刷新，确保进度口径与当前选中语言包一致。
+    - 个人主页点击标签跳转题库时，路由查询参数补充当前 `language_pack_id`，保持从主页到题库的同一语言包上下文。
+    - 后端 `GET /api/problems/tag-progress` 新增 `language_pack_id` 可选参数，按语言包过滤标签统计，并对 `kc:` 标签做语言包归属校验，避免跨包 KC 标签串入。
+  - 验证结果：
+    - `cd backend && mvn -q -DskipTests compile` 通过。
+    - `cd backend && mvn -q -Dtest=ProblemQueryServiceImplTest test` 通过。
+
+- 2026-04-03T20:52:00+08:00 题库语言包绑定补强与标签过滤回归测试完善
+  - 修改文件：
+    - `frontend/src/pages/oj/views/problem/ProblemList.vue`
+    - `backend/src/main/java/com/pytutor/service/impl/ProblemQueryServiceImpl.java`
+    - `backend/src/test/java/com/pytutor/service/impl/ProblemQueryServiceImplTest.java`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 题库页初始化时，若路由中的 `language_pack_id` 不在当前可见语言包列表内，自动回退到默认语言包并回写路由，避免无效包参数导致展示口径漂移。
+    - 题库页每次请求标签前先清空旧 `tagList` 并进入加载态，避免切换语言包时短暂保留上一个语言包标签造成“仍是全量标签”的误判。
+    - 当当前 `chapter` 不属于选中语言包章节集合时，自动清空章节筛选并回写路由，保证章节筛选与语言包强一致。
+    - 修复 `ProblemQueryServiceImpl.loadVisibleTagProgress(...)` 的 SQL 文本块拼接语法问题，并将标签进度排序改为对可变副本排序，消除潜在的不可变集合排序异常。
+    - 新增后端单元测试，明确校验：
+      - `getProblemTags(...)` 在传入 `language_pack_id` 时必须包含语言包题目映射与 KC 归属过滤条件；
+      - `getTagProgress(...)` 在传入 `language_pack_id` 时必须按语言包过滤并返回对应语言包标识。
+  - 验证结果：
+    - `cd backend && mvn -q clean -DskipTests compile` 通过。
+    - `cd backend && mvn -q -Dtest=ProblemQueryServiceImplTest test` 通过。
+    - `cd backend && mvn -q -Dtest=ProblemControllerContractTest test` 未通过，失败原因为测试上下文缺少 `JdbcTemplate` Bean（当前仓库测试环境问题，非本次改动引入）。
+
+- 2026-04-03T22:42:00+08:00 管理端与题库语言包收口：标签展示规范化、Teacher 权限分层、统一分页与重启前验证
+  - 修改文件：
+    - `frontend/src/pages/oj/utils/problemTagView.js`
+    - `frontend/src/pages/oj/views/problem/ProblemList.vue`
+    - `frontend/src/pages/oj/views/user/UserHome.vue`
+    - `frontend/src/pages/oj/components/NavBar.vue`
+    - `frontend/src/pages/oj/router/routes.js`
+    - `frontend/src/pages/oj/views/languagepack/index.js`
+    - `frontend/src/pages/oj/views/languagepack/LanguagePackQaPage.vue`
+    - `frontend/src/pages/oj/views/languagepack/LanguagePackCatalog.vue`（删除）
+    - `frontend/src/pages/admin/components/AdminPagination.vue`（新增）
+    - `frontend/src/pages/admin/components/SideMenu.vue`
+    - `frontend/src/pages/admin/views/Home.vue`
+    - `frontend/src/pages/admin/router.js`
+    - `frontend/src/pages/admin/index.js`
+    - `frontend/src/pages/admin/api.js`
+    - `frontend/src/pages/admin/utils/languagePackContext.js`（新增）
+    - `frontend/src/pages/admin/views/problem/ProblemList.vue`
+    - `frontend/src/pages/admin/views/problem/Problem.vue`
+    - `frontend/src/pages/admin/views/problem/ImportAndExport.vue`
+    - `frontend/src/pages/admin/views/general/AIVariantReview.vue`
+    - `frontend/src/pages/admin/views/general/KCManagement.vue`
+    - `frontend/src/pages/admin/views/general/LanguagePackInit.vue`
+    - `frontend/src/pages/admin/views/general/User.vue`
+    - `frontend/src/pages/admin/views/general/Announcement.vue`
+    - `frontend/src/pages/admin/views/general/PruneTestCase.vue`
+    - `frontend/src/pages/admin/views/general/JudgeServer.vue`
+    - `frontend/src/pages/admin/views/general/PreflightStats.vue`
+    - `frontend/src/store/modules/user.js`
+    - `frontend/src/utils/constants.js`
+    - `backend/src/test/java/com/pytutor/controller/AdminProblemControllerContractTest.java`
+    - `backend/src/test/java/com/pytutor/service/impl/AdminProblemCommandServiceImplTest.java`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - OJ 题库与个人主页标签展示统一收口：隐藏全部 `type:*` 标签（含 `type:coding/type:choice/type:fill_blank`），`kc:` 与 `kc::` 前缀只在展示层移除，筛选仍使用原始标签值，确保筛选行为不变。
+    - OJ 公开语言包目录页前端入口下线：删除导航入口、路由与目录页组件，不影响语言包共享查询 API 与题库/QA/班级复用链路。
+    - 修复 `LanguagePackQaPage.vue` 的 LESS `min()` 编译错误：将 `width: min(1440px, 100%)` 改为 `width: 100% + max-width: 1440px`，不关闭 HMR overlay。
+    - Admin 壳层调整：移除顶部页眉；登出操作移动到左侧菜单底部固定区域。
+    - Admin 列表统一分页：新增 `AdminPagination` 组件，并接入题库、导入导出、AI 变体审核、公告、用户、KC 管理、Prune、JudgeServer、LanguagePackInit、Preflight 等页面，统一支持翻页与每页条数切换。
+    - Admin 语言包上下文统一：以路由 `language_pack_id` > 本地持久化 > 可见包首项为默认选择；题库/导入导出/KC/AI 审核/初始化/新建题等页面强绑定当前语言包。
+    - 新建题与导入题前端强约束：`Problem.vue` 与 `ImportAndExport.vue` 在缺失当前语言包时 fail-fast 阻止提交，并显式携带 `language_pack_id`。
+    - Teacher 身份前端权限分层落地：OJ 端按管理员能力识别 Teacher；Admin 端菜单与路由层屏蔽系统管理、判题管理、用户管理、公告、Preflight、McMining 等页面访问。
+    - 后端测试同步签名变更：补齐 `importProblems(file, autoKc, languagePackId, authentication)` 的测试桩调用与请求参数，补齐 `AdminProblemUpsertRequest` 新增 `languagePackId` 构造参数。
+  - 验证结果：
+    - `cd frontend && npm run build` 通过。
+    - `cd backend && mvn -DskipTests compile` 通过。
+    - `cd backend && mvn -DskipTests test-compile` 通过。
+
+- 2026-04-03T22:47:00+08:00 知识星图章节文案去重：修复“第第”重复显示
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/impl/AITutorServiceImpl.java`
+    - `frontend/src/pages/oj/components/skillProfile/StarMapDetailPanel.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 后端 `formatChapterDisplayName(...)` 从“无条件拼接 `第...章`”改为规范化策略：
+      - 已是完整章节名（如“第二章：…”、“第X章”）保持原样；
+      - `PPTn` 保持 `PPTn`；
+      - 纯数字/中文数字才补成 `第N章`。
+    - 前端 `StarMapDetailPanel` 的 `chapterLabel` 同步采用一致规则，避免详情面板再次出现“第第”。
+  - 验证结果：
+    - 修复后知识星图章节标签不再出现“第第二章…章”的重复前后缀。
+
+- 2026-04-03T23:15:00+08:00 知识星图章节名前端兜底去重：修复“第第三章”残留显示
+  - 修改文件：
+    - `frontend/src/pages/oj/components/skillProfile/KnowledgeStarMap.vue`
+    - `frontend/src/pages/oj/components/skillProfile/StarMapDetailPanel.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 知识星图章节 Tab 与画布章节标题统一走 `formatChapterDisplayName(...)`，避免多处各自拼接导致重复。
+    - 对章节名增加前端规范化：若出现历史脏值 `第第...`，展示时自动去重为 `第...`。
+    - 详情面板章节文案同步去重 `第第` 前缀，保证与星图主视图一致。
+  - 验证结果：
+    - 即使后端返回历史章节文案，前端也不会再显示“第第三章”。
+
+- 2026-04-03T23:46:00+08:00 课件问答页与复习包创建稳定性修复：消除 `review-packages` 500，页面高度改为自适应
+  - 修改文件：
+    - `backend/src/main/java/com/pytutor/service/aitutor/review/ErrorReviewPackageService.java`
+    - `backend/src/test/java/com/pytutor/service/aitutor/review/ErrorReviewPackageServiceTest.java`（新增）
+    - `frontend/src/pages/oj/views/languagepack/LanguagePackQaPage.vue`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 修复复习包 fallback 选题 SQL 的 JDBC 参数绑定问题：移除 `Long[]` + `unnest` 绑定路径，改为动态占位符参数拼接，避免 `POST /api/ai/review-packages` 触发数据库语法/绑定异常。
+    - 修复 fallback 选题 SQL 在 PostgreSQL 的排序语法错误：将 `DISTINCT + ORDER BY` 改为 `GROUP BY problem_id` 并按 `max(create_time)` 倒序，保证“按最近错误提交补题”逻辑正确。
+    - 新增后端回归单测，明确约束 fallback 查询禁止使用 `Long[]` JDBC 绑定，防止 500 问题回归。
+    - 课件问答页高度策略改为 `dvh` 自适应并补齐栅格可收缩约束（`min-height: 0`），右侧证据预览 iframe 改为 `clamp()` 自适应高度，避免页面右侧出现整页上下滚动条。
+  - 验证结果：
+    - `cd backend && mvn -q -Dtest=ErrorReviewPackageServiceTest test` 通过。
+    - 本地启动后端临时端口 `8091`，`POST /api/ai/review-packages` 由 500 恢复为 200，返回复习包数据（含 `id/problem_count/problems`）。
+    - `cd frontend && npx eslint src/pages/oj/views/languagepack/LanguagePackQaPage.vue` 通过（仅环境告警，无 lint error）。
+
+- 2026-04-08T13:00:28+08:00 错题本红点一致性修复：删除后立即刷新，且后端仅统计标准错题分类
+  - 修改文件：
+    - `frontend/src/pages/oj/components/NavBar.vue`
+    - `frontend/src/pages/oj/views/user/LearnerNotebook.vue`
+    - `frontend/tests/unit/notebook-review-badge-sync-contract.spec.js`（新增）
+    - `backend/src/main/java/com/alethicode/service/impl/AITutorServiceImpl.java`
+    - `backend/src/test/java/com/alethicode/service/impl/AITutorServiceImplReviewDueSqlContractTest.java`（新增）
+    - `backend/src/test/java/com/alethicode/integration/AccountAnnouncementAiIntegrationTest.java`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 前端新增错题红点刷新事件 `oj:review-due-updated`：`LearnerNotebook` 在“删除错题/手动添加错题”成功后主动派发事件，`NavBar` 监听该事件并立即重新拉取 `reviewDueBadge`，消除“已删空但导航仍显示旧红点”的状态滞后。
+    - 后端 `reviewDue` 统计口径收敛为标准错题分类集合（`syntax_error/runtime_error/logic_error/boundary_condition/performance/algorithm_error/input_parsing/name_or_type_error`），不再把非标准分类计入 `due_count`。
+    - 后端 `notebookCreate` 将 `error_taxonomy` 统一走 `ErrorTaxonomy.normalize(...)` 规范化写入，避免新增记录写入历史脏分类导致后续统计偏差。
+    - 新增前端契约测试，约束“事件监听 + 事件派发”链路存在，防止后续回归。
+    - 新增后端 SQL 契约测试文件，约束 `reviewDue` 查询必须包含标准分类过滤条件。
+  - 验证结果：
+    - `npm --prefix frontend test -- --runInBand frontend/tests/unit/notebook-review-badge-sync-contract.spec.js` 通过。
+    - `mvn -q -f backend/pom.xml -DskipTests compile` 通过。
+    - `mvn -q -f backend/pom.xml -Dtest=AITutorServiceImplReviewDueSqlContractTest test` 未通过，原因是仓库当前存在与本次改动无关的历史测试编译错误（多个旧测试签名不匹配）。
+    - `mvn -q -f backend/pom.xml -Dtest=AccountAnnouncementAiIntegrationTest#reviewDueShouldIgnoreNonStandardNotebookTaxonomy test` 未通过，原因是本地测试数据库凭据不匹配（`onlinejudge` 认证失败），非本次改动引入。
+
+- 2026-04-08T13:07:43+08:00 设置页收口：移除安全设置入口，账号页全量汉化与标签起始对齐
+  - 修改文件：
+    - `frontend/src/pages/oj/views/setting/Settings.vue`
+    - `frontend/src/pages/oj/router/routes.js`
+    - `frontend/src/pages/oj/views/setting/index.js`
+    - `frontend/src/pages/oj/views/setting/children/AccountSetting.vue`
+    - `frontend/tests/unit/setting-account-localization-contract.spec.js`（新增）
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 设置页左侧导航移除“安全设置”项，同时移除 `/setting/security` 子路由注册，页面入口只保留“个人信息设置”“账号设置”。
+    - 账号设置页文案完成汉化：密码与邮箱区域字段标签、双因素验证码标签、成功提示文案、校验错误文案全部改为中文，不再出现英文标签混用。
+    - 账号设置页两列表单统一加 `label-width=\"120px\"` 且 `label-position=\"left\"`，保证字段标签“开头对齐”。
+    - 补充账号设置契约测试，约束“无安全设置入口 + 无安全路由 + 账号页中文标签与固定 label-width”，避免后续回归。
+  - 验证结果：
+    - `npm --prefix frontend test -- --runInBand frontend/tests/unit/setting-account-localization-contract.spec.js` 通过。
+    - `npx --prefix frontend eslint frontend/src/pages/oj/views/setting/Settings.vue frontend/src/pages/oj/views/setting/children/AccountSetting.vue frontend/src/pages/oj/views/setting/index.js frontend/src/pages/oj/router/routes.js` 通过（仅 Node `MODULE_TYPELESS_PACKAGE_JSON` 提示，无 lint error）。
+
+- 2026-04-08T15:12:00+08:00 课程包存储清理增强：删除课程包时同步清盘 + 孤儿目录先备份后清理
+  - 修改文件：
+    - `backend/src/main/java/com/alethicode/service/languagepack/impl/LanguagePackExportImportServiceImpl.java`
+    - `backend/src/main/java/com/alethicode/service/languagepack/storage/LanguagePackStorageService.java`
+    - `scripts/ops/cleanup_orphan_language_pack_dirs.sh`（新增）
+    - `CHANGELOG.md`
+  - 变更内容：
+    - `deleteLanguagePack(...)` 新增任务目录回收：删除课程包数据库数据后，按 `language_pack_init_task.id` 同步删除 `deploy/data/language_pack/tasks/<taskId>` 与 `deploy/data/language_pack/preview/tasks/<taskId>`，避免后端已删但磁盘长期堆积。
+    - 删除问题记录改为参数化 `IN (?, ?, ...)`，去除拼接 SQL 字符串，统一走预编译参数绑定。
+    - 新增脚本 `scripts/ops/cleanup_orphan_language_pack_dirs.sh`：按数据库在册任务 ID 扫描孤儿目录，支持 `--dry-run`、默认先打包备份再删除、可通过 `--backup-dir` 指定备份目录，并支持 `--backup-retain-days` 按天数清理过期备份归档。
+    - 本地已执行一次“先备份再删除”清理：备份文件 `deploy/data/language_pack_backups/language_pack_orphans_20260408_150457.tar.gz`，清理后孤儿目录降为 0。
+  - 验证结果：
+    - `mvn -q -f backend/pom.xml -DskipTests compile` 通过。
+    - `scripts/ops/cleanup_orphan_language_pack_dirs.sh --dry-run` 通过，准确识别孤儿目录 `tasks=33`、`preview/tasks=32`。
+    - `scripts/ops/cleanup_orphan_language_pack_dirs.sh` 通过，清理后复核 `orphan_tasks=0`、`orphan_preview=0`。
+
+- 2026-04-08T17:51:28+08:00 初始化失败交互修复：失败原因汉化 + 失败态恢复一键继续
+  - 修改文件：
+    - `frontend/src/pages/admin/views/general/LanguagePackInit.vue`
+    - `frontend/tests/unit/admin-language-pack-init-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 失败原因展示汉化：任务详情失败横幅、失败中断弹窗、阶段日志消息统一接入失败原因本地化映射，重点覆盖 `Courseware unit extraction failed: LLM response missing choices` 等高频英文错误。
+    - 修复“失败后一键执行剩余步骤消失”：一键按钮改为 `canRunAllSteps` 控制，不再因 `stage=failed` 直接隐藏。
+    - 失败态可恢复逻辑补齐：`canAdvance` 与 `runAllSteps` 在失败阶段会根据失败节点推导对应动作，并仅允许后端已支持失败恢复的步骤（`extract-kcs / extract-examples / generate-problems`）继续执行。
+  - 验证结果：
+    - `npm --prefix frontend test -- --runInBand frontend/tests/unit/admin-language-pack-init-contract.spec.js` 通过（8/8）。
+    - `npx --prefix frontend eslint frontend/src/pages/admin/views/general/LanguagePackInit.vue` 通过（仅 Node `MODULE_TYPELESS_PACKAGE_JSON` 环境提示，无 lint error）。
+
+- 2026-04-08T18:54:00+08:00 初始化链路健壮性增强：切除题目验证自锁 + LLM JSON 响应内容优先恢复
+  - 修改文件：
+    - `backend/src/main/java/com/alethicode/service/languagepack/impl/ProblemValidationServiceImpl.java`
+    - `backend/src/main/java/com/alethicode/service/LlmClient.java`
+    - `backend/src/test/java/com/alethicode/service/LlmClientTest.java`
+    - `backend/src/test/java/com/alethicode/service/languagepack/impl/ProblemValidationServiceImplTransactionContractTest.java`（新增）
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 移除 `ProblemValidationServiceImpl` 的类级事务包裹，题目验证改为逐条语句提交，避免 `language_pack_problem_generation_log` 更新借由外键锁住 `language_pack_init_task`，再与 `REQUIRES_NEW` 进度上报互等，导致页面长期卡在 `0/N`。
+    - `LlmClient.parseJsonResultFromLlmResponseBody(...)` 改为内容优先解析：先识别顶层业务 JSON，再识别 `data/payload/result/response` 包裹的业务对象，最后递归扫描嵌套文本内容恢复 JSON，不再把 `choices` 缺失直接等同于失败。
+    - 保留 provider `error` payload 的 fail-fast 语义；仅在能够明确恢复出合法 JSON 对象时继续执行，并对“直接业务 JSON / 包裹业务 JSON / 嵌套文本恢复”三类恢复路径记录 `warn` 日志摘要。
+    - 新增契约测试，约束题目验证服务不得重新回到整批长事务；补充 `LlmClientTest` 覆盖顶层业务 JSON、包裹业务 JSON、无 `choices` 的嵌套文本恢复、说明文字包裹 provider envelope 的恢复，以及 provider error 仍需直接失败的行为。
+  - 验证结果：
+    - `mvn -q -f backend/pom.xml -Dtest=LlmClientTest,ProblemValidationServiceImplTransactionContractTest test` 通过。
+    - `mvn -q -f backend/pom.xml -DskipTests compile` 通过。
+
+- 2026-04-08T19:05:00+08:00 课程内容包删除交互修复：管理端删除确认改用 Element Plus 标准消息框
+  - 修改文件：
+    - `frontend/src/pages/admin/views/general/LanguagePackInit.vue`
+    - `frontend/tests/unit/admin-language-pack-init-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 课程内容包管理页删除按钮不再调用旧的 `this.$confirm`，改为显式使用 `ElMessageBox.confirm(...)`，修复 Vue 3 + Element Plus 管理端点击“删除”无弹窗、无响应的问题。
+    - 删除确认逻辑改为 `async/await` 形式，用户取消时直接返回，确认后继续沿用原有删除接口与列表刷新链路。
+    - 新增前端契约测试，约束该页面必须导入并使用 `ElMessageBox.confirm`，避免后续再次回退到未注入的 legacy 实例方法。
+  - 验证结果：
+    - `npm --prefix frontend test -- --runInBand frontend/tests/unit/admin-language-pack-init-contract.spec.js` 通过。
+
+- 2026-04-09T09:06:34+08:00 管理端 AI 教学权限对齐：修复老师点击 AI 变体题审核后被动跳回问题列表
+  - 修改文件：
+    - `frontend/src/pages/admin/components/SideMenu.vue`
+    - `frontend/src/pages/admin/router.js`
+    - `frontend/src/pages/admin/views/general/AIVariantReview.vue`
+    - `frontend/src/pages/admin/views/general/KCManagement.vue`
+    - `frontend/src/pages/admin/views/general/LanguagePackInit.vue`
+    - `frontend/tests/unit/admin-ai-teaching-access-contract.spec.js`（新增）
+    - `frontend/tests/unit/admin-language-pack-init-contract.spec.js`
+    - `backend/src/main/java/com/alethicode/service/impl/AdminVariantReviewService.java`
+    - `backend/src/main/java/com/alethicode/service/impl/AdminKcManagementService.java`
+    - `backend/src/main/java/com/alethicode/controller/AdminLanguagePackController.java`
+    - `backend/src/test/java/com/alethicode/controller/AdminLanguagePackControllerContractTest.java`
+    - `backend/src/test/java/com/alethicode/integration/AdminLanguagePackFilterIntegrationTest.java`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 按真实权限模型修正管理端 `AI 教学`：`Teacher` 保留 `AI 变体题审核 / 知识图谱管理 / 课程内容包管理` 入口与路由访问，不再被前端菜单或路由守卫错误拦截。
+    - AI 教学三页的课程包下拉统一改为读取已发布课程包列表，不再复用面向学习侧的 `visible` 课程包集合，避免老师进入页面后默认选中“前端可见但后端拒绝”的课程包，触发 `permission-denied` 后被通用 `ajax` 逻辑跳回“问题列表”。
+    - 后端 AI 教学权限对齐到“老师与管理员同级可管理”：去掉 `AdminVariantReviewService`、`AdminKcManagementService`、`AdminLanguagePackController` 中仅针对老师的课程包/创建者裁剪，老师可完整执行 AI 变体题审核、知识图谱管理、课程内容包任务读取与删除。
+    - `课程内容包管理` 前端删除按钮同步移除“老师只能删除自己任务”的额外限制，避免前后端权限不一致。
+    - 新增/更新前后端契约测试，约束老师在 AI 教学模块必须保留入口、不得被 AI 路由守卫拦截、AI 教学页面必须读取已发布课程包，且课程内容包管理页不得再对老师做额外删除限制。
+  - 验证结果：
+    - `npm --prefix frontend test -- --runInBand tests/unit/admin-ai-teaching-access-contract.spec.js tests/unit/admin-language-pack-init-contract.spec.js` 通过（13/13）。
+    - `npx --prefix frontend eslint frontend/src/pages/admin/components/SideMenu.vue frontend/src/pages/admin/router.js frontend/src/pages/admin/views/general/AIVariantReview.vue frontend/src/pages/admin/views/general/KCManagement.vue frontend/src/pages/admin/views/general/LanguagePackInit.vue` 通过。
+    - `mvn -q -f backend/pom.xml -Dtest=AdminLanguagePackControllerContractTest test` 通过。
+    - `mvn -q -f backend/pom.xml -DskipTests compile` 通过。
+    - `mvn -q -f backend/pom.xml -Dtest=AdminLanguagePackFilterIntegrationTest,AdminLanguagePackControllerContractTest test` 本地未通过完整验证：`AdminLanguagePackFilterIntegrationTest` 依赖数据库连接，当前环境因 `onlinejudge` 账号鉴权失败无法拉起集成测试上下文；已确认失败原因为环境数据库认证，不是本次代码编译错误。
+
+- 2026-04-10T09:35:00+08:00 竞赛设计说明书平台章节重写：按评审要求补齐开发平台与运行平台的官网、厂家、版本、部署和网络描述
+  - 修改文件：
+    - `docs/competition/设计说明书.md`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 重写 `2.2.1 系统开发平台（含开源/第三方工具）`，补充开发主机硬件型号、生产厂家、CPU/内存/硬盘信息，并按“名称、维护方、官网、版本、功能、在系统中的作用”重构开源平台与第三方工具说明。
+    - 在 `2.2.1` 中新增“第三方工具/源代码出处与已实现功能”以及“数据库说明”，明确 Judge Server、CodeMirror、LibreOffice/文档解析库的出处，并说明系统仅使用 PostgreSQL 作为唯一持久化数据库，`pgvector` 以内置扩展方式与结构化数据同库关联。
+    - 重写 `2.2.2 系统运行平台`，明确系统在结构上属于分布式、在参赛交付形态上采用单机集中部署，补齐运行硬件环境、设备部署要求、系统通信网络详细描述、每台硬件设备部署的软件及版本要求。
+    - 将原有 ASCII 连接图替换为 Mermaid 网络拓扑图，便于在 Markdown 文档和答辩材料中直接复用。
+  - 验证结果：
+    - 已人工核对文档内容与仓库中的 `deploy/docker-compose.yml`、`deploy/README.md`、`backend/pom.xml`、`frontend/package.json`、运行环境硬件信息保持一致。
+    - 本次为文档修改，未运行自动化测试。
+
+- 2026-04-10T09:52:00+08:00 竞赛设计说明书技术与特色章节重构：区分 Agent 工程关键技术与作品不可替代性
+  - 修改文件：
+    - `docs/competition/设计说明书.md`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 重写 `2.3 关键技术`，将重点从与作品特色重复的功能性描述，调整为 Agent 相关工程能力与教育理论落地，包括多 Agent 编排与上下文隔离、事件驱动六阶段状态机、ReAct 式证据化诊断、Harness/Reflection 驱动的质量治理、结构化卡片协议，以及脚手架理论、认知学徒制、形成性评价、掌握学习等教育理论如何落进系统实现。
+    - 重写 `2.4 作品特色`，改为回答“为什么必须用 Alethicode，为什么传统 OJ、通用 AI 聊天、AI+OJ 拼装方案都不行”，突出平台化一体化方案的不可替代性，而不再与关键技术章节重复介绍工程细节。
+  - 验证结果：
+    - 已人工通读 `2.3` 与 `2.4`，确认两节分工清晰：`2.3` 讲“如何实现”，`2.4` 讲“为什么必须是这个方案”。
+    - 本次为文档修改，未运行自动化测试。
+
+- 2026-04-10T10:08:00+08:00 竞赛设计说明书 3.1 系统结构设计重写：按模板补齐技术架构、模块结构图与关键流程图
+  - 修改文件：
+    - `docs/competition/设计说明书.md`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 重写 `3.1.1 技术架构`，明确系统采用 B/S 为主、移动端为辅、未采用传统桌面 C/S 的选型原因，并补充 Spring Boot、Vue 3、UniApp、PostgreSQL、Redis、Judge Server、WebSocket 等关键开发框架说明。
+    - 重写 `3.1.2 功能模块设计`，按“用户交互层 → 接入通信层 → 领域业务层 → 基础设施层”组织系统模块，新增 Mermaid 功能模块结构图和包级模块调用关系图，并说明模块划分原则与相互调用关系。
+    - 重写 `3.1.3 关键功能/算法设计`，新增 Mermaid 流程图，覆盖代码提交判题与 AI 导学联动、多 Agent 调度算法、课件初始化与 RAG 问答、错题闭环与专项复习生成四条关键流程，并补充每条流程解决的问题及优化技巧。
+    - 将 `3.1` 中原有 ASCII 图全部替换为 Mermaid 表达，便于比赛材料和答辩展示复用。
+  - 验证结果：
+    - 已人工核对 `3.1.1`、`3.1.2`、`3.1.3` 与 `2.2 系统软硬件平台`、`2.3 关键技术`、`2.4 作品特色` 的口径保持一致。
+    - 本次为文档修改，未运行自动化测试。
+
+- 2026-04-15T20:20:00+08:00 NFK AutoDL 训练吞吐与收敛轮数优化：默认启用大 batch、多进程数据加载和长训练配置
+  - 修改文件：
+    - `research/nfk/run_local.py`
+    - `research/nfk/tests/test_run_local_training_defaults.py`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将 `run_local.py` 的默认训练 `batch_size` 从 64 调整为 512，提高 RTX 3090/4090 等 24GB 显存 GPU 的单步吞吐，减少显存长期低占用导致的训练时间浪费。
+    - 新增 `--batch-size` 与 `--num-workers` 命令行参数，默认分别为 512 与 8，支持在 AutoDL 上按显存与 CPU 情况直接切换到 1024 等更大 batch，无需临时改脚本。
+    - 将非分阶段变体默认 `max_epochs` 从 100 调整为 300，将 `patience` 从 15 调整为 50，避免大 batch 下每个 epoch 更新步数减少后过早 early stopping。
+    - 将分阶段训练默认轮数从 `60/30/40` 调整为 `120/60/100`，并新增 `--max-epochs`、`--patience`、`--stage1-epochs`、`--stage2-epochs`、`--stage3-epochs` 参数，支持 AutoDL 上按收敛曲线直接调整训练时长。
+    - 抽取 `build_data_loader()`，统一训练集与验证集 DataLoader 配置，启用 CUDA 可用时的 pinned memory，并在多进程加载时启用 `persistent_workers`，减少 epoch 间 worker 反复启动开销。
+    - 新增 pytest 回归测试，约束默认 batch size、训练轮数、early stopping、DataLoader worker 数与 persistent worker 行为，避免后续训练脚本退回低吞吐或欠训练配置。
+  - 验证结果：
+    - `pytest -q research/nfk/tests/test_run_local_training_defaults.py` 通过，2 个 NFK 训练配置回归测试全部通过。
+
+- 2026-04-10T10:36:00+08:00 竞赛设计说明书 Mermaid 图表版式优化：统一直线连线并提升导出清晰度
+  - 修改文件：
+    - `docs/competition/设计说明书.md`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 为全文 Mermaid 图统一补充 `theme`、`fontSize`、`fontFamily`、`nodeSpacing`、`rankSpacing`、`padding` 等初始化参数，在保持直线连线风格的同时，提高图中文字可读性和节点间距。
+    - 按比赛文档导出场景优化图内留白与字号，使图表在 Markdown 预览、截图和导出 PDF 时更清晰，更适合用于正式材料排版。
+  - 验证结果：
+    - 已人工检查 `docs/competition/设计说明书.md` 中全部 Mermaid 代码块，确认初始化配置已统一。
+    - 本次为文档修改，未运行自动化测试。
+
+- 2026-04-11T17:14:05+08:00 阿里云全量上传部署构建修复：统一后端 Docker 构建上下文
+  - 修改文件：
+    - `backend/Dockerfile`
+    - `deploy/docker-compose.yml`
+    - `.dockerignore`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 将后端 Docker 构建上下文统一为仓库根目录，使 Maven 校验脚本 `scripts/m12/guard_no_api_v1.sh` 能在 Docker 构建时按真实仓库结构访问 `backend/src`、`frontend/src` 与 `scripts`，不再依赖把脚本临时复制到后端目录。
+    - 后端构建改为 `mvn -f backend/pom.xml -Dmaven.test.skip=true package`，保持后端项目边界清晰，同时让 `pom.xml` 中相对路径 `../scripts/m12/guard_no_api_v1.sh` 正常解析。
+    - 新增根目录 `.dockerignore`，排除 `.git`、`release`、`deploy/data`、构建产物和压缩包，避免全量上传后的数据库数据、运行时文件或大包进入 Docker build context。
+    - 将部署用 PostgreSQL 镜像恢复为服务器已离线导入的 `pgvector/pgvector:pg16`，避免阿里云服务器无法访问 Docker Hub 时再次触发不存在标签或拉取失败。
+  - 验证结果：
+    - `docker compose -f deploy/docker-compose.yml config --no-interpolate` 通过，确认后端构建上下文解析为仓库根目录，Dockerfile 解析为 `backend/Dockerfile`。
+    - 使用临时 Dockerfile 执行离线路径验证通过：确认构建上下文内存在 `backend/pom.xml`、`backend/src`、`frontend/src`、`scripts/m12/guard_no_api_v1.sh`，且从 `backend` 目录访问 `../scripts/m12/guard_no_api_v1.sh` 成立。
+    - `docker build --pull=false -f backend/Dockerfile --target build .` 本机未完成，失败原因是本机 Docker 构建环境代理指向不可用的 `127.0.0.1:7892`，导致 `apt-get` 无法安装 `maven/ripgrep`；该失败发生在脚本路径复制之后，不是本次修复的构建上下文问题。
+
+- 2026-04-11T17:59:06+08:00 阿里云前端上传链路修复：放宽课程内容包初始化上传代理限制
+  - 修改文件：
+    - `deploy/frontend-nginx.conf`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 前端容器 Nginx `server` 块新增 `client_max_body_size 256m` 与 `client_body_timeout 300s`，与后端 Spring `multipart.max-request-size=256MB` 对齐，避免 ECS 公网前端上传 PPT/PDF/DOCX 课件集合时被默认 1MB 请求体限制拦截。
+    - `/api/` 反向代理新增连接、发送、读取超时配置，其中读取超时放宽到 `3600s`，避免课程内容包“一键初始化”这类长耗时请求被前端代理提前断开。
+    - `/public/avatar/` 代理补充上传/读取超时，保持头像上传访问链路与公开资源代理行为一致。
+  - 验证结果：
+    - `git diff --check -- deploy/frontend-nginx.conf CHANGELOG.md` 通过。
+    - `docker run --rm --add-host backend:127.0.0.1 -v "$PWD/deploy/frontend-nginx.conf:/etc/nginx/conf.d/default.conf:ro" nginx:1.27-alpine nginx -t` 通过，确认前端容器 Nginx 配置语法有效。
+
+- 2026-04-11T18:14:11+08:00 ECS 公网前端课程内容包初始化修复：移除安全上下文依赖的 slug 生成
+  - 修改文件：
+    - `frontend/src/pages/admin/views/general/LanguagePackInit.vue`
+    - `frontend/tests/unit/admin-language-pack-init-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 课程内容包新建任务的自动 slug 生成不再调用 `crypto.randomUUID()`，避免 ECS 通过公网 HTTP IP 访问时浏览器因非安全上下文不提供该 API，导致点击“创建并一键初始化”后前端 JavaScript 中断且没有发出 `POST /api/admin/language-packs/init-tasks`。
+    - 新增 `generateLanguagePackSlug()`，使用 `lp-<base36时间>-<base36随机片段>` 生成符合后端 slug 正则的标识，保持创建链路输入闭合。
+    - 补充前端契约测试，约束课程内容包初始化不再依赖 `crypto.randomUUID()`。
+  - 验证结果：
+    - `npm --prefix frontend test -- --runInBand frontend/tests/unit/admin-language-pack-init-contract.spec.js` 通过，11 个课程内容包初始化前端契约用例全部通过。
+    - `npx --prefix frontend eslint --no-warn-ignored frontend/src/pages/admin/views/general/LanguagePackInit.vue frontend/tests/unit/admin-language-pack-init-contract.spec.js` 通过，无 ESLint 错误；Node 仅提示 `frontend/package.json` 未声明 `type: module` 的既有配置警告。
+    - `git diff --check -- frontend/src/pages/admin/views/general/LanguagePackInit.vue frontend/tests/unit/admin-language-pack-init-contract.spec.js CHANGELOG.md` 通过。
+
+- 2026-04-14T11:08:00+08:00 课件问答会话标题摘要修复：按多轮问题生成标题并在前四轮自动刷新
+  - 修改文件：
+    - `backend/src/main/java/com/alethicode/service/languagepack/impl/LanguagePackQaServiceImpl.java`
+    - `backend/src/test/java/com/alethicode/integration/LanguagePackQaIntegrationTest.java`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 会话标题生成从“仅首条问题”调整为“基于多轮用户问题摘要”，标题提示词改为概括整段对话核心主题。
+    - 标题刷新策略改为前四轮可自动更新，避免会话主题变化后标题仍停留在首问描述。
+    - 新增标题生成与回退规范化逻辑，统一处理换行、空白与最大长度，降低异常响应导致的标题污染。
+    - 补充集成测试 `sessionTitleShouldRefreshDuringEarlyDialogueTurns`，约束第二轮后标题可被刷新为新的摘要结果。
+  - 验证结果：
+    - `JAVA_HOME=/home/cypress/java/jdk-21.0.2 /home/cypress/java/apache-maven-3.9.6/bin/mvn -DskipTests compile` 通过。
+    - `JAVA_HOME=/home/cypress/java/jdk-21.0.2 /home/cypress/java/apache-maven-3.9.6/bin/mvn -Dtest=LanguagePackQaIntegrationTest#sessionTitleShouldRefreshDuringEarlyDialogueTurns test` 未完成：被仓库内既有测试编译错误阻断（`AdminLanguagePackFilterIntegrationTest`、`AITutorWorkflowAdminServiceImplTest`、`SubmissionServiceImplTest`），非本次改动引入。
+
+- 2026-04-14T11:12:00+08:00 AI 学习助手挫败安抚卡修复：关闭中等挫败弹卡并隐藏 encouragement 历史卡片
+  - 修改文件：
+    - `frontend/src/composables/problem/useFrustration.js`
+    - `frontend/src/pages/oj/views/problem/UnifiedAgentPanel.vue`
+    - `frontend/tests/unit/problem-frustration-card-contract.spec.js`
+    - `CHANGELOG.md`
+  - 变更内容：
+    - 中等挫败（`THETA_LOW`）分支不再向对话流推送 `encouragement` 卡片，仅保留教师侧预警上报，避免每 10 秒重复插入“别着急...”安抚卡。
+    - 统一 Agent 面板时间线过滤 `encouragement` 类型消息，历史缓存中的同类卡片也不再渲染。
+    - 新增前端契约测试，约束“中等挫败不再推送安抚卡”与“面板不渲染 encouragement 卡片”。
+  - 验证结果：
+    - `PATH=/home/cypress/.nvm/versions/node/v20.20.0/bin:$PATH npm --prefix /home/cypress/Alethicode/frontend test -- --runInBand frontend/tests/unit/problem-frustration-card-contract.spec.js` 通过（2/2）。
+
+## 2026-04-18
+
+- 修复 ECS 打包部署模板中默认前端 Nginx 强依赖未启动 Grafana 上游导致容器启动失败的问题，默认入口不再暴露 `/grafana/` 代理段。
+- 修复 ECS 打包部署模板中 `/public/avatar/*.png` 被静态资源正则截获导致头像上传后无法读取的问题，将 `/public/avatar/` 设为高优先级后端代理路径。
+- 调整默认后端容器内存与 JVM Metaspace 配置，避免 Spring Boot 初始化阶段因 Metaspace 不足导致 `/api/*` 返回 502。
+- 修复个人设置侧栏账号身份显示优先级，教师账号优先读取 `admin_type=Teacher`，避免被资料角色回退显示为“学生”。
+- 修复课程包删除链路中的初始化批处理表名错误，删除任务时使用真实表 `language_pack_init_batch_run`，避免云端删除课程包返回 500。

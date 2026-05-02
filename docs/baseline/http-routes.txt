@@ -1,0 +1,163 @@
+/home/cypress/Alethicode/backend/announcement/urls/oj.py:8:    re_path(r"^announcements/?$", AnnouncementAPI.as_view(), name="announcement_api"),
+/home/cypress/Alethicode/backend/announcement/urls/admin.py:8:    re_path(r"^announcements/?$", AnnouncementAdminAPI.as_view(), name="announcement_admin_api"),
+/home/cypress/Alethicode/backend/submission/urls/admin.py:8:    re_path(r"^submission/rejudge?$", SubmissionRejudgeAPI.as_view(), name="submission_rejudge_api"),
+/home/cypress/Alethicode/backend/utils/urls.py:8:    re_path(r"^upload-image/?$", SimditorImageUploadAPIView.as_view(), name="upload_image"),
+/home/cypress/Alethicode/backend/utils/urls.py:9:    re_path(r"^upload-file/?$", SimditorFileUploadAPIView.as_view(), name="upload_file")
+/home/cypress/Alethicode/backend/problem/urls/oj.py:8:    re_path(r"^problems/tags/?$", ProblemTagAPI.as_view(), name="problem_tag_list_api"),
+/home/cypress/Alethicode/backend/problem/urls/oj.py:9:    re_path(r"^problems/tag-progress/?$", TagProgressAPI.as_view(), name="tag_progress_api"),
+/home/cypress/Alethicode/backend/problem/urls/oj.py:10:    re_path(r"^problems/?$", ProblemAPI.as_view(), name="problem_api"),
+/home/cypress/Alethicode/backend/problem/urls/oj.py:11:    re_path(r"^problems/random/?$", PickOneAPI.as_view(), name="pick_one_api"),
+/home/cypress/Alethicode/backend/oj/urls.py:8:    re_path(r"^", include("account.urls.oj")),
+/home/cypress/Alethicode/backend/oj/urls.py:9:    re_path(r"^", include("announcement.urls.oj")),
+/home/cypress/Alethicode/backend/oj/urls.py:10:    re_path(r"^", include("conf.urls.oj")),
+/home/cypress/Alethicode/backend/oj/urls.py:11:    re_path(r"^", include("problem.urls.oj")),
+/home/cypress/Alethicode/backend/oj/urls.py:12:    re_path(r"^", include("submission.urls.oj")),
+/home/cypress/Alethicode/backend/oj/urls.py:13:    re_path(r"^", include("ai_tutor.urls.oj")),
+/home/cypress/Alethicode/backend/oj/urls.py:14:    re_path(r"^", include("classroom.urls.oj")),
+/home/cypress/Alethicode/backend/oj/urls.py:18:    re_path(r"^", include("account.urls.admin")),
+/home/cypress/Alethicode/backend/oj/urls.py:19:    re_path(r"^", include("announcement.urls.admin")),
+/home/cypress/Alethicode/backend/oj/urls.py:20:    re_path(r"^", include("conf.urls.admin")),
+/home/cypress/Alethicode/backend/oj/urls.py:21:    re_path(r"^", include("problem.urls.admin")),
+/home/cypress/Alethicode/backend/oj/urls.py:22:    re_path(r"^", include("submission.urls.admin")),
+/home/cypress/Alethicode/backend/oj/urls.py:23:    re_path(r"^", include("utils.urls")),
+/home/cypress/Alethicode/backend/oj/urls.py:24:    re_path(r"^", include("ai_tutor.urls.admin")),
+/home/cypress/Alethicode/backend/oj/urls.py:29:    re_path(r"^api/v1/", include(_api_oj_patterns)),
+/home/cypress/Alethicode/backend/oj/urls.py:30:    re_path(r"^api/v1/admin/", include(_api_admin_patterns)),
+/home/cypress/Alethicode/backend/oj/urls.py:33:    re_path(r"^api/", include(_api_oj_patterns)),
+/home/cypress/Alethicode/backend/oj/urls.py:34:    re_path(r"^api/admin/", include(_api_admin_patterns)),
+/home/cypress/Alethicode/backend/oj/urls.py:37:    path("metrics/", include("django_prometheus.urls")),
+/home/cypress/Alethicode/backend/oj/urls.py:40:    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+/home/cypress/Alethicode/backend/oj/urls.py:41:    path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+/home/cypress/Alethicode/backend/oj/urls.py:45:    re_path(
+/home/cypress/Alethicode/backend/problem/urls/admin.py:8:    re_path(r"^test-cases/?$", TestCaseAPI.as_view(), name="test_case_api"),
+/home/cypress/Alethicode/backend/problem/urls/admin.py:9:    re_path(r"^problems/?$", ProblemAPI.as_view(), name="problem_admin_api"),
+/home/cypress/Alethicode/backend/problem/urls/admin.py:10:    re_path(r"^export-problems/?$", ExportProblemAPI.as_view(), name="export_problem_api"),
+/home/cypress/Alethicode/backend/problem/urls/admin.py:11:    re_path(r"^import-problems/?$", ImportProblemAPI.as_view(), name="import_problem_api"),
+/home/cypress/Alethicode/backend/problem/urls/admin.py:12:    re_path(r"^import-fps/?$", FPSProblemImport.as_view(), name="fps_problem_api"),
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:23:router.register(r'classroom', ClassroomViewSet, basename='classroom')
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:26:router.register(r'classroom/invitation', InvitationViewSet, basename='classroom-invitation')
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:192:    path('', include(router.urls)),
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:195:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:200:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:205:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:210:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:217:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:222:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:227:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:232:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:239:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:244:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:249:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:254:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:259:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:264:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:269:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:274:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:279:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:286:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:291:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:296:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:301:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:308:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:313:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:320:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:325:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:330:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:335:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:342:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:347:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:352:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:357:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:362:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:369:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:374:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:379:    re_path(
+/home/cypress/Alethicode/backend/classroom/urls/oj.py:384:    re_path(
+/home/cypress/Alethicode/backend/account/urls/oj.py:29:    re_path(r"^login/?$", UserLoginAPI.as_view(), name="user_login_api"),
+/home/cypress/Alethicode/backend/account/urls/oj.py:30:    re_path(r"^logout/?$", UserLogoutAPI.as_view(), name="user_logout_api"),
+/home/cypress/Alethicode/backend/account/urls/oj.py:31:    re_path(r"^register/?$", UserRegisterAPI.as_view(), name="user_register_api"),
+/home/cypress/Alethicode/backend/account/urls/oj.py:32:    re_path(r"^change-password/?$", UserChangePasswordAPI.as_view(), name="user_change_password_api"),
+/home/cypress/Alethicode/backend/account/urls/oj.py:33:    re_path(r"^change-email/?$", UserChangeEmailAPI.as_view(), name="user_change_email_api"),
+/home/cypress/Alethicode/backend/account/urls/oj.py:34:    re_path(r"^apply-reset-password/?$", ApplyResetPasswordAPI.as_view(), name="apply_reset_password_api"),
+/home/cypress/Alethicode/backend/account/urls/oj.py:35:    re_path(r"^reset-password/?$", ResetPasswordAPI.as_view(), name="reset_password_api"),
+/home/cypress/Alethicode/backend/account/urls/oj.py:36:    re_path(r"^captcha/?$", CaptchaAPIView.as_view(), name="show_captcha"),
+/home/cypress/Alethicode/backend/account/urls/oj.py:37:    re_path(r"^check-username-or-email", UsernameOrEmailCheck.as_view(), name="check_username_or_email"),
+/home/cypress/Alethicode/backend/account/urls/oj.py:39:    re_path(r"^profile/?$", UserProfileAPI.as_view(), name="user_profile_api"),
+/home/cypress/Alethicode/backend/account/urls/oj.py:40:    re_path(r"^profile/fresh-display-id", ProfileProblemDisplayIDRefreshAPI.as_view(), name="display_id_fresh"),
+/home/cypress/Alethicode/backend/account/urls/oj.py:41:    re_path(r"^upload-avatar/?$", AvatarUploadAPI.as_view(), name="avatar_upload_api"),
+/home/cypress/Alethicode/backend/account/urls/oj.py:42:    re_path(r"^tfa-required/?$", CheckTFARequiredAPI.as_view(), name="tfa_required_check"),
+/home/cypress/Alethicode/backend/account/urls/oj.py:43:    re_path(r"^two-factor-auth/?$", TwoFactorAuthAPI.as_view(), name="two_factor_auth_api"),
+/home/cypress/Alethicode/backend/account/urls/oj.py:44:    re_path(r"^sessions/?$", SessionManagementAPI.as_view(), name="session_management_api"),
+/home/cypress/Alethicode/backend/account/urls/oj.py:45:    re_path(r"^open-api-appkey/?$", OpenAPIAppkeyAPI.as_view(), name="open_api_appkey_api"),
+/home/cypress/Alethicode/backend/account/urls/oj.py:46:    re_path(r"^sso?$", SSOAPI.as_view(), name="sso_api"),
+/home/cypress/Alethicode/backend/account/urls/oj.py:47:    re_path(r"^csrf/?$", CSRFTokenAPI.as_view(), name="csrf_token_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:60:    re_path(r"^ai/tutor/inference/?$", TutorInferenceAPI.as_view(), name="tutor_inference_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:61:    re_path(r"^ai/tutor/task/?$", TutorTaskStatusAPI.as_view(), name="tutor_task_status_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:62:    re_path(r"^ai/tutor/session/?$", DialogueSessionAPI.as_view(), name="tutor_session_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:65:    re_path(r"^ai/skill/radar/?$", SkillRadarAPI.as_view(), name="skill_radar_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:66:    re_path(r"^ai/skill/heatmap/?$", PracticeHeatmapAPI.as_view(), name="practice_heatmap_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:67:    re_path(r"^ai/skill/recommend/?$", ProblemRecommendationsAPI.as_view(), name="problem_recommendations_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:70:    re_path(r"^ai/tutor/error-attribution/?$", ErrorAttributionAPI.as_view(), name="error_attribution_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:73:    re_path(r"^analytics/anti-patterns/analyze/?$", AntiPatternAnalysisAPI.as_view(), name="anti_pattern_analysis_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:76:    re_path(r"^ai/tutor/eval-feedback/?$", EvalFeedbackAPI.as_view(), name="eval_feedback_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:77:    re_path(r"^ai/tutor/safety-feedback/?$", SafetyFeedbackAPI.as_view(), name="safety_feedback_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:80:    re_path(r"^ai/tutor/notebook/?$", LearnerNotebookAPI.as_view(), name="learner_notebook_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:81:    re_path(r"^ai/tutor/notebook/export/?$", LearnerNotebookExportAPI.as_view(), name="learner_notebook_export_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:84:    re_path(r"^ai/frustration/analyze/?$", FrustrationAnalyzeAPI.as_view(), name="frustration_analyze_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:85:    re_path(r"^ai/frustration/event/?$", FrustrationEventAPI.as_view(), name="frustration_event_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:86:    re_path(r"^ai/frustration/alert/?$", FrustrationAlertAPI.as_view(), name="frustration_alert_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:89:    re_path(r"^ai/ideate/analyze/?$", IdeateAnalyzeView.as_view(), name="ideate_analyze_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:90:    re_path(r"^ai/ideate/skeleton/?$", IdeateSkeletonView.as_view(), name="ideate_skeleton_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:91:    re_path(r"^ai/ideate/inserted/?$", IdeateInsertedView.as_view(), name="ideate_inserted_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:94:    re_path(r"^ai/workflow/session/?$", WorkflowSessionAPI.as_view(), name="workflow_session_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:95:    re_path(r"^ai/workflow/event/?$", WorkflowEventAPI.as_view(), name="workflow_event_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:96:    re_path(r"^ai/workflow/checkpoint/?$", WorkflowCheckpointAPI.as_view(), name="workflow_checkpoint_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:97:    re_path(r"^ai/workflow/checkpoint/restore/?$", WorkflowCheckpointAPI.as_view(), name="workflow_checkpoint_restore_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:98:    re_path(r"^ai/workflow/interrupt/?$", WorkflowInterruptAPI.as_view(), name="workflow_interrupt_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:101:    re_path(r"^ai/misconceptions/mine/?$", MyMisconceptionsAPI.as_view(), name="my_misconceptions_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:104:    re_path(r"^ai/review/due/?$", ReviewDueAPI.as_view(), name="review_due_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:107:    re_path(r"^ai/preflight/check/?$", PreflightCheckAPI.as_view(), name="preflight_check_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:110:    re_path(r"^ai/code-snapshot/?$", CodeSnapshotAPI.as_view(), name="code_snapshot_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:111:    re_path(r"^ai/learning-events/batch/?$", LearningEventsBatchAPI.as_view(), name="learning_events_batch_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:114:    re_path(r"^ai/calibration/status/?$", CalibrationStatusAPI.as_view(), name="calibration_status_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:115:    re_path(r"^ai/calibration/answer/?$", CalibrationAnswerAPI.as_view(), name="calibration_answer_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:116:    re_path(r"^ai/calibration/skip/?$", CalibrationSkipAPI.as_view(), name="calibration_skip_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:119:    re_path(r"^ai/parsons/validate/?$", ParsonsValidateAPI.as_view(), name="parsons_validate_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:122:    re_path(r"^ai/knowledge-graph/?$", KnowledgeGraphAPI.as_view(), name="knowledge_graph_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:123:    re_path(r"^ai/knowledge-graph/snapshot/?$", KnowledgeGraphSnapshotAPI.as_view(), name="knowledge_graph_snapshot_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:124:    re_path(r"^ai/knowledge-graph/kc/(?P<kc_id>\d+)/detail/?$", KCGraphDetailAPI.as_view(), name="kc_graph_detail_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/oj.py:127:    re_path(r"^ai/submission-river/(?P<problem_id>\d+)/?$", SubmissionRiverAPI.as_view(), name="submission_river_api"),
+/home/cypress/Alethicode/backend/conf/urls/oj.py:9:    re_path(r"^website/?$", WebsiteConfigAPI.as_view(), name="website_info_api"),
+/home/cypress/Alethicode/backend/conf/urls/oj.py:10:    re_path(r"^judge-server-heartbeat/?$", JudgeServerHeartbeatAPI.as_view(), name="judge_server_heartbeat_api"),
+/home/cypress/Alethicode/backend/conf/urls/oj.py:11:    re_path(r"^languages/?$", LanguagesAPI.as_view(), name="language_list_api")
+/home/cypress/Alethicode/backend/account/urls/admin.py:8:    re_path(r"^users/?$", UserAdminAPI.as_view(), name="user_admin_api"),
+/home/cypress/Alethicode/backend/account/urls/admin.py:9:    re_path(r"^generate-user/?$", GenerateUserAPI.as_view(), name="generate_user_api"),
+/home/cypress/Alethicode/backend/conf/urls/admin.py:17:    re_path(r"^smtp/?$", SMTPAPI.as_view(), name="smtp_admin_api"),
+/home/cypress/Alethicode/backend/conf/urls/admin.py:18:    re_path(r"^smtp-test/?$", SMTPTestAPI.as_view(), name="smtp_test_api"),
+/home/cypress/Alethicode/backend/conf/urls/admin.py:19:    re_path(r"^website/?$", WebsiteConfigAPI.as_view(), name="website_config_api"),
+/home/cypress/Alethicode/backend/conf/urls/admin.py:20:    re_path(r"^judge-server/?$", JudgeServerAPI.as_view(), name="judge_server_api"),
+/home/cypress/Alethicode/backend/conf/urls/admin.py:21:    re_path(r"^prune-test-case/?$", TestCasePruneAPI.as_view(), name="prune_test_case_api"),
+/home/cypress/Alethicode/backend/conf/urls/admin.py:22:    re_path(r"^versions/?$", ReleaseNotesAPI.as_view(), name="get_release_notes_api"),
+/home/cypress/Alethicode/backend/conf/urls/admin.py:23:    re_path(r"^dashboard-info", DashboardInfoAPI.as_view(), name="dashboard_info_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/admin.py:25:    re_path(r"^ai/variant-review/?$", AIVariantReviewAPI.as_view(), name="ai_variant_review_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/admin.py:26:    re_path(r"^ai/variant-review/(?P<problem_id>\d+)/approve/?$", AIVariantApproveAPI.as_view(), name="ai_variant_approve_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/admin.py:27:    re_path(r"^ai/variant-review/(?P<problem_id>\d+)/reject/?$", AIVariantRejectAPI.as_view(), name="ai_variant_reject_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/admin.py:30:    re_path(r"^ai/kc-list/?$", KCListAPI.as_view(), name="kc_list_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/admin.py:31:    re_path(r"^ai/kc/(?P<kc_id>\d+)/?$", KCDetailAPI.as_view(), name="kc_detail_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/admin.py:32:    re_path(r"^ai/kc/(?P<kc_id>\d+)/problems/?$", KCProblemsAPI.as_view(), name="kc_problems_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/admin.py:35:    re_path(r"^ai/classroom-chapters/?$", ClassroomChapterOverviewAPI.as_view(), name="classroom_chapter_overview_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/admin.py:38:    re_path(r"^ai/preflight/stats/?$", PreflightStatsAPI.as_view(), name="preflight_stats_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/admin.py:39:    re_path(r"^ai/preflight/diagnose/?$", PreflightDiagnoseAPI.as_view(), name="preflight_diagnose_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/admin.py:42:    re_path(r"^ai/mcmining/pending/?$", McMiningPendingAPI.as_view(), name="mcmining_pending_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/admin.py:43:    re_path(r"^ai/mcmining/approve/?$", McMiningApproveAPI.as_view(), name="mcmining_approve_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/admin.py:44:    re_path(r"^ai/mcmining/reject/?$", McMiningRejectAPI.as_view(), name="mcmining_reject_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/admin.py:45:    re_path(r"^ai/mcmining/merge/?$", McMiningMergeAPI.as_view(), name="mcmining_merge_api"),
+/home/cypress/Alethicode/backend/ai_tutor/urls/admin.py:46:    re_path(r"^ai/mcmining/discover/?$", McMiningDiscoverAPI.as_view(), name="mcmining_discover_api"),
+/home/cypress/Alethicode/backend/submission/urls/oj.py:8:    re_path(r"^submission/?$", SubmissionAPI.as_view(), name="submission_api"),
+/home/cypress/Alethicode/backend/submission/urls/oj.py:9:    re_path(r"^submissions/?$", SubmissionListAPI.as_view(), name="submission_list_api"),
+/home/cypress/Alethicode/backend/submission/urls/oj.py:10:    re_path(r"^submissions/recent-wrong/?$", RecentWrongAPI.as_view(), name="recent_wrong_api"),
+/home/cypress/Alethicode/backend/submission/urls/oj.py:11:    re_path(r"^submission-exists/?$", SubmissionExistsAPI.as_view(), name="submission_exists"),
+/home/cypress/Alethicode/backend/submission/urls/oj.py:12:    re_path(r"^debug/?$", DebugAPI.as_view(), name="debug_api"),
+/home/cypress/Alethicode/backend/submission/urls/oj.py:13:    re_path(r"^problems/statistics/?$", ProblemStatisticsAPI.as_view(), name="problem_statistics_api"),
+/home/cypress/Alethicode/backend/submission/urls/oj.py:14:    re_path(r"^judge/review-queue/?$", JudgeReviewQueueAPI.as_view(), name="review-queue-list"),
+/home/cypress/Alethicode/backend/submission/urls/oj.py:15:    re_path(r"^judge/review-queue/(?P<submission_id>[^/]+)/?$", JudgeReviewQueueAPI.as_view(), name="review-queue-verdict"),

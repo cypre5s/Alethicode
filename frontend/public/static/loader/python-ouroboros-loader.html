@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Python Ouroboros Loader</title>
+  <style>
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: transparent;
+    }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .loader-stage {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      padding: 8px 12px;
+    }
+
+    #c {
+      display: block;
+      width: min(100%, 680px);
+      height: auto;
+      aspect-ratio: 680 / 320;
+      background: transparent;
+    }
+  </style>
+</head>
+<body>
+  <div class="loader-stage">
+    <canvas id="c" width="680" height="320" aria-hidden="true"></canvas>
+  </div>
+  <script>
+    const cv = document.getElementById('c')
+    const cx = cv.getContext('2d')
+    const W = 680
+    const H = 320
+    const GROUND_Y = 255
+    const SNAKE_Y = GROUND_Y - 26
+    const TOTAL_SEGS = 18
+    const SNAKE_LEFT = 55
+    const SNAKE_RIGHT = W - 55
+    const SEG_GAP = (SNAKE_RIGHT - SNAKE_LEFT) / TOTAL_SEGS
+    const FRAMES = 24
+    const FPS = 6
+    let frame = 0
+
+    const rng = (seed) => {
+      const value = Math.sin(seed * 127.1 + 311.7) * 43758.5453
+      return value - Math.floor(value)
+    }
+
+    const jit = (seed, amount) => (rng(seed) - 0.5) * amount
+
+    const palette = {
+      bodyMain: '#F7D94E',
+      bodyDark: '#E0B830',
+      bodyLight: '#FFF0A0',
+      bodyStroke: '#C8961E',
+      bump: '#3E8FD4',
+      bumpDark: '#2568A8',
+      bumpLight: '#7ABEF0',
+      eye: '#1A1A2E',
+      tongue: '#E25555',
+      grass1: '#6BAF3A',
+      grass2: '#4E8C26',
+      grass3: '#85C94E',
+      grass4: '#3A7215',
+      flower1: '#F7D94E',
+      flower2: '#3E8FD4',
+      ground: '#7BA840',
+      text: '#BFA55A'
+    }
+
+    function drawParticles() {
+      cx.globalAlpha = 0.18
+      for (let i = 0; i < 10; i++) {
+        const px = (rng(i * 13.3) * W + frame * 3 * rng(i * 7.1)) % W
+        const py = 30 + rng(i * 9.7) * (GROUND_Y - 80) + Math.sin(frame * 0.4 + i * 2) * 8
+        const pr = 1 + rng(i * 3.3) * 1.3
+        cx.fillStyle = rng(i * 5) > 0.5 ? palette.flower1 : palette.bump
+        cx.beginPath()
+        cx.arc(px, py, pr, 0, Math.PI * 2)
+        cx.fill()
+      }
+      cx.globalAlpha = 1
+    }
+
+    function drawGround() {
+      cx.fillStyle = palette.ground
+      cx.beginPath()
+      cx.moveTo(-5, GROUND_Y + 2)
+      for (let x = -5; x <= W + 5; x += 6) {
+        cx.lineTo(x, GROUND_Y + 1 + jit(x * 0.13 + frame * 0.007, 2.5))
+      }
+      cx.lineTo(W + 5, GROUND_Y + 6)
+      cx.lineTo(-5, GROUND_Y + 6)
+      cx.closePath()
+      cx.fill()
+
+      const grassColors = [palette.grass1, palette.grass2, palette.grass3, palette.grass4]
+      for (let i = 0; i < 55; i++) {
+        const gx = rng(i * 3.7) * W
+        const gh = 4 + rng(i * 5.1) * 10
+        const lean = (rng(i * 2.3) - 0.5) * 8 + Math.sin(frame * 0.25 + i) * 1
+        cx.strokeStyle = grassColors[Math.floor(rng(i * 7.9) * grassColors.length)]
+        cx.lineWidth = 1 + rng(i) * 1.5
+        cx.lineCap = 'round'
+        cx.beginPath()
+        cx.moveTo(gx, GROUND_Y + 2)
+        cx.quadraticCurveTo(gx + lean * 0.5, GROUND_Y + 2 - gh * 0.55, gx + lean, GROUND_Y + 2 - gh)
+        cx.stroke()
+      }
+
+      const flowerSpots = [[90, 0], [200, 1], [340, 0], [480, 1], [590, 0]]
+      flowerSpots.forEach(([sx, type], index) => {
+        const fy = GROUND_Y
+        const stemH = 6 + rng(index * 11) * 4
+        const sway = Math.sin(frame * 0.3 + index * 1.7) * 1.2
+        cx.strokeStyle = palette.grass2
+        cx.lineWidth = 1.3
+        cx.beginPath()
+        cx.moveTo(sx, fy + 1)
+        cx.quadraticCurveTo(sx + sway, fy - stemH * 0.6, sx + sway * 1.5, fy - stemH)
+        cx.stroke()
+        const flX = sx + sway * 1.5
+        const flY = fy - stemH - 1
+        cx.fillStyle = type === 0 ? palette.flower1 : palette.flower2
+        for (let p = 0; p < 5; p++) {
+          const angle = (p / 5) * Math.PI * 2 + rng(index + p) * 0.4 + frame * 0.05
+          cx.beginPath()
+          cx.ellipse(flX + Math.cos(angle) * 3.5, flY + Math.sin(angle) * 3.5, 2.5, 1.8, angle, 0, Math.PI * 2)
+          cx.fill()
+        }
+        cx.fillStyle = type === 0 ? '#FFF5D0' : '#E0F0FF'
+        cx.beginPath()
+        cx.arc(flX, flY, 1.8, 0, Math.PI * 2)
+        cx.fill()
+      })
+    }
+
+    function crayonFill(x, y, width, height, color, seed, density) {
+      cx.strokeStyle = color
+      cx.globalAlpha = 0.12
+      cx.lineWidth = 1
+      for (let i = 0; i < density; i++) {
+        const lx = x + rng(seed + i * 3.1) * width
+        const ly = y + rng(seed + i * 7.3) * height
+        const lw = 3 + rng(seed + i * 11.7) * 6
+        const la = (rng(seed + i * 5.5) - 0.5) * 0.5
+        cx.beginPath()
+        cx.moveTo(lx, ly)
+        cx.lineTo(lx + Math.cos(la) * lw, ly + Math.sin(la) * lw)
+        cx.stroke()
+      }
+      cx.globalAlpha = 1
+    }
+
+    function snakeWave(index, seed) {
+      return Math.sin(seed * 0.5 + index * 0.55) * 5
+    }
+
+    function drawSegment(x, y, index, seed) {
+      const segmentWidth = SEG_GAP - 2
+      const segmentHeight = 26
+      const wobY = y + snakeWave(index, seed) + jit(seed + index * 3.1, 2)
+      const wobX = x + jit(seed + index * 8.8, 1.5)
+      cx.save()
+      cx.shadowColor = 'rgba(0, 0, 0, 0.08)'
+      cx.shadowBlur = 4
+      cx.shadowOffsetY = 3
+      cx.fillStyle = palette.bodyMain
+      cx.strokeStyle = palette.bodyStroke
+      cx.lineWidth = 1.8
+      const offset = (value) => jit(seed + index + value * 13.7, 2.2)
+      cx.beginPath()
+      cx.moveTo(wobX - segmentWidth / 2 + offset(0), wobY - segmentHeight / 2 + offset(1))
+      cx.lineTo(wobX + segmentWidth / 2 + offset(2), wobY - segmentHeight / 2 + offset(3))
+      cx.lineTo(wobX + segmentWidth / 2 + offset(4), wobY + segmentHeight / 2 + offset(5))
+      cx.lineTo(wobX - segmentWidth / 2 + offset(6), wobY + segmentHeight / 2 + offset(7))
+      cx.closePath()
+      cx.fill()
+      cx.shadowColor = 'transparent'
+      cx.stroke()
+      crayonFill(wobX - segmentWidth / 2, wobY - segmentHeight / 2, segmentWidth, segmentHeight, palette.bodyLight, seed + index * 17, 8)
+      cx.fillStyle = palette.bodyDark
+      cx.globalAlpha = 0.12
+      cx.fillRect(wobX - segmentWidth / 2 + 2, wobY + segmentHeight / 4, segmentWidth - 4, segmentHeight / 4)
+      cx.globalAlpha = 1
+      const bumpR = 6 + jit(seed + index * 2.2, 1.5)
+      const bx = wobX + jit(seed + index * 4.4, 2)
+      const by = wobY - segmentHeight / 2
+      const gradient = cx.createLinearGradient(bx - bumpR, by - bumpR, bx + bumpR, by)
+      gradient.addColorStop(0, palette.bumpLight)
+      gradient.addColorStop(0.5, palette.bump)
+      gradient.addColorStop(1, palette.bumpDark)
+      cx.fillStyle = gradient
+      cx.strokeStyle = palette.bumpDark
+      cx.lineWidth = 1.3
+      cx.beginPath()
+      cx.arc(bx, by, bumpR, Math.PI, 0)
+      cx.fill()
+      cx.stroke()
+      cx.fillStyle = 'rgba(255, 255, 255, 0.25)'
+      cx.beginPath()
+      cx.ellipse(bx - bumpR * 0.3, by - bumpR * 0.3, bumpR * 0.3, bumpR * 0.2, -0.4, 0, Math.PI * 2)
+      cx.fill()
+      cx.restore()
+    }
+
+    function drawTail(x, y, seed) {
+      const wobY = y + snakeWave(TOTAL_SEGS, seed) + jit(seed + 99, 2)
+      const offset = (value) => jit(seed + value * 7, 2)
+      cx.save()
+      cx.shadowColor = 'rgba(0, 0, 0, 0.08)'
+      cx.shadowBlur = 4
+      cx.shadowOffsetY = 3
+      cx.fillStyle = palette.bodyMain
+      cx.strokeStyle = palette.bodyStroke
+      cx.lineWidth = 1.8
+      cx.beginPath()
+      cx.moveTo(x - 5 + offset(0), wobY - 10 + offset(1))
+      cx.quadraticCurveTo(x + 10 + offset(8), wobY - 4 + offset(9), x + 20 + offset(2), wobY + offset(3))
+      cx.quadraticCurveTo(x + 10 + offset(10), wobY + 4 + offset(11), x - 5 + offset(4), wobY + 10 + offset(5))
+      cx.closePath()
+      cx.fill()
+      cx.shadowColor = 'transparent'
+      cx.stroke()
+      cx.fillStyle = palette.bump
+      cx.beginPath()
+      cx.arc(x + 3 + offset(6), wobY - 9, 4, Math.PI, 0)
+      cx.fill()
+      cx.restore()
+    }
+
+    function drawHead(x, y, seed, mouthOpen) {
+      const wobY = y + snakeWave(-1, seed) + jit(seed - 1, 2)
+      const headWidth = 32
+      const headHeight = 30
+      const offset = (value) => jit(seed + value * 11, 2)
+      cx.save()
+      cx.shadowColor = 'rgba(0, 0, 0, 0.1)'
+      cx.shadowBlur = 5
+      cx.shadowOffsetY = 3
+      cx.fillStyle = palette.bodyMain
+      cx.strokeStyle = palette.bodyStroke
+      cx.lineWidth = 2
+      cx.beginPath()
+      cx.moveTo(x - headWidth / 2 + offset(0), wobY - headHeight / 2 + offset(1))
+      cx.quadraticCurveTo(x + offset(20), wobY - headHeight / 2 - 4 + offset(21), x + headWidth / 2 + 4 + offset(2), wobY - headHeight / 3 + offset(3))
+      if (mouthOpen) {
+        cx.quadraticCurveTo(x + headWidth / 2 + 14 + offset(22), wobY - 8 + offset(23), x + headWidth / 2 + 16 + offset(8), wobY - 2 + offset(9))
+        cx.quadraticCurveTo(x + headWidth / 2 + 14 + offset(24), wobY + 6 + offset(25), x + headWidth / 2 + 4 + offset(4), wobY + headHeight / 3 + offset(5))
+      } else {
+        cx.quadraticCurveTo(x + headWidth / 2 + 12 + offset(22), wobY - 2 + offset(23), x + headWidth / 2 + 10 + offset(4), wobY + 2 + offset(9))
+        cx.lineTo(x + headWidth / 2 + 4 + offset(4), wobY + headHeight / 3 + offset(5))
+      }
+      cx.quadraticCurveTo(x + offset(26), wobY + headHeight / 2 + 2 + offset(27), x - headWidth / 2 + offset(6), wobY + headHeight / 2 + offset(7))
+      cx.closePath()
+      cx.fill()
+      cx.shadowColor = 'transparent'
+      cx.stroke()
+      crayonFill(x - headWidth / 2, wobY - headHeight / 2, headWidth, headHeight, palette.bodyLight, seed + 200, 10)
+      cx.fillStyle = palette.bodyDark
+      cx.globalAlpha = 0.1
+      cx.beginPath()
+      cx.ellipse(x, wobY + headHeight / 4, headWidth / 2 - 2, headHeight / 5, 0, 0, Math.PI * 2)
+      cx.fill()
+      cx.globalAlpha = 1
+      const bumpR = 8
+      const bx2 = x + 2 + offset(10)
+      const by2 = wobY - headHeight / 2
+      const gradient = cx.createLinearGradient(bx2 - bumpR, by2 - bumpR, bx2 + bumpR, by2)
+      gradient.addColorStop(0, palette.bumpLight)
+      gradient.addColorStop(0.5, palette.bump)
+      gradient.addColorStop(1, palette.bumpDark)
+      cx.fillStyle = gradient
+      cx.strokeStyle = palette.bumpDark
+      cx.lineWidth = 1.3
+      cx.beginPath()
+      cx.arc(bx2, by2, bumpR, Math.PI, 0)
+      cx.fill()
+      cx.stroke()
+      cx.fillStyle = 'rgba(255, 255, 255, 0.3)'
+      cx.beginPath()
+      cx.ellipse(bx2 - 2, by2 - 3, 2.5, 1.5, -0.4, 0, Math.PI * 2)
+      cx.fill()
+      const eyeX = x + 10 + offset(11)
+      const eyeY = wobY - 5 + offset(12)
+      cx.fillStyle = '#FFF'
+      cx.strokeStyle = '#2A2A3E'
+      cx.lineWidth = 1.6
+      cx.beginPath()
+      cx.ellipse(eyeX, eyeY, 6.5, 7, 0.1, 0, Math.PI * 2)
+      cx.fill()
+      cx.stroke()
+      if (frame % 12 === 8) {
+        cx.strokeStyle = palette.eye
+        cx.lineWidth = 2
+        cx.beginPath()
+        cx.moveTo(eyeX - 4, eyeY)
+        cx.lineTo(eyeX + 4, eyeY)
+        cx.stroke()
+      } else {
+        cx.fillStyle = palette.eye
+        cx.beginPath()
+        cx.arc(eyeX + 1.5, eyeY + 0.5, 3.2, 0, Math.PI * 2)
+        cx.fill()
+        cx.fillStyle = '#FFF'
+        cx.beginPath()
+        cx.arc(eyeX + 3, eyeY - 1.5, 1.5, 0, Math.PI * 2)
+        cx.fill()
+        cx.fillStyle = 'rgba(255, 255, 255, 0.5)'
+        cx.beginPath()
+        cx.arc(eyeX, eyeY + 1.5, 0.8, 0, Math.PI * 2)
+        cx.fill()
+      }
+      cx.fillStyle = 'rgba(240, 150, 130, 0.2)'
+      cx.beginPath()
+      cx.ellipse(x + 14 + offset(13), wobY + 4 + offset(14), 5, 3.5, 0.1, 0, Math.PI * 2)
+      cx.fill()
+      if (mouthOpen) {
+        cx.fillStyle = '#B03025'
+        cx.beginPath()
+        cx.moveTo(x + headWidth / 2 + 6, wobY - 7)
+        cx.quadraticCurveTo(x + headWidth / 2 + 16, wobY, x + headWidth / 2 + 6, wobY + 7)
+        cx.quadraticCurveTo(x + headWidth / 2 + 10, wobY, x + headWidth / 2 + 6, wobY - 7)
+        cx.fill()
+        cx.strokeStyle = palette.tongue
+        cx.lineWidth = 1.5
+        cx.lineCap = 'round'
+        const tongueX = x + headWidth / 2 + 14
+        cx.beginPath()
+        cx.moveTo(tongueX, wobY)
+        cx.quadraticCurveTo(tongueX + 5, wobY - 3 + jit(seed, 2), tongueX + 9 + jit(seed, 2), wobY - 5 + jit(seed + 1, 2))
+        cx.stroke()
+        cx.beginPath()
+        cx.moveTo(tongueX, wobY)
+        cx.quadraticCurveTo(tongueX + 5, wobY + 3 + jit(seed + 2, 2), tongueX + 8 + jit(seed + 3, 2), wobY + 5 + jit(seed + 4, 2))
+        cx.stroke()
+      } else {
+        cx.strokeStyle = '#B08060'
+        cx.lineWidth = 1.8
+        cx.lineCap = 'round'
+        cx.beginPath()
+        cx.moveTo(x + headWidth / 2 + 2, wobY + 1)
+        cx.quadraticCurveTo(x + headWidth / 2 + 7, wobY + 4, x + headWidth / 2 + 10, wobY + 2)
+        cx.stroke()
+      }
+      cx.fillStyle = palette.bodyStroke
+      cx.beginPath()
+      cx.ellipse(x + headWidth / 2 + offset(15), wobY - 8 + offset(16), 1.2, 1, 0, 0, Math.PI * 2)
+      cx.fill()
+      cx.restore()
+    }
+
+    function render() {
+      cx.clearRect(0, 0, W, H)
+      drawParticles()
+      const progress = frame / FRAMES
+      const headX = SNAKE_LEFT + progress * (SNAKE_RIGHT - SNAKE_LEFT + SEG_GAP)
+      const mouthOpen = frame % 4 < 2
+      const seed = frame * 1.1
+      for (let i = 0; i < TOTAL_SEGS; i++) {
+        drawSegment(SNAKE_LEFT + i * SEG_GAP + SEG_GAP / 2, SNAKE_Y, i, seed)
+      }
+      drawTail(SNAKE_LEFT + TOTAL_SEGS * SEG_GAP, SNAKE_Y, seed)
+      drawHead(headX, SNAKE_Y, seed, mouthOpen)
+      drawGround()
+
+      cx.save()
+      cx.globalAlpha = 0.4
+      cx.fillStyle = palette.text
+      cx.font = 'italic 13px Georgia, serif'
+      cx.textAlign = 'center'
+      const dots = '.'.repeat(frame % 4)
+      cx.fillText('loading' + dots, W / 2, H - 12)
+      cx.restore()
+
+      frame = (frame + 1) % FRAMES
+    }
+
+    setInterval(render, 1000 / FPS)
+    render()
+  </script>
+</body>
+</html>

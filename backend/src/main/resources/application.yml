@@ -1,0 +1,373 @@
+server:
+  port: 8080
+
+spring:
+  threads:
+    virtual:
+      enabled: true
+  application:
+    name: alethicode-java
+  datasource:
+    url: jdbc:postgresql://127.0.0.1:5436/alethicode
+    username: onlinejudge
+    password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+  servlet:
+    multipart:
+      max-file-size: 32MB
+      max-request-size: 32MB
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+
+springdoc:
+  api-docs:
+    path: /api/schema
+  swagger-ui:
+    path: /api/docs
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus,info
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+      group:
+        readiness:
+          # Include tutor-graph so an orchestrator waits for cross-service readiness
+          # before sending traffic; DB / Redis stay in the list so a DB outage also
+          # de-registers the pod.
+          include: readinessState,db,redis,tutorGraph
+        liveness:
+          include: livenessState
+  health:
+    defaults:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+  tracing:
+    # Spring Boot 3 Micrometer Tracing: 默认 10% 采样。生产根据容量可调低到 1%；
+    # debug / canary 阶段设为 1.0。
+    sampling:
+      probability: ${OTEL_SAMPLING_PROBABILITY:0.1}
+  otlp:
+    tracing:
+      # 部署内嵌 Jaeger / Tempo OTLP 接收器；国内常用阿里云 SLS Trace 服务同样 OTLP over gRPC
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://jaeger:4318/v1/traces}
+      compression: gzip
+      timeout: 10s
+
+# Resilience4j：tutor workflow / admin 两类 API 的速率限制。
+# limitForPeriod / refreshPeriod 是"令牌桶"的配置；生产可根据 k8s HPA 调整。
+resilience4j:
+  # Rate limiter — see GlobalRestExceptionHandler + per-controller @RateLimiter
+  ratelimiter:
+    configs:
+      default:
+        register-health-indicator: true
+        limit-for-period: 30
+        limit-refresh-period: 1s
+        timeout-duration: 0
+        event-consumer-buffer-size: 50
+    instances:
+      tutorWorkflow:
+        base-config: default
+        limit-for-period: 100
+      adminWrite:
+        base-config: default
+        limit-for-period: 10
+
+  # Circuit breaker — each outbound dependency has its own instance so one slow
+  # collaborator doesn't open the breaker for everyone else.
+  circuitbreaker:
+    configs:
+      default:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
+        failure-rate-threshold: 50
+        slow-call-duration-threshold: 5s
+        slow-call-rate-threshold: 70
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 5
+        automatic-transition-from-open-to-half-open-enabled: true
+        register-health-indicator: true
+    instances:
+      tutorGraph:
+        base-config: default
+        wait-duration-in-open-state: 20s
+      judgeServer:
+        base-config: default
+        failure-rate-threshold: 60
+      languagePackJudge:
+        base-config: default
+        failure-rate-threshold: 60
+      llmProvider:
+        base-config: default
+        # LLM providers are flaky under load; widen the sliding window a bit.
+        sliding-window-size: 30
+        slow-call-duration-threshold: 10s
+      videoProvider:
+        base-config: default
+        slow-call-duration-threshold: 20s
+        wait-duration-in-open-state: 45s
+      # RAG queries are mix-mode LightRAG calls that internally invoke a remote
+      # LLM (keyword extraction) plus a remote embedding API. Cold queries
+      # observed at 8-15s P95; widen slow-call thresholds so single slow calls
+      # don't trip the breaker, but trip fast on hard failures so callers get
+      # quick failfast instead of stacking blocked threads when RAG is down.
+      ragQuery:
+        base-config: default
+        slow-call-duration-threshold: 30s
+        wait-duration-in-open-state: 30s
+
+  # Retry — only for idempotent outbound calls. Exponential backoff keeps the
+  # blast radius small during upstream incidents.
+  retry:
+    configs:
+      default:
+        max-attempts: 3
+        wait-duration: 200ms
+        exponential-backoff-multiplier: 2
+        enable-exponential-backoff: true
+        retry-exceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          - org.springframework.web.reactive.function.client.WebClientRequestException
+    instances:
+      tutorGraph:
+        base-config: default
+      judgeServer:
+        base-config: default
+      languagePackJudge:
+        base-config: default
+      llmProvider:
+        base-config: default
+        max-attempts: 2   # LLM calls are expensive; retry less
+      videoProvider:
+        base-config: default
+        max-attempts: 2
+
+  # Bulkhead — semaphore-based isolation so a single slow caller can't starve
+  # the thread pool for everyone.
+  bulkhead:
+    configs:
+      default:
+        max-concurrent-calls: 50
+        max-wait-duration: 50ms
+    instances:
+      tutorGraph:
+        max-concurrent-calls: 100
+      judgeServer:
+        max-concurrent-calls: 40
+      languagePackJudge:
+        max-concurrent-calls: 20
+      llmProvider:
+        max-concurrent-calls: 30
+      videoProvider:
+        max-concurrent-calls: 10
+
+  # TimeLimiter for reactive chains. Synchronous JDBC etc. keeps using
+  # per-call .block(Duration) or @Transactional timeout.
+  timelimiter:
+    configs:
+      default:
+        timeout-duration: 10s
+        cancel-running-future: true
+    instances:
+      tutorGraph:
+        timeout-duration: 30s
+      judgeServer:
+        timeout-duration: 60s
+      languagePackJudge:
+        timeout-duration: 60s
+      llmProvider:
+        timeout-duration: ${LLM_API_TIMEOUT_SECONDS:150}s
+      videoProvider:
+        timeout-duration: 10m
+
+spring.ai:
+  openai:
+    # 默认 LLM Provider: DeepSeek（OpenAI 兼容）。
+    #   - chat  基址: https://api.deepseek.com
+    #   - chat  模型: deepseek-v4-flash（日常）
+    #   - 注意: deepseek-chat / deepseek-reasoner 为兼容名，官方公告将于 2026-07-24 退役
+    # Phase 3 切流：删除 spring.ai.openai.embedding 段 — 嵌入与向量检索由
+    # alethicode-rag 微服务托管（services/alethicode-rag），Java 后端不再需要
+    # Spring AI 的 EmbeddingModel bean。EMBEDDING_API_KEY/EMBEDDING_BASE_URL/
+    # EMBEDDING_MODEL 等 env 仅 alethicode-rag 容器消费。
+    api-key: ${OPENAI_API_KEY:}
+    base-url: ${LLM_BASE_URL:https://api.deepseek.com}
+    chat:
+      options:
+        model: ${LLM_MODEL:deepseek-v4-flash}
+    embedding:
+      # Spring AI 的 OpenAiEmbeddingAutoConfiguration 在 spring.ai.openai.embedding
+      # 缺失 api-key 时仍会尝试创建 bean 并连默认 OpenAI URL。这里显式给一个不会
+      # 真正调用的 dummy 配置 + 指向 alethicode-rag 占位 path，避免 Spring AI
+      # autoconfig 抛 missing-api-key 启动失败。
+      enabled: false
+      api-key: ${OPENAI_API_KEY:}
+      base-url: http://alethicode-rag:8200
+      embeddings-path: /__deprecated__
+      options:
+        model: deprecated
+  chat:
+    observations:
+      log-prompt: false
+      log-completion: false
+      include-error-logging: true
+  tools:
+    observations:
+      include-content: false
+  mcp:
+    server:
+      enabled: ${MCP_SERVER_ENABLED:false}
+      name: alethicode-education
+      version: 1.0.0
+
+alethicode:
+  internal:
+    service-key: ${INTERNAL_SERVICE_KEY:dev-internal-key}
+    previous-service-key: ${INTERNAL_SERVICE_PREVIOUS_KEY:}
+  # CRIT-3 (2026-05-02 渗透报告): per-user 配额上限，防 LLM token 烧钱。
+  # daily-llm-runs-per-user: 每用户每天 LLM 调用次数（createRun 维度）
+  # max-active-sessions-per-user: 每用户同时活跃的 tutor session 数
+  ai-quota:
+    daily-llm-runs-per-user: ${AI_QUOTA_DAILY_LLM_RUNS:50}
+    max-active-sessions-per-user: ${AI_QUOTA_MAX_ACTIVE_SESSIONS:10}
+  tutor-graph:
+    base-url: ${TUTOR_GRAPH_BASE_URL:http://127.0.0.1:8100}
+  rag:
+    # alethicode-rag (LightRAG mix-mode) HTTP client tuning.
+    # query-timeout-seconds covers the WHOLE mix-mode pipeline:
+    #   1) remote LLM keyword extraction (DeepSeek)
+    #   2) remote embedding (Aliyun dashscope text-embedding-v4)
+    #   3) pgvector HNSW retrieval + Memgraph KG traversal
+    # P95 cold-query observed at 8-15s; default 60s gives ~4x headroom
+    # without colliding with upstream LLM_API_TIMEOUT_SECONDS=300s.
+    base-url: ${RAG_SERVICE_URL:http://alethicode-rag:8200}
+    internal-token: ${RAG_INTERNAL_TOKEN:dev-internal-key}
+    query-timeout-seconds: ${RAG_QUERY_TIMEOUT_SECONDS:60}
+    connect-timeout-seconds: ${RAG_CONNECT_TIMEOUT_SECONDS:5}
+    index-timeout-seconds: ${RAG_INDEX_TIMEOUT_SECONDS:300}
+  rollout:
+    enabled: ${UNLEASH_ENABLED:false}
+    unleash-url: ${UNLEASH_API_URL:}
+    unleash-api-key: ${UNLEASH_API_KEY:}
+    unleash-project: ${UNLEASH_PROJECT:ai-tutor}
+    unleash-app-name: ${UNLEASH_APP_NAME:alethicode-java}
+    unleash-instance-id: ${UNLEASH_INSTANCE_ID:${HOSTNAME:local}}
+  temporal:
+    enabled: ${TEMPORAL_ENABLED:true}
+    target: ${TEMPORAL_TARGET:127.0.0.1:7233}
+    namespace: ${TEMPORAL_NAMESPACE:default}
+    task-queue: ${TEMPORAL_TASK_QUEUE:language-pack-pipeline}
+  langfuse:
+    base-url: ${LANGFUSE_BASE_URL:}
+    public-key: ${LANGFUSE_PUBLIC_KEY:}
+    secret-key: ${LANGFUSE_SECRET_KEY:}
+    tracing-environment: ${LANGFUSE_TRACING_ENVIRONMENT:production}
+  fsrs:
+    enabled: ${FSRS_ENABLED:true}
+    desired-retention: ${FSRS_DESIRED_RETENTION:0.9}
+  parsons:
+    enabled: ${PARSONS_ENABLED:true}
+    fading-thresholds:
+      level0-max: 0.30
+      level1-max: 0.60
+      level2-max: 0.85
+    distractor:
+      target-notebook-ratio: 0.70
+      llm-fallback-enabled: true
+      llm-model: ${PARSONS_DISTRACTOR_MODEL:deepseek-v4-flash}
+      max-llm-retries: 2
+      lcs-similarity-threshold: 0.85
+    walkthrough:
+      score-threshold: 0.70
+      llm-model: ${PARSONS_WALKTHROUGH_MODEL:deepseek-v4-flash}
+      max-rewrite-attempts: 1
+    routing:
+      nfk-coverage-threshold: 20
+      min-user-interactions: 5
+      kc-coverage-cache-ttl: 1h
+      kc-coverage-refresh-interval: 1h
+    failure-cascade:
+      max-attempts-before-degrade: 3
+      max-attempts-before-failfast: 4
+  stream:
+    judge-dispatch:
+      enabled: ${JUDGE_STREAM_ENABLED:true}
+      transport: ${JUDGE_DISPATCH_TRANSPORT:nats}
+      nats-url: ${NATS_URL:nats://127.0.0.1:4222}
+      stream-name: ${NATS_JUDGE_STREAM:ALETHICODE_JUDGE}
+      subject: ${NATS_JUDGE_SUBJECT:judge.dispatch}
+      queue-group: ${NATS_JUDGE_QUEUE_GROUP:judge-workers}
+    learning-events:
+      enabled: ${LEARNING_EVENTS_STREAM_ENABLED:true}
+      transport: ${LEARNING_EVENTS_TRANSPORT:nats}
+      nats-url: ${NATS_URL:nats://127.0.0.1:4222}
+      stream-name: ${NATS_LEARNING_STREAM:ALETHICODE_LEARNING}
+      learner-memory-updated-subject: ${NATS_LEARNER_MEMORY_UPDATED_SUBJECT:learner.memory.updated}
+      review-package-updated-subject: ${NATS_REVIEW_PACKAGE_UPDATED_SUBJECT:review.package.updated}
+      misconception-detected-subject: ${NATS_MISCONCEPTION_DETECTED_SUBJECT:misconception.detected}
+  website:
+    base-url: http://127.0.0.1
+    name: Alethicode
+    name-shortcut: Alethicode
+    footer: ""
+    allow-register: true
+    submission-list-show-all: false
+  language:
+    languages:
+      - Python3
+      - C
+      - C++
+      - Java
+    spj-languages:
+      - C
+      - C++
+  judge-server:
+    token: ${JUDGE_SERVER_TOKEN}
+  system:
+    force-https: false
+    static-cdn-host: ""
+    test-case-dir: ${TEST_CASE_DIR}
+    upload-dir: ${UPLOAD_DIR}
+    upload-prefix: /public/upload
+    classroom-lesson-dir: ${CLASSROOM_LESSON_DIR}
+    submission-data-dir: ${SUBMISSION_DATA_DIR:}
+    local-version: 2026.03-java-m2
+    release-notes-url: https://raw.githubusercontent.com/QingdaoU/OnlineJudge/master/docs/data.json
+  language-pack:
+    storage-root: ${LANGUAGE_PACK_STORAGE_ROOT}
+    preview-dir: ${LANGUAGE_PACK_PREVIEW_DIR}
+    min-text-extraction-ratio: 0.05
+    libre-office-path: libreoffice
+    python-path: python3
+    publish:
+      skip-coverage-gate: false
+    concurrency:
+      document-normalize: ${LP_CONCURRENCY_DOC_NORMALIZE:4}
+      document-parse: ${LP_CONCURRENCY_DOC_PARSE:4}
+      kc-extract: ${LP_CONCURRENCY_KC_EXTRACT:4}
+      unit-extract: ${LP_CONCURRENCY_UNIT_EXTRACT:4}
+      problem-generate: ${LP_CONCURRENCY_PROBLEM_GENERATE:4}

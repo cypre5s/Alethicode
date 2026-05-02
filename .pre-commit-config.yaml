@@ -1,0 +1,47 @@
+# Pre-commit hooks (https://pre-commit.com).
+# 本地安装： pip install pre-commit && pre-commit install
+#
+# 国内网络：pre-commit 默认从 GitHub 拉 hook 仓库；若需加速，可 fork 到公司内部 Gitea
+# 然后把下面的 `repo:` 改成内部 URL。
+
+default_language_version:
+  python: python3.11
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+        exclude: ^deploy/helm/
+      - id: check-json
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+      - id: detect-private-key
+
+  # Conventional commits (国内团队用中文 commit 常见；允许中文 subject)
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v3.6.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args: ['--allow-empty']
+
+  # Secret scan
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+
+  # Python: ruff = lint + format all-in-one. 比 black + flake8 快 10x，适合国内 CI.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^services/tutor-graph/
+      - id: ruff-format
+        files: ^services/tutor-graph/

@@ -1,0 +1,83 @@
+{
+  "mcpServers": {
+    "browsermcp": {
+      "command": "/home/cypress/.local/bin/npx",
+      "args": [
+        "-y",
+        "@browsermcp/mcp@latest"
+      ],
+      "env": {
+        "PATH": "/home/cypress/.local/bin:/home/cypress/.nvm/versions/node/v20.20.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+      }
+    },
+    "mcpmessenger_slot1": {
+      "command": "/home/cypress/.local/bin/node",
+      "args": [
+        "/home/cypress/.local/mcpmessenger/startheme-2.1.19/mcp-server.mjs"
+      ],
+      "env": {
+        "MESSENGER_SLOT": "1",
+        "MESSENGER_DATA_DIR": "/home/cypress/.mcpmessenger/ws_7c278846/slot_1"
+      }
+    },
+    "mcpmessenger_slot2": {
+      "command": "/home/cypress/.local/bin/node",
+      "args": [
+        "/home/cypress/.local/mcpmessenger/startheme-2.1.19/mcp-server.mjs"
+      ],
+      "env": {
+        "MESSENGER_SLOT": "2",
+        "MESSENGER_DATA_DIR": "/home/cypress/.mcpmessenger/ws_7c278846/slot_2"
+      }
+    },
+    "mcpmessenger_slot3": {
+      "command": "/home/cypress/.local/bin/node",
+      "args": [
+        "/home/cypress/.local/mcpmessenger/startheme-2.1.19/mcp-server.mjs"
+      ],
+      "env": {
+        "MESSENGER_SLOT": "3",
+        "MESSENGER_DATA_DIR": "/home/cypress/.mcpmessenger/ws_7c278846/slot_3"
+      }
+    },
+    "mcpmessenger_slot4": {
+      "command": "/home/cypress/.local/bin/node",
+      "args": [
+        "/home/cypress/.local/mcpmessenger/startheme-2.1.19/mcp-server.mjs"
+      ],
+      "env": {
+        "MESSENGER_SLOT": "4",
+        "MESSENGER_DATA_DIR": "/home/cypress/.mcpmessenger/ws_7c278846/slot_4"
+      }
+    },
+    "mcpmessenger_slot5": {
+      "command": "/home/cypress/.local/bin/node",
+      "args": [
+        "/home/cypress/.local/mcpmessenger/startheme-2.1.19/mcp-server.mjs"
+      ],
+      "env": {
+        "MESSENGER_SLOT": "5",
+        "MESSENGER_DATA_DIR": "/home/cypress/.mcpmessenger/ws_7c278846/slot_5"
+      }
+    },
+    "mcpmessenger_slot6": {
+      "command": "/home/cypress/.local/bin/node",
+      "args": [
+        "/home/cypress/.local/mcpmessenger/startheme-2.1.19/mcp-server.mjs"
+      ],
+      "env": {
+        "MESSENGER_SLOT": "6",
+        "MESSENGER_DATA_DIR": "/home/cypress/.mcpmessenger/ws_7c278846/slot_6"
+      }
+    },
+    "CursorMCP对话插件": {
+      "command": "node",
+      "args": [
+        "/home/cypress/.cursor-server/extensions/local.xw-cursor-message-8.8.8/dist/mcp-server.mjs"
+      ],
+      "env": {
+        "MESSENGER_DATA_DIR": "/home/cypress/.moyu-message/736e47137659"
+      }
+    }
+  }
+}

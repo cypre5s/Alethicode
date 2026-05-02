@@ -1,0 +1,192 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "alethicode.fullname" . }}-alethicode-rag
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "alethicode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: alethicode-rag
+spec:
+  # Phase 4 切流：alethicode-rag 与 tutor-graph 同样保持单副本——LightRAG 在
+  # process 内持有 KV/Vector/Graph 三类 storage 的连接池与 pipeline 锁，
+  # 多副本会让 ingest 队列 fan-out 后竞争同一份 PG 行 / Memgraph 节点，
+  # 与 tutor-graph 走相同的 Recreate 策略，避免任何 race。
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: alethicode-rag
+  template:
+    metadata:
+      labels:
+        {{- include "alethicode.labels" . | nindent 8 }}
+        app.kubernetes.io/component: alethicode-rag
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8200"
+    spec:
+      terminationGracePeriodSeconds: 60
+      {{- with .Values.alethicodeRag.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: alethicode-rag
+          image: "{{ .Values.alethicodeRag.image.repository }}:{{ .Values.alethicodeRag.image.tag }}"
+          imagePullPolicy: {{ .Values.alethicodeRag.image.pullPolicy }}
+          ports:
+            - containerPort: 8200
+              name: http
+          env:
+            - name: RAG_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "alethicode.fullname" . }}-secrets
+                  key: RAG_INTERNAL_TOKEN
+            - name: RAG_INTERNAL_PREVIOUS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "alethicode.fullname" . }}-secrets
+                  key: RAG_INTERNAL_PREVIOUS_TOKEN
+            - name: RAG_WORKING_DIR
+              value: /data/alethicode-rag/workspace
+            - name: POSTGRES_HOST
+              value: postgres
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_USER
+              value: onlinejudge
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "alethicode.fullname" . }}-secrets
+                  key: DB_PASSWORD
+            - name: POSTGRES_DATABASE
+              value: alethicode
+            # Phase 0 实测：智谱 embedding-3 = 2048 维 > pgvector 普通 HNSW 上限 2000，
+            # 必须用 HNSW_HALFVEC（halfvec 列上限 4000 维）。
+            - name: POSTGRES_VECTOR_INDEX_TYPE
+              value: HNSW_HALFVEC
+            - name: POSTGRES_HNSW_M
+              value: {{ .Values.alethicodeRag.pgvector.hnswM | default "16" | quote }}
+            - name: POSTGRES_HNSW_EF
+              value: {{ .Values.alethicodeRag.pgvector.hnswEf | default "200" | quote }}
+            - name: MEMGRAPH_URI
+              value: "bolt://{{ include "alethicode.fullname" . }}-memgraph:7687"
+            - name: MEMGRAPH_DATABASE
+              value: memgraph
+            - name: MEMGRAPH_WORKSPACE
+              value: {{ .Values.alethicodeRag.memgraph.workspace | default "alethicode" | quote }}
+            - name: LIGHTRAG_KV_STORAGE
+              value: PGKVStorage
+            - name: LIGHTRAG_VECTOR_STORAGE
+              value: PGVectorStorage
+            - name: LIGHTRAG_DOC_STATUS_STORAGE
+              value: PGDocStatusStorage
+            # Q1 决策：MemgraphStorage 而非 PGGraphStorage，规避 Apache AGE 12h+ 升级停机
+            # 与 3500 节点级别 3-5 分钟查询的已知 issue。
+            - name: LIGHTRAG_GRAPH_STORAGE
+              value: MemgraphStorage
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "alethicode.fullname" . }}-secrets
+                  key: OPENAI_API_KEY
+            - name: LLM_BASE_URL
+              value: {{ .Values.alethicodeRag.llm.baseUrl | default "https://api.deepseek.com" | quote }}
+            - name: LLM_MODEL
+              value: {{ .Values.alethicodeRag.llm.model | default "deepseek-v4-flash" | quote }}
+            - name: EMBEDDING_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "alethicode.fullname" . }}-secrets
+                  key: EMBEDDING_API_KEY
+            - name: EMBEDDING_BASE_URL
+              value: {{ .Values.alethicodeRag.embedding.baseUrl | default "https://open.bigmodel.cn/api/paas/v4" | quote }}
+            - name: EMBEDDING_MODEL
+              value: {{ .Values.alethicodeRag.embedding.model | default "embedding-3" | quote }}
+            - name: EMBEDDING_DIM
+              value: {{ .Values.alethicodeRag.embedding.dim | default "2048" | quote }}
+            {{- if .Values.observability.enabled }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4318"
+            - name: OTEL_SERVICE_NAME
+              value: "alethicode-rag"
+            - name: DEPLOYMENT_ENVIRONMENT
+              value: {{ .Values.alethicodeRag.deploymentEnvironment | default "prod" | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.alethicodeRag.resources | nindent 12 }}
+          volumeMounts:
+            - name: workspace
+              mountPath: /data/alethicode-rag
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 30
+      volumes:
+        - name: workspace
+          {{- if .Values.alethicodeRag.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "alethicode.fullname" . }}-alethicode-rag-workspace
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alethicode-rag
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "alethicode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: alethicode-rag
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8200
+      targetPort: http
+      name: http
+  selector:
+    app.kubernetes.io/component: alethicode-rag
+{{- if .Values.alethicodeRag.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "alethicode.fullname" . }}-alethicode-rag-workspace
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "alethicode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: alethicode-rag
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.alethicodeRag.persistence.size | default "5Gi" | quote }}
+  {{- with .Values.alethicodeRag.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+{{- end }}

@@ -1,0 +1,293 @@
+global:
+  namespace: alethicode
+
+backend:
+  image:
+    repository: alethicode/backend
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+  hpa:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  env:
+    SPRING_PROFILES_ACTIVE: prod
+    LLM_BASE_URL: https://api.deepseek.com
+    LLM_MODEL: deepseek-v4-flash
+    INIT_LLM_BASE_URL: https://api.deepseek.com
+    INIT_LLM_MODEL: deepseek-v4-flash
+    # Phase 3 切流：Java 后端不再持有 embedding 凭据，alethicode-rag 容器在
+    # 自己的 env 段消费 EMBEDDING_BASE_URL / EMBEDDING_MODEL / EMBEDDING_API_KEY。
+    LLM_API_TIMEOUT_SECONDS: "150"
+    LLM_API_MAX_RETRIES: "9"
+    TUTOR_REACT_ENABLED: "false"
+    QA_REACT_ENABLED: "false"
+    VIDEO_TTS_PROVIDER: stub
+    VIDEO_RENDER_PROVIDER: stub
+    # Inter-service endpoint; matches Service name below.
+    TUTOR_GRAPH_BASE_URL: http://tutor-graph:8100
+    # Failover 顺序，留空禁用
+    ALETHICODE_AI_FALLBACK_PREFIXES: "INIT_LLM_"
+  otel:
+    enabled: true
+    javaAgentVersion: "2.12.0"
+
+frontend:
+  image:
+    repository: alethicode/frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+judge:
+  image:
+    repository: registry.cn-hongkong.aliyuncs.com/oj-image/judge
+    tag: "1.6.1"
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 1Gi
+  hpa:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 60
+
+tutorGraph:
+  # Python FastAPI + LangGraph 服务 — 详见 ADR-0001。本地演示用镜像 tag latest；
+  # 生产请用带版本号的镜像（配合 chart `appVersion`）。
+  image:
+    repository: alethicode/tutor-graph
+    tag: latest
+    pullPolicy: IfNotPresent
+  imagePullSecrets: []
+  checkpointer: postgres
+  deploymentEnvironment: dev  # prod / staging / dev
+  llm:
+    provider: openai
+    model: deepseek-v4-flash
+    baseUrl: https://api.deepseek.com
+    temperature: "0.3"
+  resources:
+    requests:
+      cpu: 300m
+      memory: 384Mi
+    limits:
+      cpu: 1500m
+      memory: 1Gi
+
+# Phase 4 切流：alethicode-rag 是 LightRAG 的 FastAPI 包装层，端口 8200，
+# 依赖 PostgreSQL（pgvector，KV/Vector/DocStatus 存储）+ Memgraph（KG 存储，bolt 7687）。
+# Q1/Q4 决策：MemgraphStorage 而非 PGGraphStorage，避免 AGE 镜像替换与扩展期 12h+ 停机。
+alethicodeRag:
+  image:
+    repository: alethicode/alethicode-rag
+    tag: latest
+    pullPolicy: IfNotPresent
+  imagePullSecrets: []
+  deploymentEnvironment: prod
+  llm:
+    model: deepseek-v4-flash
+    baseUrl: https://api.deepseek.com
+  embedding:
+    model: embedding-3
+    baseUrl: https://open.bigmodel.cn/api/paas/v4
+    dim: 2048
+  pgvector:
+    hnswM: 16
+    hnswEf: 200
+  memgraph:
+    workspace: alethicode
+  persistence:
+    enabled: true
+    size: 5Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 300m
+      memory: 512Mi
+    limits:
+      cpu: 1500m
+      memory: 1Gi
+
+# Memgraph as LightRAG GRAPH_STORAGE backend.
+# Bolt protocol on port 7687; alethicode-rag pod connects via service DNS.
+memgraph:
+  image:
+    repository: memgraph/memgraph
+    tag: latest  # tracks 2.x; pin to a specific version for prod
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  persistence:
+    size: 10Gi
+    storageClass: ""
+
+postgres:
+  image:
+    repository: pgvector/pgvector
+    tag: pg16
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  storage:
+    size: 20Gi
+    storageClass: ""
+
+redis:
+  image:
+    repository: redis
+    tag: "7"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  storage:
+    size: 5Gi
+    storageClass: ""
+
+ingress:
+  enabled: true
+  className: traefik
+  host: alethicode.local
+  tls:
+    enabled: false
+
+persistence:
+  testCase:
+    size: 10Gi
+  publicData:
+    size: 10Gi
+  classroomLessons:
+    size: 5Gi
+  languagePack:
+    size: 10Gi
+  submission:
+    size: 10Gi
+
+observability:
+  enabled: true
+
+  otelCollector:
+    image:
+      repository: otel/opentelemetry-collector-contrib
+      tag: "0.98.0"
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  prometheus:
+    image:
+      repository: prom/prometheus
+      tag: v2.52.0
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+    storage:
+      size: 10Gi
+
+  grafana:
+    image:
+      repository: grafana/grafana
+      tag: "11.0.0"
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    adminPassword: alethicode_grafana_2026
+
+  tempo:
+    image:
+      repository: grafana/tempo
+      tag: "2.5.0"
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+    storage:
+      size: 10Gi
+
+  loki:
+    image:
+      repository: grafana/loki
+      tag: "3.0.0"
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    storage:
+      size: 10Gi
+
+secrets:
+  dbPassword: alethicode_db_local_2026
+  redisPassword: alethicode_redis_local_2026
+  judgeServerToken: alethicode_judge_local_2026
+  # tutor_graph 与 Java backend 共享的内部 key；本地演示可用 default，生产必须覆盖
+  internalServiceKey: dev-internal-key
+  # 内部 key 滚动窗口中的旧 key；为空表示只接受 current。
+  internalServicePreviousKey: ""
+  # Phase 1 切流：Java backend 调 alethicode-rag 时使用的 X-Internal-Token；
+  # 默认与 internalServiceKey 同值，生产可独立轮转。
+  ragInternalToken: ""
+  # RAG token 滚动窗口中的旧 token；为空表示只接受 current。
+  ragInternalPreviousToken: ""
+  # LLM / Embedding API keys — 本地演示时留空也能启动（AI 功能会 fail-fast），
+  # 要真实调用 LLM 时填上或用 ExternalSecrets 从阿里云 KMS 注入。
+  # openaiApiKey 由 backend / tutor_graph / alethicode-rag 共用。
+  # embeddingApiKey 仅 alethicode-rag 容器消费（Phase 3 切流后 Java 端不再持有）。
+  openaiApiKey: ""
+  embeddingApiKey: ""
+  initLlmApiKey: ""

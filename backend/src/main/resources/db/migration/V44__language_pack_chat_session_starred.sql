@@ -1,0 +1,2 @@
+ALTER TABLE language_pack_chat_session
+    ADD COLUMN IF NOT EXISTS starred BOOLEAN NOT NULL DEFAULT FALSE;

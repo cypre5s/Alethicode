@@ -1,0 +1,1193 @@
+{
+  "summary": {
+    "generatedAt": "2026-03-31T02:28:48.112Z",
+    "diffCount": 146,
+    "routeCounts": {
+      "ojOld": 22,
+      "ojNew": 22,
+      "adminOld": 18,
+      "adminNew": 18
+    },
+    "apiCounts": {
+      "ojOld": 172,
+      "ojNew": 175,
+      "adminOld": 78,
+      "adminNew": 76
+    },
+    "categoryCounts": {
+      "semantic_adapter_or_runtime_bridge": 33,
+      "runtime_behavior_change_or_manual_review": 112,
+      "pure_vue3_syntax_migration": 1
+    }
+  },
+  "entries": [
+    {
+      "type": "only_in_new",
+      "oldPath": null,
+      "newPath": "/home/cypress/Alethicode/frontend/src/components",
+      "relativePath": "components",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "frontend 新增适配文件，用于承接 Vue3 运行时或第三方库替换"
+    },
+    {
+      "type": "only_in_new",
+      "oldPath": null,
+      "newPath": "/home/cypress/Alethicode/frontend/src/composables",
+      "relativePath": "composables",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "frontend 新增适配文件，用于承接 Vue3 运行时或第三方库替换"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/i18n/index.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/i18n/index.js",
+      "relativePath": "i18n/index.js",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "diff 包含依赖替换、运行时桥接或状态/路由/插件适配，目标是保持行为一致"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/api.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/api.js",
+      "relativePath": "pages/admin/api.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/App.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/App.vue",
+      "relativePath": "pages/admin/App.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/components/btn/Cancel.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/components/btn/Cancel.vue",
+      "relativePath": "pages/admin/components/btn/Cancel.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/components/btn/IconBtn.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/components/btn/IconBtn.vue",
+      "relativePath": "pages/admin/components/btn/IconBtn.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/components/btn/Save.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/components/btn/Save.vue",
+      "relativePath": "pages/admin/components/btn/Save.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/components/CodeMirror.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/components/CodeMirror.vue",
+      "relativePath": "pages/admin/components/CodeMirror.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/components/InfoCard.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/components/InfoCard.vue",
+      "relativePath": "pages/admin/components/InfoCard.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/components/KatexEditor.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/components/KatexEditor.vue",
+      "relativePath": "pages/admin/components/KatexEditor.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/components/Panel.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/components/Panel.vue",
+      "relativePath": "pages/admin/components/Panel.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/components/SideMenu.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/components/SideMenu.vue",
+      "relativePath": "pages/admin/components/SideMenu.vue",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "diff 包含依赖替换、运行时桥接或状态/路由/插件适配，目标是保持行为一致"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/components/Simditor.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/components/Simditor.vue",
+      "relativePath": "pages/admin/components/Simditor.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/components/simditorFileUpload.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/components/simditorFileUpload.js",
+      "relativePath": "pages/admin/components/simditorFileUpload.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/components/TopNav.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/components/TopNav.vue",
+      "relativePath": "pages/admin/components/TopNav.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "only_in_new",
+      "oldPath": null,
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/elementPlusTheme.less",
+      "relativePath": "pages/admin/elementPlusTheme.less",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "frontend 新增适配文件，用于承接 Vue3 运行时或第三方库替换"
+    },
+    {
+      "type": "only_in_old",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/index.html",
+      "newPath": null,
+      "relativePath": "pages/admin/index.html",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "frontend 缺少旧文件，需要人工确认是否已被合并或替代"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/index.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/index.js",
+      "relativePath": "pages/admin/index.js",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "diff 包含依赖替换、运行时桥接或状态/路由/插件适配，目标是保持行为一致"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/router.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/router.js",
+      "relativePath": "pages/admin/router.js",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "diff 包含依赖替换、运行时桥接或状态/路由/插件适配，目标是保持行为一致"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/style.less",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/style.less",
+      "relativePath": "pages/admin/style.less",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/general/AIVariantReview.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/general/AIVariantReview.vue",
+      "relativePath": "pages/admin/views/general/AIVariantReview.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/general/Announcement.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/general/Announcement.vue",
+      "relativePath": "pages/admin/views/general/Announcement.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/general/Conf.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/general/Conf.vue",
+      "relativePath": "pages/admin/views/general/Conf.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "only_in_old",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/general/Dashboard.vue",
+      "newPath": null,
+      "relativePath": "pages/admin/views/general/Dashboard.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "frontend 缺少旧文件，需要人工确认是否已被合并或替代"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/general/JudgeServer.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/general/JudgeServer.vue",
+      "relativePath": "pages/admin/views/general/JudgeServer.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/general/KCManagement.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/general/KCManagement.vue",
+      "relativePath": "pages/admin/views/general/KCManagement.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/general/Login.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/general/Login.vue",
+      "relativePath": "pages/admin/views/general/Login.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/general/MisconceptionManagement.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/general/MisconceptionManagement.vue",
+      "relativePath": "pages/admin/views/general/MisconceptionManagement.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/general/PreflightStats.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/general/PreflightStats.vue",
+      "relativePath": "pages/admin/views/general/PreflightStats.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/general/PruneTestCase.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/general/PruneTestCase.vue",
+      "relativePath": "pages/admin/views/general/PruneTestCase.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/general/ReviewQueue.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/general/ReviewQueue.vue",
+      "relativePath": "pages/admin/views/general/ReviewQueue.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/general/User.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/general/User.vue",
+      "relativePath": "pages/admin/views/general/User.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/Home.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/Home.vue",
+      "relativePath": "pages/admin/views/Home.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/index.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/index.js",
+      "relativePath": "pages/admin/views/index.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/problem/ImportAndExport.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/problem/ImportAndExport.vue",
+      "relativePath": "pages/admin/views/problem/ImportAndExport.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/problem/Problem.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/problem/Problem.vue",
+      "relativePath": "pages/admin/views/problem/Problem.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/problem/ProblemList.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/admin/views/problem/ProblemList.vue",
+      "relativePath": "pages/admin/views/problem/ProblemList.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/api.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/api.js",
+      "relativePath": "pages/oj/api.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/App.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/App.vue",
+      "relativePath": "pages/oj/App.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/CodeMirror.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/CodeMirror.vue",
+      "relativePath": "pages/oj/components/CodeMirror.vue",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "diff 包含依赖替换、运行时桥接或状态/路由/插件适配，目标是保持行为一致"
+    },
+    {
+      "type": "only_in_new",
+      "oldPath": null,
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/ECharts.vue",
+      "relativePath": "pages/oj/components/ECharts.vue",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "frontend 新增适配文件，用于承接 Vue3 运行时或第三方库替换"
+    },
+    {
+      "type": "only_in_old",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/mixins/emitter.js",
+      "newPath": null,
+      "relativePath": "pages/oj/components/mixins/emitter.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "frontend 缺少旧文件，需要人工确认是否已被合并或替代"
+    },
+    {
+      "type": "only_in_old",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/mixins/form.js",
+      "newPath": null,
+      "relativePath": "pages/oj/components/mixins/form.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "frontend 缺少旧文件，需要人工确认是否已被合并或替代"
+    },
+    {
+      "type": "only_in_old",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/mixins/index.js",
+      "newPath": null,
+      "relativePath": "pages/oj/components/mixins/index.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "frontend 缺少旧文件，需要人工确认是否已被合并或替代"
+    },
+    {
+      "type": "only_in_old",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/mixins/problem.js",
+      "newPath": null,
+      "relativePath": "pages/oj/components/mixins/problem.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "frontend 缺少旧文件，需要人工确认是否已被合并或替代"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/NavBar.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/NavBar.vue",
+      "relativePath": "pages/oj/components/NavBar.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/Pagination.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/Pagination.vue",
+      "relativePath": "pages/oj/components/Pagination.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/Panel.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/Panel.vue",
+      "relativePath": "pages/oj/components/Panel.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/PedagogyPanel.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/PedagogyPanel.vue",
+      "relativePath": "pages/oj/components/PedagogyPanel.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/skillProfile/KnowledgeStarMap.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/skillProfile/KnowledgeStarMap.vue",
+      "relativePath": "pages/oj/components/skillProfile/KnowledgeStarMap.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/skillProfile/PracticeHeatmap.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/skillProfile/PracticeHeatmap.vue",
+      "relativePath": "pages/oj/components/skillProfile/PracticeHeatmap.vue",
+      "category": "pure_vue3_syntax_migration",
+      "reason": "diff 限定在插槽、生命周期、事件修饰符、router API 等 Vue3 语法迁移"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/skillProfile/ProblemRecommendations.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/skillProfile/ProblemRecommendations.vue",
+      "relativePath": "pages/oj/components/skillProfile/ProblemRecommendations.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/skillProfile/SkillRadar.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/skillProfile/SkillRadar.vue",
+      "relativePath": "pages/oj/components/skillProfile/SkillRadar.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/skillProfile/StarMapDetailPanel.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/skillProfile/StarMapDetailPanel.vue",
+      "relativePath": "pages/oj/components/skillProfile/StarMapDetailPanel.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/SubmissionRiver.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/SubmissionRiver.vue",
+      "relativePath": "pages/oj/components/SubmissionRiver.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/verticalMenu/VerticalMenu.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/verticalMenu/VerticalMenu.vue",
+      "relativePath": "pages/oj/components/verticalMenu/VerticalMenu.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/verticalMenu/VerticalMenuItem.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/components/verticalMenu/VerticalMenuItem.vue",
+      "relativePath": "pages/oj/components/verticalMenu/VerticalMenuItem.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "only_in_old",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/index.html",
+      "newPath": null,
+      "relativePath": "pages/oj/index.html",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "frontend 缺少旧文件，需要人工确认是否已被合并或替代"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/index.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/index.js",
+      "relativePath": "pages/oj/index.js",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "diff 包含依赖替换、运行时桥接或状态/路由/插件适配，目标是保持行为一致"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/router/index.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/router/index.js",
+      "relativePath": "pages/oj/router/index.js",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "diff 包含依赖替换、运行时桥接或状态/路由/插件适配，目标是保持行为一致"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/router/routes.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/router/routes.js",
+      "relativePath": "pages/oj/router/routes.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/AIGeneratedProblems.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/AIGeneratedProblems.vue",
+      "relativePath": "pages/oj/views/classroom/AIGeneratedProblems.vue",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "diff 包含依赖替换、运行时桥接或状态/路由/插件适配，目标是保持行为一致"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/AssignmentDetail.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/AssignmentDetail.vue",
+      "relativePath": "pages/oj/views/classroom/AssignmentDetail.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/AssignmentGrading.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/AssignmentGrading.vue",
+      "relativePath": "pages/oj/views/classroom/AssignmentGrading.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/ClassroomAssignment.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/ClassroomAssignment.vue",
+      "relativePath": "pages/oj/views/classroom/ClassroomAssignment.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/ClassroomDetail.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/ClassroomDetail.vue",
+      "relativePath": "pages/oj/views/classroom/ClassroomDetail.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/ClassroomList.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/ClassroomList.vue",
+      "relativePath": "pages/oj/views/classroom/ClassroomList.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/CollaborativeCoding.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/CollaborativeCoding.vue",
+      "relativePath": "pages/oj/views/classroom/CollaborativeCoding.vue",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "diff 包含依赖替换、运行时桥接或状态/路由/插件适配，目标是保持行为一致"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/index.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/index.js",
+      "relativePath": "pages/oj/views/classroom/index.js",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "diff 包含依赖替换、运行时桥接或状态/路由/插件适配，目标是保持行为一致"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/JoinClassroom.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/JoinClassroom.vue",
+      "relativePath": "pages/oj/views/classroom/JoinClassroom.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/LessonManagement.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/LessonManagement.vue",
+      "relativePath": "pages/oj/views/classroom/LessonManagement.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/MonitorDashboard.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/MonitorDashboard.vue",
+      "relativePath": "pages/oj/views/classroom/MonitorDashboard.vue",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "diff 包含依赖替换、运行时桥接或状态/路由/插件适配，目标是保持行为一致"
+    },
+    {
+      "type": "only_in_old",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/monitorDashboardChartMixin.js",
+      "newPath": null,
+      "relativePath": "pages/oj/views/classroom/monitorDashboardChartMixin.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "frontend 缺少旧文件，需要人工确认是否已被合并或替代"
+    },
+    {
+      "type": "only_in_old",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/monitorDashboardPlaybackMixin.js",
+      "newPath": null,
+      "relativePath": "pages/oj/views/classroom/monitorDashboardPlaybackMixin.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "frontend 缺少旧文件，需要人工确认是否已被合并或替代"
+    },
+    {
+      "type": "only_in_old",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/monitorDashboardUiHelperMixin.js",
+      "newPath": null,
+      "relativePath": "pages/oj/views/classroom/monitorDashboardUiHelperMixin.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "frontend 缺少旧文件，需要人工确认是否已被合并或替代"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/general/Announcements.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/general/Announcements.vue",
+      "relativePath": "pages/oj/views/general/Announcements.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/general/Home.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/general/Home.vue",
+      "relativePath": "pages/oj/views/general/Home.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/general/NotFound.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/general/NotFound.vue",
+      "relativePath": "pages/oj/views/general/NotFound.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/index.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/index.js",
+      "relativePath": "pages/oj/views/index.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/agentContracts.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/agentContracts.js",
+      "relativePath": "pages/oj/views/problem/agentContracts.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "only_in_old",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/AITutorSidebar.vue",
+      "newPath": null,
+      "relativePath": "pages/oj/views/problem/AITutorSidebar.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "frontend 缺少旧文件，需要人工确认是否已被合并或替代"
+    },
+    {
+      "type": "only_in_old",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/astVisualizationMixin.js",
+      "newPath": null,
+      "relativePath": "pages/oj/views/problem/astVisualizationMixin.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "frontend 缺少旧文件，需要人工确认是否已被合并或替代"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/cards/ErrorDiagnosisCard.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/cards/ErrorDiagnosisCard.vue",
+      "relativePath": "pages/oj/views/problem/cards/ErrorDiagnosisCard.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "only_in_new",
+      "oldPath": null,
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/cards/ExecutionTraceExplainerCard.vue",
+      "relativePath": "pages/oj/views/problem/cards/ExecutionTraceExplainerCard.vue",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "frontend 新增适配文件，用于承接 Vue3 运行时或第三方库替换"
+    },
+    {
+      "type": "only_in_new",
+      "oldPath": null,
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/cards/FadedExampleCard.vue",
+      "relativePath": "pages/oj/views/problem/cards/FadedExampleCard.vue",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "frontend 新增适配文件，用于承接 Vue3 运行时或第三方库替换"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/cards/IdeateAnalysisCard.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/cards/IdeateAnalysisCard.vue",
+      "relativePath": "pages/oj/views/problem/cards/IdeateAnalysisCard.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "only_in_new",
+      "oldPath": null,
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/cards/MinimalHintCard.vue",
+      "relativePath": "pages/oj/views/problem/cards/MinimalHintCard.vue",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "frontend 新增适配文件，用于承接 Vue3 运行时或第三方库替换"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/cards/PostACCard.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/cards/PostACCard.vue",
+      "relativePath": "pages/oj/views/problem/cards/PostACCard.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/cards/ProblemGuideCard.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/cards/ProblemGuideCard.vue",
+      "relativePath": "pages/oj/views/problem/cards/ProblemGuideCard.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/cards/TransferProblemCard.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/cards/TransferProblemCard.vue",
+      "relativePath": "pages/oj/views/problem/cards/TransferProblemCard.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "only_in_new",
+      "oldPath": null,
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/cards/WorkedExampleCard.vue",
+      "relativePath": "pages/oj/views/problem/cards/WorkedExampleCard.vue",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "frontend 新增适配文件，用于承接 Vue3 运行时或第三方库替换"
+    },
+    {
+      "type": "only_in_old",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/CodeAnalysisPanel.vue",
+      "newPath": null,
+      "relativePath": "pages/oj/views/problem/CodeAnalysisPanel.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "frontend 缺少旧文件，需要人工确认是否已被合并或替代"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/CodeEditorPanel.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/CodeEditorPanel.vue",
+      "relativePath": "pages/oj/views/problem/CodeEditorPanel.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "only_in_old",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/frustrationMixin.js",
+      "newPath": null,
+      "relativePath": "pages/oj/views/problem/frustrationMixin.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "frontend 缺少旧文件，需要人工确认是否已被合并或替代"
+    },
+    {
+      "type": "only_in_old",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/IdeatePanel.vue",
+      "newPath": null,
+      "relativePath": "pages/oj/views/problem/IdeatePanel.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "frontend 缺少旧文件，需要人工确认是否已被合并或替代"
+    },
+    {
+      "type": "only_in_old",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/IdeateSidebar.vue",
+      "newPath": null,
+      "relativePath": "pages/oj/views/problem/IdeateSidebar.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "frontend 缺少旧文件，需要人工确认是否已被合并或替代"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/ParsonsPanel.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/ParsonsPanel.vue",
+      "relativePath": "pages/oj/views/problem/ParsonsPanel.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/preflightDetectors.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/preflightDetectors.js",
+      "relativePath": "pages/oj/views/problem/preflightDetectors.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/Problem.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/Problem.vue",
+      "relativePath": "pages/oj/views/problem/Problem.vue",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "diff 包含依赖替换、运行时桥接或状态/路由/插件适配，目标是保持行为一致"
+    },
+    {
+      "type": "only_in_old",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/ProblemDescription.vue",
+      "newPath": null,
+      "relativePath": "pages/oj/views/problem/ProblemDescription.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "frontend 缺少旧文件，需要人工确认是否已被合并或替代"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/ProblemList.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/ProblemList.vue",
+      "relativePath": "pages/oj/views/problem/ProblemList.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "only_in_old",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/problemPresentationMixin.js",
+      "newPath": null,
+      "relativePath": "pages/oj/views/problem/problemPresentationMixin.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "frontend 缺少旧文件，需要人工确认是否已被合并或替代"
+    },
+    {
+      "type": "only_in_old",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/submissionMixin.js",
+      "newPath": null,
+      "relativePath": "pages/oj/views/problem/submissionMixin.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "frontend 缺少旧文件，需要人工确认是否已被合并或替代"
+    },
+    {
+      "type": "only_in_old",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/SubmissionPanel.vue",
+      "newPath": null,
+      "relativePath": "pages/oj/views/problem/SubmissionPanel.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "frontend 缺少旧文件，需要人工确认是否已被合并或替代"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/UnifiedAgentPanel.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/UnifiedAgentPanel.vue",
+      "relativePath": "pages/oj/views/problem/UnifiedAgentPanel.vue",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "diff 包含依赖替换、运行时桥接或状态/路由/插件适配，目标是保持行为一致"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/workflowStateMachine.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/workflowStateMachine.js",
+      "relativePath": "pages/oj/views/problem/workflowStateMachine.js",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "diff 包含依赖替换、运行时桥接或状态/路由/插件适配，目标是保持行为一致"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/setting/children/AccountSetting.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/setting/children/AccountSetting.vue",
+      "relativePath": "pages/oj/views/setting/children/AccountSetting.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/setting/children/ProfileSetting.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/setting/children/ProfileSetting.vue",
+      "relativePath": "pages/oj/views/setting/children/ProfileSetting.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/setting/children/SecuritySetting.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/setting/children/SecuritySetting.vue",
+      "relativePath": "pages/oj/views/setting/children/SecuritySetting.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/setting/index.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/setting/index.js",
+      "relativePath": "pages/oj/views/setting/index.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/setting/Settings.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/setting/Settings.vue",
+      "relativePath": "pages/oj/views/setting/Settings.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/submission/SubmissionDetails.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/submission/SubmissionDetails.vue",
+      "relativePath": "pages/oj/views/submission/SubmissionDetails.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/submission/SubmissionList.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/submission/SubmissionList.vue",
+      "relativePath": "pages/oj/views/submission/SubmissionList.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/user/ApplyResetPassword.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/user/ApplyResetPassword.vue",
+      "relativePath": "pages/oj/views/user/ApplyResetPassword.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/user/LearnerNotebook.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/user/LearnerNotebook.vue",
+      "relativePath": "pages/oj/views/user/LearnerNotebook.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "only_in_new",
+      "oldPath": null,
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/user/learnerNotebookState.js",
+      "relativePath": "pages/oj/views/user/learnerNotebookState.js",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "frontend 新增适配文件，用于承接 Vue3 运行时或第三方库替换"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/user/Login.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/user/Login.vue",
+      "relativePath": "pages/oj/views/user/Login.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/user/Register.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/user/Register.vue",
+      "relativePath": "pages/oj/views/user/Register.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/user/ResetPassword.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/user/ResetPassword.vue",
+      "relativePath": "pages/oj/views/user/ResetPassword.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/user/StandaloneLogin.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/user/StandaloneLogin.vue",
+      "relativePath": "pages/oj/views/user/StandaloneLogin.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/user/StandaloneRegister.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/user/StandaloneRegister.vue",
+      "relativePath": "pages/oj/views/user/StandaloneRegister.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/user/UserHome.vue",
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/views/user/UserHome.vue",
+      "relativePath": "pages/oj/views/user/UserHome.vue",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "only_in_new",
+      "oldPath": null,
+      "newPath": "/home/cypress/Alethicode/frontend/src/pages/oj/viewUiPlusTheme.less",
+      "relativePath": "pages/oj/viewUiPlusTheme.less",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "frontend 新增适配文件，用于承接 Vue3 运行时或第三方库替换"
+    },
+    {
+      "type": "only_in_new",
+      "oldPath": null,
+      "newPath": "/home/cypress/Alethicode/frontend/src/plugins/analytics.js",
+      "relativePath": "plugins/analytics.js",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "frontend 新增适配文件，用于承接 Vue3 运行时或第三方库替换"
+    },
+    {
+      "type": "only_in_new",
+      "oldPath": null,
+      "newPath": "/home/cypress/Alethicode/frontend/src/plugins/clipboard.js",
+      "relativePath": "plugins/clipboard.js",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "frontend 新增适配文件，用于承接 Vue3 运行时或第三方库替换"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/plugins/highlight.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/plugins/highlight.js",
+      "relativePath": "plugins/highlight.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/plugins/katex.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/plugins/katex.js",
+      "relativePath": "plugins/katex.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/store/index.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/store/index.js",
+      "relativePath": "store/index.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/store/modules/problem.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/store/modules/problem.js",
+      "relativePath": "store/modules/problem.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/store/modules/user.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/store/modules/user.js",
+      "relativePath": "store/modules/user.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/styles/common.less",
+      "newPath": "/home/cypress/Alethicode/frontend/src/styles/common.less",
+      "relativePath": "styles/common.less",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/utils/classroomConstants.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/utils/classroomConstants.js",
+      "relativePath": "utils/classroomConstants.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "only_in_new",
+      "oldPath": null,
+      "newPath": "/home/cypress/Alethicode/frontend/src/utils/echarts.js",
+      "relativePath": "utils/echarts.js",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "frontend 新增适配文件，用于承接 Vue3 运行时或第三方库替换"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/utils/filters.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/utils/filters.js",
+      "relativePath": "utils/filters.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/utils/learningEventsTransport.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/utils/learningEventsTransport.js",
+      "relativePath": "utils/learningEventsTransport.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "only_in_new",
+      "oldPath": null,
+      "newPath": "/home/cypress/Alethicode/frontend/src/utils/notifications.js",
+      "relativePath": "utils/notifications.js",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "frontend 新增适配文件，用于承接 Vue3 运行时或第三方库替换"
+    },
+    {
+      "type": "only_in_new",
+      "oldPath": null,
+      "newPath": "/home/cypress/Alethicode/frontend/src/utils/runtimeEnv.js",
+      "relativePath": "utils/runtimeEnv.js",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "frontend 新增适配文件，用于承接 Vue3 运行时或第三方库替换"
+    },
+    {
+      "type": "only_in_new",
+      "oldPath": null,
+      "newPath": "/home/cypress/Alethicode/frontend/src/utils/runtimeErrorFilter.js",
+      "relativePath": "utils/runtimeErrorFilter.js",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "frontend 新增适配文件，用于承接 Vue3 运行时或第三方库替换"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/utils/sanitize.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/utils/sanitize.js",
+      "relativePath": "utils/sanitize.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/utils/sentry.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/utils/sentry.js",
+      "relativePath": "utils/sentry.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "only_in_new",
+      "oldPath": null,
+      "newPath": "/home/cypress/Alethicode/frontend/src/utils/settingsToast.js",
+      "relativePath": "utils/settingsToast.js",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "frontend 新增适配文件，用于承接 Vue3 运行时或第三方库替换"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/utils/time.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/utils/time.js",
+      "relativePath": "utils/time.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "only_in_new",
+      "oldPath": null,
+      "newPath": "/home/cypress/Alethicode/frontend/src/utils/twoFactorQrCode.js",
+      "relativePath": "utils/twoFactorQrCode.js",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "frontend 新增适配文件，用于承接 Vue3 运行时或第三方库替换"
+    },
+    {
+      "type": "changed",
+      "oldPath": "/home/cypress/Alethicode/frontend/src/utils/utils.js",
+      "newPath": "/home/cypress/Alethicode/frontend/src/utils/utils.js",
+      "relativePath": "utils/utils.js",
+      "category": "runtime_behavior_change_or_manual_review",
+      "reason": "diff 含有非纯语法改动，必须依赖运行时验收与视觉回归确认是否等价"
+    },
+    {
+      "type": "only_in_new",
+      "oldPath": null,
+      "newPath": "/home/cypress/Alethicode/frontend/src/utils/websocketUrl.js",
+      "relativePath": "utils/websocketUrl.js",
+      "category": "semantic_adapter_or_runtime_bridge",
+      "reason": "frontend 新增适配文件，用于承接 Vue3 运行时或第三方库替换"
+    }
+  ]
+}

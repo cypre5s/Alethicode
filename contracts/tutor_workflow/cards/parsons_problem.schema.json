@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ParsonsProblemCard",
+  "type": "object",
+  "required": [
+    "parsons_session_id",
+    "fading_level",
+    "blocks",
+    "distractors",
+    "mastery_snapshot",
+    "instructions"
+  ],
+  "properties": {
+    "parsons_session_id": { "type": "string", "minLength": 1 },
+    "fading_level": { "type": "integer", "minimum": 0, "maximum": 3 },
+    "blocks": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["id", "code", "indent", "fading_state"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "code": { "type": "string" },
+          "indent": { "type": "integer", "minimum": 0 },
+          "fading_state": { "type": "string", "enum": ["visible", "faded", "hidden"] },
+          "fade_hint": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "distractors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "code", "indent", "source"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "code": { "type": "string" },
+          "indent": { "type": "integer", "minimum": 0 },
+          "source": { "type": "string", "enum": ["notebook", "llm"] },
+          "kc_hint": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "mastery_snapshot": {
+      "type": "object",
+      "required": ["routing", "decision_at"],
+      "properties": {
+        "decision_at": { "type": "string" },
+        "routing": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["mastery", "source"],
+            "properties": {
+              "mastery": { "type": "number", "minimum": 0, "maximum": 1 },
+              "source": { "type": "string", "enum": ["nfk", "bkt"] },
+              "nfk_sequence_length": { "type": "integer", "minimum": 0 },
+              "fallback_reason": { "type": "string", "enum": ["coverage", "interaction_count", "nfk_unavailable"] }
+            }
+          }
+        }
+      }
+    },
+    "instructions": { "type": "string", "minLength": 1 },
+    "language": { "type": "string" },
+    "fsrs_origin": { "type": "string" },
+    "previous_session_id": { "type": "string" }
+  },
+  "additionalProperties": false
+}

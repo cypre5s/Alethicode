@@ -1,0 +1,2 @@
+ALTER TABLE ai_tutor_trace
+    ADD COLUMN IF NOT EXISTS scaffold_level VARCHAR(32) NOT NULL DEFAULT '';

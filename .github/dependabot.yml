@@ -1,0 +1,81 @@
+version: 2
+# 依赖自动更新。国内访问 GitHub 稳定性一般，所以 PR 频率定低一些，避开上班高峰。
+updates:
+  - package-ecosystem: maven
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: saturday
+      time: "02:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - backend
+    groups:
+      spring-boot:
+        patterns:
+          - "org.springframework.boot:*"
+          - "org.springframework.security:*"
+          - "org.springframework.ai:*"
+      resilience:
+        patterns:
+          - "io.github.resilience4j:*"
+      observability:
+        patterns:
+          - "io.micrometer:*"
+          - "io.opentelemetry:*"
+          - "net.logstash.logback:*"
+    ignore:
+      # Pin spring-ai at the curated BOM version; auto-bump within 1.x only.
+      - dependency-name: "org.springframework.ai:spring-ai-bom"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: pip
+    directory: /tutor_graph
+    schedule:
+      interval: weekly
+      day: saturday
+      time: "02:30"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - tutor-graph
+    groups:
+      langgraph:
+        patterns:
+          - "langgraph*"
+          - "langchain*"
+      opentelemetry:
+        patterns:
+          - "opentelemetry-*"
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: sunday
+      time: "02:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - frontend
+    groups:
+      element-plus:
+        patterns:
+          - "element-plus"
+      vue-ecosystem:
+        patterns:
+          - "vue"
+          - "vue-*"
+          - "@vue/*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    labels:
+      - dependencies
+      - ci

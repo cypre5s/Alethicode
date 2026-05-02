@@ -1,0 +1,128 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "alethicode.fullname" . }}-tutor-graph
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "alethicode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tutor-graph
+spec:
+  # Single replica is mandatory until ADR-0005 moves state to Redis.
+  # Changing `replicas` or `strategy.type` here risks losing tutor run state.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: tutor-graph
+  template:
+    metadata:
+      labels:
+        {{- include "alethicode.labels" . | nindent 8 }}
+        app.kubernetes.io/component: tutor-graph
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8100"
+    spec:
+      terminationGracePeriodSeconds: 60
+      {{- with .Values.tutorGraph.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: tutor-graph
+          image: "{{ .Values.tutorGraph.image.repository }}:{{ .Values.tutorGraph.image.tag }}"
+          imagePullPolicy: {{ .Values.tutorGraph.image.pullPolicy }}
+          ports:
+            - containerPort: 8100
+              name: http
+          env:
+            - name: TUTOR_GRAPH_CHECKPOINTER
+              value: {{ .Values.tutorGraph.checkpointer | default "postgres" | quote }}
+            # LangGraph state DB — reuses the Alethicode Postgres by default; prod
+            # deployments should point to a dedicated instance / schema.
+            - name: TUTOR_GRAPH_DATABASE_URI
+              value: "postgresql://onlinejudge:$(DB_PASSWORD)@postgres:5432/alethicode"
+            - name: TUTOR_GRAPH_JAVA_TOOL_BASE_URL
+              value: "http://backend:8080"
+            - name: TUTOR_GRAPH_INTERNAL_SERVICE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "alethicode.fullname" . }}-secrets
+                  key: INTERNAL_SERVICE_KEY
+            - name: TUTOR_GRAPH_INTERNAL_SERVICE_PREVIOUS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "alethicode.fullname" . }}-secrets
+                  key: INTERNAL_SERVICE_PREVIOUS_KEY
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "alethicode.fullname" . }}-secrets
+                  key: DB_PASSWORD
+            - name: TUTOR_GRAPH_LLM_PROVIDER
+              value: {{ .Values.tutorGraph.llm.provider | default "openai" | quote }}
+            - name: TUTOR_GRAPH_LLM_MODEL
+              value: {{ .Values.tutorGraph.llm.model | default "deepseek-v4-flash" | quote }}
+            - name: TUTOR_GRAPH_LLM_BASE_URL
+              value: {{ .Values.tutorGraph.llm.baseUrl | default "https://api.deepseek.com" | quote }}
+            - name: TUTOR_GRAPH_LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "alethicode.fullname" . }}-secrets
+                  key: OPENAI_API_KEY
+            - name: TUTOR_GRAPH_LLM_TEMPERATURE
+              value: {{ .Values.tutorGraph.llm.temperature | default "0.3" | quote }}
+            - name: TUTOR_GRAPH_REACT_ENABLED
+              value: "false"
+            {{- if .Values.observability.enabled }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector:4318"
+            - name: OTEL_SERVICE_NAME
+              value: "tutor-graph"
+            - name: DEPLOYMENT_ENVIRONMENT
+              value: {{ .Values.tutorGraph.deploymentEnvironment | default "prod" | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.tutorGraph.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 2
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 18
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tutor-graph
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "alethicode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tutor-graph
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8100
+      targetPort: http
+      name: http
+  selector:
+    app.kubernetes.io/component: tutor-graph

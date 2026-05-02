@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "IdeateAnalysisCard",
+  "type": "object",
+  "required": [
+    "analysis"
+  ],
+  "properties": {
+    "analysis": {
+      "type": "string",
+      "minLength": 1
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "guiding_questions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "skeleton_code": {
+      "type": "string"
+    },
+    "misconception_alert": {
+      "type": "string"
+    },
+    "teaching_goal": {
+      "type": "string"
+    },
+    "checkpoint_prompt": {
+      "type": "string"
+    },
+    "mentor_role": {
+      "type": "string"
+    },
+    "reflection_prompt": {
+      "type": "string"
+    },
+    "visualize_intent": {
+      "type": "string"
+    },
+    "visualize_prompt": {
+      "type": "string"
+    },
+    "kc_error_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kc_id": {
+            "type": "integer"
+          },
+          "kc_name": {
+            "type": "string"
+          },
+          "error_count": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

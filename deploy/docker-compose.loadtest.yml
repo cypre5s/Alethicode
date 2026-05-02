@@ -1,0 +1,5 @@
+services:
+  backend:
+    environment:
+      SPRING_PROFILES_ACTIVE: dev,loadtest
+      AI_BANDIT_ENABLED: "true"

@@ -1,0 +1,6 @@
+export { default as authApi } from './auth'
+export { default as problemApi } from './problem'
+export { default as classroomApi } from './classroom'
+export { default as aiApi } from './ai'
+export { default as submissionApi } from './submission'
+export { default as adminApi } from './admin'

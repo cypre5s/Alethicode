@@ -1,0 +1,117 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ErrorDiagnosisCard",
+  "type": "object",
+  "required": [
+    "root_cause",
+    "fix_direction"
+  ],
+  "properties": {
+    "root_cause": {
+      "type": "string",
+      "minLength": 1
+    },
+    "what_program_is_doing": {
+      "type": "string"
+    },
+    "expected_behavior": {
+      "type": "string"
+    },
+    "fix_direction": {
+      "type": "string",
+      "minLength": 1
+    },
+    "related_kcs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "error_pattern": {
+      "type": "string"
+    },
+    "is_recurring": {
+      "type": "boolean"
+    },
+    "encouragement": {
+      "type": "string"
+    },
+    "teaching_goal": {
+      "type": "string"
+    },
+    "checkpoint_prompt": {
+      "type": "string"
+    },
+    "mentor_role": {
+      "type": "string"
+    },
+    "reflection_prompt": {
+      "type": "string"
+    },
+    "visualize_intent": {
+      "type": "string"
+    },
+    "visualize_prompt": {
+      "type": "string"
+    },
+    "visualize_card_id": {
+      "type": "string"
+    },
+    "visualize_failed": {
+      "type": "string"
+    },
+    "similar_error_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "similar_notebook",
+              "similar_memory"
+            ]
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "entry_date": {
+            "type": "string"
+          },
+          "excerpt": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "problem_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "source_type",
+          "source_id"
+        ]
+      }
+    },
+    "kc_error_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kc_id": {
+            "type": "integer"
+          },
+          "kc_name": {
+            "type": "string"
+          },
+          "error_count": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

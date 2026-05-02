@@ -1,0 +1,14 @@
+spring:
+  datasource:
+    url: ${ALETHICODE_INTEGRATION_DB_URL:jdbc:postgresql://127.0.0.1:5435/test_aethicode}
+    username: ${ALETHICODE_INTEGRATION_DB_USERNAME:onlinejudge}
+    password: ${ALETHICODE_INTEGRATION_DB_PASSWORD:${DB_PASSWORD}}
+
+alethicode:
+  temporal:
+    enabled: false
+  stream:
+    judge-dispatch:
+      transport: redis
+    learning-events:
+      enabled: false

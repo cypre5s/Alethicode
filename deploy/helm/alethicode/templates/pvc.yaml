@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "alethicode.fullname" . }}-test-case
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "alethicode.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteMany]
+  {{- if .Values.persistence.testCase.storageClass }}
+  storageClassName: {{ .Values.persistence.testCase.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.testCase.size }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "alethicode.fullname" . }}-public-data
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "alethicode.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteMany]
+  resources:
+    requests:
+      storage: {{ .Values.persistence.publicData.size }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "alethicode.fullname" . }}-classroom-lessons
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "alethicode.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteMany]
+  resources:
+    requests:
+      storage: {{ .Values.persistence.classroomLessons.size }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "alethicode.fullname" . }}-language-pack
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "alethicode.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteMany]
+  resources:
+    requests:
+      storage: {{ .Values.persistence.languagePack.size }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "alethicode.fullname" . }}-submission
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "alethicode.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteMany]
+  resources:
+    requests:
+      storage: {{ .Values.persistence.submission.size }}

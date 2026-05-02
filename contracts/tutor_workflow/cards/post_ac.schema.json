@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PostAcCard",
+  "type": "object",
+  "required": ["success_summary", "next_practice_direction"],
+  "properties": {
+    "success_summary": { "type": "string", "minLength": 1 },
+    "key_action": { "type": "string" },
+    "code_quality_notes": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "knowledge_points": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "next_practice_direction": { "type": "string", "minLength": 1 },
+    "courseware_refs": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "teaching_goal": { "type": "string" },
+    "checkpoint_prompt": { "type": "string" },
+    "mentor_role": { "type": "string" },
+    "reflection_prompt": { "type": "string" },
+    "visualize_intent": { "type": "string" },
+    "visualize_prompt": { "type": "string" }
+  },
+  "additionalProperties": false
+}

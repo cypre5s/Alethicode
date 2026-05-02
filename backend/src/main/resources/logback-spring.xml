@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Log configuration for Alethicode.
+
+    Development: human-readable console, short pattern.
+    Production / containerized: JSON on stdout (Loki / 阿里云 SLS / ELK friendly).
+    Trace context: Micrometer Tracing already populates MDC with trace_id / span_id
+    for every OTel span; both profiles include them.
+  -->
+<configuration>
+
+    <property name="LOG_PATTERN_DEV"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %highlight(%-5level) %cyan(%logger{36}) [%X{traceId:-},%X{spanId:-}] - %msg%n"/>
+
+    <springProfile name="default,dev,test">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>${LOG_PATTERN_DEV}</pattern>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <springProfile name="prod,production,release,staging">
+        <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <!--
+                    Compulsory metadata for production log aggregation. Keep the field
+                    names stable so Loki dashboards and 阿里云 SLS queries can rely on
+                    them without re-mapping.
+                -->
+                <includeMdcKeyName>traceId</includeMdcKeyName>
+                <includeMdcKeyName>spanId</includeMdcKeyName>
+                <includeMdcKeyName>sessionId</includeMdcKeyName>
+                <includeMdcKeyName>userId</includeMdcKeyName>
+                <customFields>{"service":"alethicode-backend","env":"${SPRING_PROFILES_ACTIVE:-prod}"}</customFields>
+                <fieldNames>
+                    <timestamp>@timestamp</timestamp>
+                    <message>msg</message>
+                    <logger>logger</logger>
+                    <thread>thread</thread>
+                    <level>level</level>
+                    <levelValue>[ignore]</levelValue>
+                    <version>[ignore]</version>
+                </fieldNames>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="JSON"/>
+        </root>
+        <!-- Reduce noise from bootstrap phases -->
+        <logger name="org.springframework" level="WARN"/>
+        <logger name="org.apache.catalina" level="WARN"/>
+        <logger name="org.hibernate.SQL" level="WARN"/>
+    </springProfile>
+
+</configuration>

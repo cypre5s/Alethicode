@@ -1,0 +1,3710 @@
+{
+  "_type": "Project",
+  "_id": "AAAA-PRJ-0001",
+  "name": "Alethicode 用例与活动建模",
+  "ownedElements": [
+    {
+      "_type": "UMLModel",
+      "_id": "AAAA-MODEL-0002",
+      "_parent": {
+        "$ref": "AAAA-PRJ-0001"
+      },
+      "name": "Alethicode 模型",
+      "ownedElements": [
+        {
+          "_type": "UMLActor",
+          "_id": "AAAA-ACT-0004",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "学生"
+        },
+        {
+          "_type": "UMLActor",
+          "_id": "AAAA-ACT-0005",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "教师"
+        },
+        {
+          "_type": "UMLActor",
+          "_id": "AAAA-ACT-0006",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "管理员"
+        },
+        {
+          "_type": "UMLPackage",
+          "_id": "AAAA-PKG-0007",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "基础 OJ",
+          "ownedElements": [
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0011",
+              "_parent": {
+                "$ref": "AAAA-PKG-0007"
+              },
+              "name": "账户访问"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0012",
+              "_parent": {
+                "$ref": "AAAA-PKG-0007"
+              },
+              "name": "浏览学习内容"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0013",
+              "_parent": {
+                "$ref": "AAAA-PKG-0007"
+              },
+              "name": "OJ 编程闭环"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0014",
+              "_parent": {
+                "$ref": "AAAA-PKG-0007"
+              },
+              "name": "真实判题"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0015",
+              "_parent": {
+                "$ref": "AAAA-PKG-0007"
+              },
+              "name": "个人学习空间"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0016",
+              "_parent": {
+                "$ref": "AAAA-PKG-0007"
+              },
+              "name": "数据隐私"
+            }
+          ]
+        },
+        {
+          "_type": "UMLPackage",
+          "_id": "AAAA-PKG-0008",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "AI 导学",
+          "ownedElements": [
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0017",
+              "_parent": {
+                "$ref": "AAAA-PKG-0008"
+              },
+              "name": "AI 导学会话"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0018",
+              "_parent": {
+                "$ref": "AAAA-PKG-0008"
+              },
+              "name": "审题导读"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0019",
+              "_parent": {
+                "$ref": "AAAA-PKG-0008"
+              },
+              "name": "思路分析"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0020",
+              "_parent": {
+                "$ref": "AAAA-PKG-0008"
+              },
+              "name": "骨架代码"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0021",
+              "_parent": {
+                "$ref": "AAAA-PKG-0008"
+              },
+              "name": "自由对话"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0022",
+              "_parent": {
+                "$ref": "AAAA-PKG-0008"
+              },
+              "name": "错误诊断"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0023",
+              "_parent": {
+                "$ref": "AAAA-PKG-0008"
+              },
+              "name": "通过复盘"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0024",
+              "_parent": {
+                "$ref": "AAAA-PKG-0008"
+              },
+              "name": "迁移练习"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0025",
+              "_parent": {
+                "$ref": "AAAA-PKG-0008"
+              },
+              "name": "检查点恢复"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0026",
+              "_parent": {
+                "$ref": "AAAA-PKG-0008"
+              },
+              "name": "可视化与代码拼装卡片"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0027",
+              "_parent": {
+                "$ref": "AAAA-PKG-0008"
+              },
+              "name": "学习画像标定"
+            }
+          ]
+        },
+        {
+          "_type": "UMLPackage",
+          "_id": "AAAA-PKG-0009",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "课件 / 学情 / 班级",
+          "ownedElements": [
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0028",
+              "_parent": {
+                "$ref": "AAAA-PKG-0009"
+              },
+              "name": "课件问答"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0029",
+              "_parent": {
+                "$ref": "AAAA-PKG-0009"
+              },
+              "name": "课件原页查看"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0030",
+              "_parent": {
+                "$ref": "AAAA-PKG-0009"
+              },
+              "name": "学情与自适应"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0031",
+              "_parent": {
+                "$ref": "AAAA-PKG-0009"
+              },
+              "name": "学习笔记本"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0032",
+              "_parent": {
+                "$ref": "AAAA-PKG-0009"
+              },
+              "name": "专项错题复习包"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0033",
+              "_parent": {
+                "$ref": "AAAA-PKG-0009"
+              },
+              "name": "班级教学"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0034",
+              "_parent": {
+                "$ref": "AAAA-PKG-0009"
+              },
+              "name": "作业流转"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0035",
+              "_parent": {
+                "$ref": "AAAA-PKG-0009"
+              },
+              "name": "课堂协作监控"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0036",
+              "_parent": {
+                "$ref": "AAAA-PKG-0009"
+              },
+              "name": "班级学情分析"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0037",
+              "_parent": {
+                "$ref": "AAAA-PKG-0009"
+              },
+              "name": "班级 AI 题目"
+            }
+          ]
+        },
+        {
+          "_type": "UMLPackage",
+          "_id": "AAAA-PKG-0010",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "后台管理 / 运维",
+          "ownedElements": [
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0038",
+              "_parent": {
+                "$ref": "AAAA-PKG-0010"
+              },
+              "name": "题库与测试用例管理"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0039",
+              "_parent": {
+                "$ref": "AAAA-PKG-0010"
+              },
+              "name": "知识点 KC 管理"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0040",
+              "_parent": {
+                "$ref": "AAAA-PKG-0010"
+              },
+              "name": "AI 变体题 / 误解审核"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0041",
+              "_parent": {
+                "$ref": "AAAA-PKG-0010"
+              },
+              "name": "课程语言包初始化"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0042",
+              "_parent": {
+                "$ref": "AAAA-PKG-0010"
+              },
+              "name": "跨班级教学洞察"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0043",
+              "_parent": {
+                "$ref": "AAAA-PKG-0010"
+              },
+              "name": "用户与公告管理"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0044",
+              "_parent": {
+                "$ref": "AAAA-PKG-0010"
+              },
+              "name": "判题机管理"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0045",
+              "_parent": {
+                "$ref": "AAAA-PKG-0010"
+              },
+              "name": "系统配置"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0046",
+              "_parent": {
+                "$ref": "AAAA-PKG-0010"
+              },
+              "name": "AI 治理与观测"
+            },
+            {
+              "_type": "UMLUseCase",
+              "_id": "AAAA-UC-0047",
+              "_parent": {
+                "$ref": "AAAA-PKG-0010"
+              },
+              "name": "系统监控与基础设施密钥"
+            }
+          ]
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0091",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0092",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0091"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0004"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0093",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0091"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0011"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0094",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0095",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0094"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0004"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0096",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0094"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0012"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0097",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0098",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0097"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0004"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0099",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0097"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0013"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0100",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0101",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0100"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0004"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0102",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0100"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0015"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0103",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0104",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0103"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0004"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0105",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0103"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0016"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0106",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0107",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0106"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0004"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0108",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0106"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0017"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0109",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0110",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0109"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0004"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0111",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0109"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0027"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0112",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0113",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0112"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0004"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0114",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0112"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0028"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0115",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0116",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0115"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0004"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0117",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0115"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0030"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0118",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0119",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0118"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0004"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0120",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0118"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0031"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0121",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0122",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0121"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0004"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0123",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0121"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0032"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0124",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0125",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0124"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0004"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0126",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0124"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0033"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0127",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0128",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0127"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0004"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0129",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0127"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0034"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0130",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0131",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0130"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0005"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0132",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0130"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0011"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0133",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0134",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0133"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0005"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0135",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0133"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0033"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0136",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0137",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0136"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0005"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0138",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0136"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0034"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0139",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0140",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0139"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0005"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0141",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0139"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0035"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0142",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0143",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0142"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0005"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0144",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0142"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0036"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0145",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0146",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0145"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0005"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0147",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0145"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0037"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0148",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0149",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0148"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0005"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0150",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0148"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0038"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0151",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0152",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0151"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0005"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0153",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0151"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0039"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0154",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0155",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0154"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0005"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0156",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0154"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0040"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0157",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0158",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0157"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0005"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0159",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0157"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0041"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0160",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0161",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0160"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0006"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0162",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0160"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0042"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0163",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0164",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0163"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0006"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0165",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0163"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0043"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0166",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0167",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0166"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0006"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0168",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0166"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0044"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0169",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0170",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0169"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0006"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0171",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0169"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0045"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0172",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0173",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0172"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0006"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0174",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0172"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0046"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLAssociation",
+          "_id": "AAAA-ASSOC-0175",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "",
+          "end1": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0176",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0175"
+            },
+            "reference": {
+              "$ref": "AAAA-ACT-0006"
+            },
+            "name": ""
+          },
+          "end2": {
+            "_type": "UMLAssociationEnd",
+            "_id": "AAAA-END-0177",
+            "_parent": {
+              "$ref": "AAAA-ASSOC-0175"
+            },
+            "reference": {
+              "$ref": "AAAA-UC-0047"
+            },
+            "name": ""
+          }
+        },
+        {
+          "_type": "UMLInclude",
+          "_id": "AAAA-INC-0178",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-UC-0013"
+          },
+          "target": {
+            "$ref": "AAAA-UC-0014"
+          }
+        },
+        {
+          "_type": "UMLInclude",
+          "_id": "AAAA-INC-0179",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-UC-0017"
+          },
+          "target": {
+            "$ref": "AAAA-UC-0018"
+          }
+        },
+        {
+          "_type": "UMLInclude",
+          "_id": "AAAA-INC-0180",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-UC-0017"
+          },
+          "target": {
+            "$ref": "AAAA-UC-0019"
+          }
+        },
+        {
+          "_type": "UMLInclude",
+          "_id": "AAAA-INC-0181",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-UC-0017"
+          },
+          "target": {
+            "$ref": "AAAA-UC-0020"
+          }
+        },
+        {
+          "_type": "UMLInclude",
+          "_id": "AAAA-INC-0182",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-UC-0017"
+          },
+          "target": {
+            "$ref": "AAAA-UC-0021"
+          }
+        },
+        {
+          "_type": "UMLInclude",
+          "_id": "AAAA-INC-0183",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-UC-0024"
+          },
+          "target": {
+            "$ref": "AAAA-UC-0025"
+          }
+        },
+        {
+          "_type": "UMLInclude",
+          "_id": "AAAA-INC-0184",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-UC-0025"
+          },
+          "target": {
+            "$ref": "AAAA-UC-0026"
+          }
+        },
+        {
+          "_type": "UMLInclude",
+          "_id": "AAAA-INC-0185",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-UC-0028"
+          },
+          "target": {
+            "$ref": "AAAA-UC-0029"
+          }
+        },
+        {
+          "_type": "UMLInclude",
+          "_id": "AAAA-INC-0186",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-UC-0030"
+          },
+          "target": {
+            "$ref": "AAAA-UC-0031"
+          }
+        },
+        {
+          "_type": "UMLInclude",
+          "_id": "AAAA-INC-0187",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-UC-0033"
+          },
+          "target": {
+            "$ref": "AAAA-UC-0034"
+          }
+        },
+        {
+          "_type": "UMLInclude",
+          "_id": "AAAA-INC-0188",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-UC-0033"
+          },
+          "target": {
+            "$ref": "AAAA-UC-0035"
+          }
+        },
+        {
+          "_type": "UMLInclude",
+          "_id": "AAAA-INC-0189",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-UC-0033"
+          },
+          "target": {
+            "$ref": "AAAA-UC-0036"
+          }
+        },
+        {
+          "_type": "UMLInclude",
+          "_id": "AAAA-INC-0190",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-UC-0038"
+          },
+          "target": {
+            "$ref": "AAAA-UC-0039"
+          }
+        },
+        {
+          "_type": "UMLInclude",
+          "_id": "AAAA-INC-0191",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-UC-0041"
+          },
+          "target": {
+            "$ref": "AAAA-UC-0039"
+          }
+        },
+        {
+          "_type": "UMLExtend",
+          "_id": "AAAA-EXT-0192",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-UC-0022"
+          },
+          "target": {
+            "$ref": "AAAA-UC-0017"
+          }
+        },
+        {
+          "_type": "UMLExtend",
+          "_id": "AAAA-EXT-0193",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-UC-0023"
+          },
+          "target": {
+            "$ref": "AAAA-UC-0017"
+          }
+        },
+        {
+          "_type": "UMLExtend",
+          "_id": "AAAA-EXT-0194",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-UC-0024"
+          },
+          "target": {
+            "$ref": "AAAA-UC-0023"
+          }
+        },
+        {
+          "_type": "UMLExtend",
+          "_id": "AAAA-EXT-0195",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-UC-0022"
+          },
+          "target": {
+            "$ref": "AAAA-UC-0014"
+          }
+        },
+        {
+          "_type": "UMLExtend",
+          "_id": "AAAA-EXT-0196",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-UC-0023"
+          },
+          "target": {
+            "$ref": "AAAA-UC-0014"
+          }
+        },
+        {
+          "_type": "UMLExtend",
+          "_id": "AAAA-EXT-0197",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-UC-0032"
+          },
+          "target": {
+            "$ref": "AAAA-UC-0030"
+          }
+        },
+        {
+          "_type": "UMLExtend",
+          "_id": "AAAA-EXT-0198",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-UC-0037"
+          },
+          "target": {
+            "$ref": "AAAA-UC-0033"
+          }
+        },
+        {
+          "_type": "UMLExtend",
+          "_id": "AAAA-EXT-0199",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-UC-0040"
+          },
+          "target": {
+            "$ref": "AAAA-UC-0038"
+          }
+        },
+        {
+          "_type": "UMLGeneralization",
+          "_id": "AAAA-GEN-0200",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT-0006"
+          },
+          "target": {
+            "$ref": "AAAA-ACT-0005"
+          }
+        },
+        {
+          "_type": "UMLUseCaseDiagram",
+          "_id": "AAAA-UCDIAG-0003",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "Alethicode 用例图（学生 / 教师 / 管理员）",
+          "ownedViews": [
+            {
+              "_type": "UMLActorView",
+              "_id": "AAAA-AV-0201",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-ACT-0004"
+              },
+              "left": 60,
+              "top": 200,
+              "width": 50,
+              "height": 80
+            },
+            {
+              "_type": "UMLActorView",
+              "_id": "AAAA-AV-0202",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-ACT-0005"
+              },
+              "left": 60,
+              "top": 540,
+              "width": 50,
+              "height": 80
+            },
+            {
+              "_type": "UMLActorView",
+              "_id": "AAAA-AV-0203",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-ACT-0006"
+              },
+              "left": 60,
+              "top": 800,
+              "width": 50,
+              "height": 80
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0204",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0011"
+              },
+              "left": 280,
+              "top": 110,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0205",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0012"
+              },
+              "left": 280,
+              "top": 200,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0206",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0013"
+              },
+              "left": 280,
+              "top": 290,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0207",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0014"
+              },
+              "left": 280,
+              "top": 380,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0208",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0015"
+              },
+              "left": 280,
+              "top": 470,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0209",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0016"
+              },
+              "left": 280,
+              "top": 560,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0210",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0017"
+              },
+              "left": 540,
+              "top": 240,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0211",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0018"
+              },
+              "left": 460,
+              "top": 110,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0212",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0019"
+              },
+              "left": 620,
+              "top": 110,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0213",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0020"
+              },
+              "left": 460,
+              "top": 380,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0214",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0021"
+              },
+              "left": 620,
+              "top": 380,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0215",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0022"
+              },
+              "left": 460,
+              "top": 470,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0216",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0023"
+              },
+              "left": 620,
+              "top": 470,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0217",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0024"
+              },
+              "left": 540,
+              "top": 560,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0218",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0025"
+              },
+              "left": 540,
+              "top": 650,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0219",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0026"
+              },
+              "left": 540,
+              "top": 740,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0220",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0027"
+              },
+              "left": 540,
+              "top": 830,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0221",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0028"
+              },
+              "left": 820,
+              "top": 110,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0222",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0029"
+              },
+              "left": 820,
+              "top": 200,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0223",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0030"
+              },
+              "left": 820,
+              "top": 290,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0224",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0031"
+              },
+              "left": 820,
+              "top": 380,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0225",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0032"
+              },
+              "left": 820,
+              "top": 470,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0226",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0033"
+              },
+              "left": 820,
+              "top": 560,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0227",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0034"
+              },
+              "left": 820,
+              "top": 650,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0228",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0035"
+              },
+              "left": 820,
+              "top": 740,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0229",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0036"
+              },
+              "left": 820,
+              "top": 830,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0230",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0037"
+              },
+              "left": 820,
+              "top": 920,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0231",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0038"
+              },
+              "left": 1080,
+              "top": 110,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0232",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0039"
+              },
+              "left": 1080,
+              "top": 200,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0233",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0040"
+              },
+              "left": 1080,
+              "top": 290,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0234",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0041"
+              },
+              "left": 1080,
+              "top": 380,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0235",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0042"
+              },
+              "left": 1080,
+              "top": 470,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0236",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0043"
+              },
+              "left": 1080,
+              "top": 560,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0237",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0044"
+              },
+              "left": 1080,
+              "top": 650,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0238",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0045"
+              },
+              "left": 1080,
+              "top": 740,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0239",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0046"
+              },
+              "left": 1080,
+              "top": 830,
+              "width": 200,
+              "height": 60
+            },
+            {
+              "_type": "UMLUseCaseView",
+              "_id": "AAAA-UCV-0240",
+              "_parent": {
+                "$ref": "AAAA-UCDIAG-0003"
+              },
+              "model": {
+                "$ref": "AAAA-UC-0047"
+              },
+              "left": 1080,
+              "top": 920,
+              "width": 200,
+              "height": 60
+            }
+          ]
+        },
+        {
+          "_type": "UMLInitialNode",
+          "_id": "AAAA-ACT1N-0049",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": ""
+        },
+        {
+          "_type": "UMLAction",
+          "_id": "AAAA-ACT1N-0050",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "打开题目页"
+        },
+        {
+          "_type": "UMLAction",
+          "_id": "AAAA-ACT1N-0051",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "编写代码"
+        },
+        {
+          "_type": "UMLDecisionNode",
+          "_id": "AAAA-ACT1N-0052",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "是否调试？"
+        },
+        {
+          "_type": "UMLAction",
+          "_id": "AAAA-ACT1N-0053",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "提交调试请求"
+        },
+        {
+          "_type": "UMLAction",
+          "_id": "AAAA-ACT1N-0054",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "查看运行结果"
+        },
+        {
+          "_type": "UMLAction",
+          "_id": "AAAA-ACT1N-0055",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "提交代码"
+        },
+        {
+          "_type": "UMLObject",
+          "_id": "AAAA-ACT1N-0056",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "提交记录 [pending]"
+        },
+        {
+          "_type": "UMLForkNode",
+          "_id": "AAAA-ACT1N-0057",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": ""
+        },
+        {
+          "_type": "UMLAction",
+          "_id": "AAAA-ACT1N-0058",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "Judge 沙箱执行"
+        },
+        {
+          "_type": "UMLAction",
+          "_id": "AAAA-ACT1N-0059",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "记录学习行为事件"
+        },
+        {
+          "_type": "UMLJoinNode",
+          "_id": "AAAA-ACT1N-0060",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": ""
+        },
+        {
+          "_type": "UMLDecisionNode",
+          "_id": "AAAA-ACT1N-0061",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "判题结果？"
+        },
+        {
+          "_type": "UMLAction",
+          "_id": "AAAA-ACT1N-0062",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "标记 AC"
+        },
+        {
+          "_type": "UMLAction",
+          "_id": "AAAA-ACT1N-0063",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "记录 WA / CE / TLE"
+        },
+        {
+          "_type": "UMLMergeNode",
+          "_id": "AAAA-ACT1N-0064",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": ""
+        },
+        {
+          "_type": "UMLAction",
+          "_id": "AAAA-ACT1N-0065",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "更新学情画像"
+        },
+        {
+          "_type": "UMLFinalNode",
+          "_id": "AAAA-ACT1N-0066",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF1-0241",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT1N-0049"
+          },
+          "target": {
+            "$ref": "AAAA-ACT1N-0050"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF1-0242",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT1N-0050"
+          },
+          "target": {
+            "$ref": "AAAA-ACT1N-0051"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF1-0243",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT1N-0051"
+          },
+          "target": {
+            "$ref": "AAAA-ACT1N-0052"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF1-0244",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT1N-0052"
+          },
+          "target": {
+            "$ref": "AAAA-ACT1N-0053"
+          },
+          "guard": "[需要调试]"
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF1-0245",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT1N-0052"
+          },
+          "target": {
+            "$ref": "AAAA-ACT1N-0055"
+          },
+          "guard": "[直接提交]"
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF1-0246",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT1N-0053"
+          },
+          "target": {
+            "$ref": "AAAA-ACT1N-0054"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF1-0247",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT1N-0054"
+          },
+          "target": {
+            "$ref": "AAAA-ACT1N-0051"
+          },
+          "guard": "[继续修改]"
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF1-0248",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT1N-0055"
+          },
+          "target": {
+            "$ref": "AAAA-ACT1N-0056"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF1-0249",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT1N-0056"
+          },
+          "target": {
+            "$ref": "AAAA-ACT1N-0057"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF1-0250",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT1N-0057"
+          },
+          "target": {
+            "$ref": "AAAA-ACT1N-0058"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF1-0251",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT1N-0057"
+          },
+          "target": {
+            "$ref": "AAAA-ACT1N-0059"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF1-0252",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT1N-0058"
+          },
+          "target": {
+            "$ref": "AAAA-ACT1N-0060"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF1-0253",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT1N-0059"
+          },
+          "target": {
+            "$ref": "AAAA-ACT1N-0060"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF1-0254",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT1N-0060"
+          },
+          "target": {
+            "$ref": "AAAA-ACT1N-0061"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF1-0255",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT1N-0061"
+          },
+          "target": {
+            "$ref": "AAAA-ACT1N-0062"
+          },
+          "guard": "[通过]"
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF1-0256",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT1N-0061"
+          },
+          "target": {
+            "$ref": "AAAA-ACT1N-0063"
+          },
+          "guard": "[失败]"
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF1-0257",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT1N-0062"
+          },
+          "target": {
+            "$ref": "AAAA-ACT1N-0064"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF1-0258",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT1N-0063"
+          },
+          "target": {
+            "$ref": "AAAA-ACT1N-0064"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF1-0259",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT1N-0064"
+          },
+          "target": {
+            "$ref": "AAAA-ACT1N-0065"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF1-0260",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT1N-0065"
+          },
+          "target": {
+            "$ref": "AAAA-ACT1N-0066"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLActivityDiagram",
+          "_id": "AAAA-ACTDIAG-0048",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "活动图 1：OJ 编程闭环（编写 → 调试 → 提交 → 判题 → 学情更新）",
+          "ownedViews": [
+            {
+              "_type": "UMLInitialNodeView",
+              "_id": "AAAA-AV1-0261",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0048"
+              },
+              "model": {
+                "$ref": "AAAA-ACT1N-0049"
+              },
+              "left": 200,
+              "top": 60,
+              "width": 30,
+              "height": 30
+            },
+            {
+              "_type": "UMLActionView",
+              "_id": "AAAA-AV1-0262",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0048"
+              },
+              "model": {
+                "$ref": "AAAA-ACT1N-0050"
+              },
+              "left": 170,
+              "top": 130,
+              "width": 140,
+              "height": 50
+            },
+            {
+              "_type": "UMLActionView",
+              "_id": "AAAA-AV1-0263",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0048"
+              },
+              "model": {
+                "$ref": "AAAA-ACT1N-0051"
+              },
+              "left": 170,
+              "top": 200,
+              "width": 140,
+              "height": 50
+            },
+            {
+              "_type": "UMLDecisionNodeView",
+              "_id": "AAAA-AV1-0264",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0048"
+              },
+              "model": {
+                "$ref": "AAAA-ACT1N-0052"
+              },
+              "left": 200,
+              "top": 270,
+              "width": 30,
+              "height": 30
+            },
+            {
+              "_type": "UMLActionView",
+              "_id": "AAAA-AV1-0265",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0048"
+              },
+              "model": {
+                "$ref": "AAAA-ACT1N-0053"
+              },
+              "left": 60,
+              "top": 340,
+              "width": 140,
+              "height": 50
+            },
+            {
+              "_type": "UMLActionView",
+              "_id": "AAAA-AV1-0266",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0048"
+              },
+              "model": {
+                "$ref": "AAAA-ACT1N-0054"
+              },
+              "left": 60,
+              "top": 410,
+              "width": 140,
+              "height": 50
+            },
+            {
+              "_type": "UMLActionView",
+              "_id": "AAAA-AV1-0267",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0048"
+              },
+              "model": {
+                "$ref": "AAAA-ACT1N-0055"
+              },
+              "left": 280,
+              "top": 340,
+              "width": 140,
+              "height": 50
+            },
+            {
+              "_type": "UMLObjectView",
+              "_id": "AAAA-AV1-0268",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0048"
+              },
+              "model": {
+                "$ref": "AAAA-ACT1N-0056"
+              },
+              "left": 280,
+              "top": 410,
+              "width": 140,
+              "height": 30
+            },
+            {
+              "_type": "UMLForkNodeView",
+              "_id": "AAAA-AV1-0269",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0048"
+              },
+              "model": {
+                "$ref": "AAAA-ACT1N-0057"
+              },
+              "left": 200,
+              "top": 480,
+              "width": 30,
+              "height": 30
+            },
+            {
+              "_type": "UMLActionView",
+              "_id": "AAAA-AV1-0270",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0048"
+              },
+              "model": {
+                "$ref": "AAAA-ACT1N-0058"
+              },
+              "left": 80,
+              "top": 550,
+              "width": 140,
+              "height": 50
+            },
+            {
+              "_type": "UMLActionView",
+              "_id": "AAAA-AV1-0271",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0048"
+              },
+              "model": {
+                "$ref": "AAAA-ACT1N-0059"
+              },
+              "left": 320,
+              "top": 550,
+              "width": 140,
+              "height": 50
+            },
+            {
+              "_type": "UMLJoinNodeView",
+              "_id": "AAAA-AV1-0272",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0048"
+              },
+              "model": {
+                "$ref": "AAAA-ACT1N-0060"
+              },
+              "left": 200,
+              "top": 620,
+              "width": 30,
+              "height": 30
+            },
+            {
+              "_type": "UMLDecisionNodeView",
+              "_id": "AAAA-AV1-0273",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0048"
+              },
+              "model": {
+                "$ref": "AAAA-ACT1N-0061"
+              },
+              "left": 200,
+              "top": 690,
+              "width": 30,
+              "height": 30
+            },
+            {
+              "_type": "UMLActionView",
+              "_id": "AAAA-AV1-0274",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0048"
+              },
+              "model": {
+                "$ref": "AAAA-ACT1N-0062"
+              },
+              "left": 60,
+              "top": 760,
+              "width": 140,
+              "height": 50
+            },
+            {
+              "_type": "UMLActionView",
+              "_id": "AAAA-AV1-0275",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0048"
+              },
+              "model": {
+                "$ref": "AAAA-ACT1N-0063"
+              },
+              "left": 280,
+              "top": 760,
+              "width": 140,
+              "height": 50
+            },
+            {
+              "_type": "UMLMergeNodeView",
+              "_id": "AAAA-AV1-0276",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0048"
+              },
+              "model": {
+                "$ref": "AAAA-ACT1N-0064"
+              },
+              "left": 200,
+              "top": 840,
+              "width": 30,
+              "height": 30
+            },
+            {
+              "_type": "UMLActionView",
+              "_id": "AAAA-AV1-0277",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0048"
+              },
+              "model": {
+                "$ref": "AAAA-ACT1N-0065"
+              },
+              "left": 170,
+              "top": 910,
+              "width": 140,
+              "height": 50
+            },
+            {
+              "_type": "UMLFinalNodeView",
+              "_id": "AAAA-AV1-0278",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0048"
+              },
+              "model": {
+                "$ref": "AAAA-ACT1N-0066"
+              },
+              "left": 200,
+              "top": 990,
+              "width": 30,
+              "height": 30
+            }
+          ]
+        },
+        {
+          "_type": "UMLInitialNode",
+          "_id": "AAAA-ACT2N-0068",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": ""
+        },
+        {
+          "_type": "UMLAction",
+          "_id": "AAAA-ACT2N-0069",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "学生进入题目页"
+        },
+        {
+          "_type": "UMLAction",
+          "_id": "AAAA-ACT2N-0070",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "创建 / 恢复会话"
+        },
+        {
+          "_type": "UMLDecisionNode",
+          "_id": "AAAA-ACT2N-0071",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "是否首次？"
+        },
+        {
+          "_type": "UMLAction",
+          "_id": "AAAA-ACT2N-0072",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "学习画像冷启动标定"
+        },
+        {
+          "_type": "UMLObject",
+          "_id": "AAAA-ACT2N-0073",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "EvidencePack [已组装]"
+        },
+        {
+          "_type": "UMLMergeNode",
+          "_id": "AAAA-ACT2N-0074",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": ""
+        },
+        {
+          "_type": "UMLAction",
+          "_id": "AAAA-ACT2N-0075",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "选择教学动作 (TutorActionPolicy)"
+        },
+        {
+          "_type": "UMLForkNode",
+          "_id": "AAAA-ACT2N-0076",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": ""
+        },
+        {
+          "_type": "UMLAction",
+          "_id": "AAAA-ACT2N-0077",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "调用 LLM 生成卡片"
+        },
+        {
+          "_type": "UMLAction",
+          "_id": "AAAA-ACT2N-0078",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "写 Trace / Eval 记录"
+        },
+        {
+          "_type": "UMLJoinNode",
+          "_id": "AAAA-ACT2N-0079",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": ""
+        },
+        {
+          "_type": "UMLAction",
+          "_id": "AAAA-ACT2N-0080",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "Schema 强校验"
+        },
+        {
+          "_type": "UMLDecisionNode",
+          "_id": "AAAA-ACT2N-0081",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "是否需要人工确认？"
+        },
+        {
+          "_type": "UMLAcceptEventAction",
+          "_id": "AAAA-ACT2N-0082",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "等待中断响应"
+        },
+        {
+          "_type": "UMLAction",
+          "_id": "AAAA-ACT2N-0083",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "推送卡片到前端"
+        },
+        {
+          "_type": "UMLDecisionNode",
+          "_id": "AAAA-ACT2N-0084",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "学生反馈？"
+        },
+        {
+          "_type": "UMLAction",
+          "_id": "AAAA-ACT2N-0085",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "保存检查点 / 进入下一阶段"
+        },
+        {
+          "_type": "UMLAction",
+          "_id": "AAAA-ACT2N-0086",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "切换 phase 或重做"
+        },
+        {
+          "_type": "UMLMergeNode",
+          "_id": "AAAA-ACT2N-0087",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": ""
+        },
+        {
+          "_type": "UMLDecisionNode",
+          "_id": "AAAA-ACT2N-0088",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "是否进入 TRANSFER？"
+        },
+        {
+          "_type": "UMLAction",
+          "_id": "AAAA-ACT2N-0089",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "迁移练习推荐"
+        },
+        {
+          "_type": "UMLFinalNode",
+          "_id": "AAAA-ACT2N-0090",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0279",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0068"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0069"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0280",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0069"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0070"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0281",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0070"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0071"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0282",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0071"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0072"
+          },
+          "guard": "[首次进入]"
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0283",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0071"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0073"
+          },
+          "guard": "[已有画像]"
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0284",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0072"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0074"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0285",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0073"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0074"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0286",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0074"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0075"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0287",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0075"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0076"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0288",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0076"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0077"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0289",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0076"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0078"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0290",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0077"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0079"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0291",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0078"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0079"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0292",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0079"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0080"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0293",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0080"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0081"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0294",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0081"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0082"
+          },
+          "guard": "[需要确认]"
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0295",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0081"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0083"
+          },
+          "guard": "[直接推送]"
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0296",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0082"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0083"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0297",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0083"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0084"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0298",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0084"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0085"
+          },
+          "guard": "[helpful]"
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0299",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0084"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0086"
+          },
+          "guard": "[unhelpful / confusing]"
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0300",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0085"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0087"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0301",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0086"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0087"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0302",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0086"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0075"
+          },
+          "guard": "[切换 phase]"
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0303",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0087"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0088"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0304",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0088"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0089"
+          },
+          "guard": "[完成主链]"
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0305",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0088"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0075"
+          },
+          "guard": "[继续主链]"
+        },
+        {
+          "_type": "UMLControlFlow",
+          "_id": "AAAA-CF2-0306",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "source": {
+            "$ref": "AAAA-ACT2N-0089"
+          },
+          "target": {
+            "$ref": "AAAA-ACT2N-0090"
+          },
+          "guard": ""
+        },
+        {
+          "_type": "UMLActivityDiagram",
+          "_id": "AAAA-ACTDIAG-0067",
+          "_parent": {
+            "$ref": "AAAA-MODEL-0002"
+          },
+          "name": "活动图 2：AI 导学会话工作流（FSM phase 切换 / 中断响应）",
+          "ownedViews": [
+            {
+              "_type": "UMLInitialNodeView",
+              "_id": "AAAA-AV2-0307",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0067"
+              },
+              "model": {
+                "$ref": "AAAA-ACT2N-0068"
+              },
+              "left": 200,
+              "top": 60,
+              "width": 30,
+              "height": 30
+            },
+            {
+              "_type": "UMLActionView",
+              "_id": "AAAA-AV2-0308",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0067"
+              },
+              "model": {
+                "$ref": "AAAA-ACT2N-0069"
+              },
+              "left": 160,
+              "top": 130,
+              "width": 160,
+              "height": 50
+            },
+            {
+              "_type": "UMLActionView",
+              "_id": "AAAA-AV2-0309",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0067"
+              },
+              "model": {
+                "$ref": "AAAA-ACT2N-0070"
+              },
+              "left": 160,
+              "top": 200,
+              "width": 160,
+              "height": 50
+            },
+            {
+              "_type": "UMLDecisionNodeView",
+              "_id": "AAAA-AV2-0310",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0067"
+              },
+              "model": {
+                "$ref": "AAAA-ACT2N-0071"
+              },
+              "left": 200,
+              "top": 270,
+              "width": 30,
+              "height": 30
+            },
+            {
+              "_type": "UMLActionView",
+              "_id": "AAAA-AV2-0311",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0067"
+              },
+              "model": {
+                "$ref": "AAAA-ACT2N-0072"
+              },
+              "left": 50,
+              "top": 340,
+              "width": 160,
+              "height": 50
+            },
+            {
+              "_type": "UMLObjectView",
+              "_id": "AAAA-AV2-0312",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0067"
+              },
+              "model": {
+                "$ref": "AAAA-ACT2N-0073"
+              },
+              "left": 320,
+              "top": 340,
+              "width": 160,
+              "height": 30
+            },
+            {
+              "_type": "UMLMergeNodeView",
+              "_id": "AAAA-AV2-0313",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0067"
+              },
+              "model": {
+                "$ref": "AAAA-ACT2N-0074"
+              },
+              "left": 200,
+              "top": 420,
+              "width": 30,
+              "height": 30
+            },
+            {
+              "_type": "UMLActionView",
+              "_id": "AAAA-AV2-0314",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0067"
+              },
+              "model": {
+                "$ref": "AAAA-ACT2N-0075"
+              },
+              "left": 130,
+              "top": 490,
+              "width": 160,
+              "height": 50
+            },
+            {
+              "_type": "UMLForkNodeView",
+              "_id": "AAAA-AV2-0315",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0067"
+              },
+              "model": {
+                "$ref": "AAAA-ACT2N-0076"
+              },
+              "left": 200,
+              "top": 570,
+              "width": 30,
+              "height": 30
+            },
+            {
+              "_type": "UMLActionView",
+              "_id": "AAAA-AV2-0316",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0067"
+              },
+              "model": {
+                "$ref": "AAAA-ACT2N-0077"
+              },
+              "left": 60,
+              "top": 640,
+              "width": 160,
+              "height": 50
+            },
+            {
+              "_type": "UMLActionView",
+              "_id": "AAAA-AV2-0317",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0067"
+              },
+              "model": {
+                "$ref": "AAAA-ACT2N-0078"
+              },
+              "left": 320,
+              "top": 640,
+              "width": 160,
+              "height": 50
+            },
+            {
+              "_type": "UMLJoinNodeView",
+              "_id": "AAAA-AV2-0318",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0067"
+              },
+              "model": {
+                "$ref": "AAAA-ACT2N-0079"
+              },
+              "left": 200,
+              "top": 720,
+              "width": 30,
+              "height": 30
+            },
+            {
+              "_type": "UMLActionView",
+              "_id": "AAAA-AV2-0319",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0067"
+              },
+              "model": {
+                "$ref": "AAAA-ACT2N-0080"
+              },
+              "left": 160,
+              "top": 790,
+              "width": 160,
+              "height": 50
+            },
+            {
+              "_type": "UMLDecisionNodeView",
+              "_id": "AAAA-AV2-0320",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0067"
+              },
+              "model": {
+                "$ref": "AAAA-ACT2N-0081"
+              },
+              "left": 200,
+              "top": 860,
+              "width": 30,
+              "height": 30
+            },
+            {
+              "_type": "UMLAcceptEventActionView",
+              "_id": "AAAA-AV2-0321",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0067"
+              },
+              "model": {
+                "$ref": "AAAA-ACT2N-0082"
+              },
+              "left": 60,
+              "top": 940,
+              "width": 160,
+              "height": 50
+            },
+            {
+              "_type": "UMLActionView",
+              "_id": "AAAA-AV2-0322",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0067"
+              },
+              "model": {
+                "$ref": "AAAA-ACT2N-0083"
+              },
+              "left": 320,
+              "top": 940,
+              "width": 160,
+              "height": 50
+            },
+            {
+              "_type": "UMLDecisionNodeView",
+              "_id": "AAAA-AV2-0323",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0067"
+              },
+              "model": {
+                "$ref": "AAAA-ACT2N-0084"
+              },
+              "left": 200,
+              "top": 1020,
+              "width": 30,
+              "height": 30
+            },
+            {
+              "_type": "UMLActionView",
+              "_id": "AAAA-AV2-0324",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0067"
+              },
+              "model": {
+                "$ref": "AAAA-ACT2N-0085"
+              },
+              "left": 60,
+              "top": 1090,
+              "width": 160,
+              "height": 50
+            },
+            {
+              "_type": "UMLActionView",
+              "_id": "AAAA-AV2-0325",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0067"
+              },
+              "model": {
+                "$ref": "AAAA-ACT2N-0086"
+              },
+              "left": 320,
+              "top": 1090,
+              "width": 160,
+              "height": 50
+            },
+            {
+              "_type": "UMLMergeNodeView",
+              "_id": "AAAA-AV2-0326",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0067"
+              },
+              "model": {
+                "$ref": "AAAA-ACT2N-0087"
+              },
+              "left": 200,
+              "top": 1170,
+              "width": 30,
+              "height": 30
+            },
+            {
+              "_type": "UMLDecisionNodeView",
+              "_id": "AAAA-AV2-0327",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0067"
+              },
+              "model": {
+                "$ref": "AAAA-ACT2N-0088"
+              },
+              "left": 200,
+              "top": 1240,
+              "width": 30,
+              "height": 30
+            },
+            {
+              "_type": "UMLActionView",
+              "_id": "AAAA-AV2-0328",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0067"
+              },
+              "model": {
+                "$ref": "AAAA-ACT2N-0089"
+              },
+              "left": 60,
+              "top": 1310,
+              "width": 160,
+              "height": 50
+            },
+            {
+              "_type": "UMLFinalNodeView",
+              "_id": "AAAA-AV2-0329",
+              "_parent": {
+                "$ref": "AAAA-ACTDIAG-0067"
+              },
+              "model": {
+                "$ref": "AAAA-ACT2N-0090"
+              },
+              "left": 200,
+              "top": 1390,
+              "width": 30,
+              "height": 30
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

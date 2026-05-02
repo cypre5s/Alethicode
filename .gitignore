@@ -1,0 +1,75 @@
+# Runtime data volumes
+deploy/data/
+
+# Secrets — real values in .env, templates in .env.example (version-controlled)
+backend/.env
+deploy/.env
+.local-credentials.md
+sec-fixes-*.tar.gz
+deploy-sec-fixes-*.sh
+
+# Process files
+.start-backend.pid
+.start-frontend.pid
+backend/.start-backend.pid
+*.pid
+
+# Logs (本地 dev 启动脚本写到根目录的运行日志)
+.start.log
+.restart-backend.log
+.start-full.log
+backend/.start-backend.log
+backend/.restart-backend.log
+*.log
+
+# Build artifacts
+release/
+backend/target/
+target/
+
+# Large binary archives / datasets / runtime tools / models — never commit these
+datasets/
+packaging/
+.runtime/
+.tools/
+tmp_assets/
+combined_outputs/
+.m2repo/
+app_linux/
+docs/archives/
+*.tar.gz
+*.zip
+*.jar
+*.pt
+*.onnx
+*.bin
+
+# Frontend build / IDE / Vite cache
+frontend/node_modules/
+frontend/dist/
+frontend/test-results/
+node_modules/
+dist/
+
+# Backup directory we just created
+.git.backup-*/
+
+# Python caches (research/nfk, services, scripts, etc.)
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+**/.pytest_cache/
+.mypy_cache/
+**/.mypy_cache/
+*.pyc
+*.pyo# IDE / 编辑器
+.idea/
+.vscode/
+*.iml
+*.swp
+*~# macOS / Windows
+.DS_Store
+Thumbs.db
+wsl.pem
+*.pem
+

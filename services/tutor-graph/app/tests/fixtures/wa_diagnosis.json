@@ -1,0 +1,12 @@
+{
+  "error_diagnosis": {
+    "root_cause": "循环范围错误：使用了 range(n) 而非 range(1, n+1)，导致少加了 n。",
+    "what_program_is_doing": "程序计算了 0+1+2+...+(n-1) 的和，比正确答案少了 n。",
+    "expected_behavior": "应该计算 1+2+3+...+n 的和。",
+    "fix_direction": "将 range(n) 改为 range(1, n+1)，确保循环包含 1 到 n。",
+    "related_kcs": ["range函数", "循环"],
+    "error_pattern": "off-by-one",
+    "is_recurring": false,
+    "encouragement": "这是一个非常常见的错误，很多同学都会遇到。range() 函数的边界是学习 Python 循环时的重要知识点。"
+  }
+}

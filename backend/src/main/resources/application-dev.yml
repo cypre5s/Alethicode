@@ -1,0 +1,16 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://127.0.0.1:5436/alethicode
+    username: onlinejudge
+    password: ${DB_PASSWORD}
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6381
+      password: ${REDIS_PASSWORD}
+
+logging:
+  level:
+    root: INFO
+    org.springframework.web: INFO
+    org.springframework.security: INFO

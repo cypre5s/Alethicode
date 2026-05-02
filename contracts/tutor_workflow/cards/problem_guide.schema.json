@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProblemGuideCard",
+  "type": "object",
+  "required": [
+    "problem_restatement",
+    "input_output_focus",
+    "key_observation",
+    "starter_questions"
+  ],
+  "properties": {
+    "problem_restatement": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_output_focus": {
+      "type": "string",
+      "minLength": 1
+    },
+    "key_observation": {
+      "type": "string",
+      "minLength": 1
+    },
+    "starter_questions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1
+    },
+    "related_kcs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "courseware_refs": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "teaching_goal": {
+      "type": "string"
+    },
+    "checkpoint_prompt": {
+      "type": "string"
+    },
+    "mentor_role": {
+      "type": "string"
+    },
+    "reflection_prompt": {
+      "type": "string"
+    },
+    "visualize_intent": {
+      "type": "string"
+    },
+    "visualize_prompt": {
+      "type": "string"
+    },
+    "kc_error_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kc_id": {
+            "type": "integer"
+          },
+          "kc_name": {
+            "type": "string"
+          },
+          "error_count": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

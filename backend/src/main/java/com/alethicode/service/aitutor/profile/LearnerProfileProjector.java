@@ -1,0 +1,365 @@
+package com.alethicode.service.aitutor.profile;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
+@Service
+public class LearnerProfileProjector {
+
+    private final JdbcTemplate jdbcTemplate;
+    private final ObjectMapper objectMapper;
+    private final MasteryService masteryService;
+    private final LearnerMemoryService learnerMemoryService;
+    private final LearnerMemorySemanticRetrievalService memorySemanticRetrievalService;
+    private final LearnerNarrativeSummaryService narrativeSummaryService;
+    private final CrossCourseProfileService crossCourseProfileService;
+
+    public LearnerProfileProjector(
+            JdbcTemplate jdbcTemplate,
+            ObjectMapper objectMapper,
+            MasteryService masteryService,
+            LearnerMemoryService learnerMemoryService,
+            LearnerMemorySemanticRetrievalService memorySemanticRetrievalService,
+            LearnerNarrativeSummaryService narrativeSummaryService,
+            CrossCourseProfileService crossCourseProfileService
+    ) {
+        this.jdbcTemplate = jdbcTemplate;
+        this.objectMapper = objectMapper;
+        this.masteryService = masteryService;
+        this.learnerMemoryService = learnerMemoryService;
+        this.memorySemanticRetrievalService = memorySemanticRetrievalService;
+        this.narrativeSummaryService = narrativeSummaryService;
+        this.crossCourseProfileService = crossCourseProfileService;
+    }
+
+    public LearnerState project(Long userId, Long problemId, Map<String, Object> behaviorMetrics, String currentPhase) {
+        return project(userId, problemId, behaviorMetrics, currentPhase, null);
+    }
+
+    /**
+     * 扩展版 project：当 contextSignals 不为空时，按"当前 KC + 当前错误向量"做 top-K 语义召回，
+     * 并把 narrative_summary（学情自然语言摘要）、personalization_enabled 一并写入 LearnerState，
+     * 供 tutor_graph 节点 SYSTEM_PROMPT 使用。
+     */
+    public LearnerState project(Long userId, Long problemId, Map<String, Object> behaviorMetrics,
+                                String currentPhase, ContextSignals contextSignals) {
+        CalibrationSnapshot calibration = loadCalibrationSnapshot(userId);
+        boolean calibrated = calibration.calibrated();
+        Map<String, Double> masteryByKc = blendCalibrationIntoMastery(
+                masteryService.projectMastery(userId, problemId),
+                calibration.accumulated(),
+                calibrated
+        );
+        List<String> weakKcs = masteryByKc.entrySet().stream()
+                .filter(entry -> entry.getValue() < 0.6)
+                .map(Map.Entry::getKey)
+                .toList();
+        Map<String, Double> misconceptionDistribution = loadMisconceptionDistribution(userId);
+        String frustrationLevel = deriveFrustrationLevel(behaviorMetrics);
+        String confidenceProxy = deriveConfidenceProxy(currentPhase, behaviorMetrics);
+        Map<String, Object> recommendedActionBias = new LinkedHashMap<>(crossCourseProfileService.loadActionBias(userId));
+        recommendedActionBias.put("current_phase", currentPhase == null ? "" : currentPhase);
+        recommendedActionBias.put("calibration_applied", !calibration.accumulated().isEmpty());
+        recommendedActionBias.put("calibration_mastery_prior", new LinkedHashMap<>(calibration.accumulated()));
+        LearningStyle learningStyle = learnerMemoryService.inferLearningStyle(userId);
+        if (learningStyle == null) {
+            learningStyle = LearningStyle.STEP_BY_STEP;
+        }
+        recommendedActionBias.put("teaching_style", learningStyle.key());
+        recommendedActionBias.put("teaching_style_prompt", learningStyle.toPromptPrefix());
+
+        List<Map<String, Object>> memoryRefs = retrieveMemoryRefs(userId, contextSignals);
+
+        LearnerNarrativeSummaryService.NarrativeSummary narrative = narrativeSummaryService.loadOrGenerate(userId);
+        boolean personalizationEnabled = !narrative.userDisabled();
+        String narrativeText = personalizationEnabled ? narrative.summaryText() : "";
+
+        return new LearnerState(
+                calibrated,
+                masteryByKc,
+                weakKcs,
+                misconceptionDistribution,
+                new LinkedHashMap<>(behaviorMetrics),
+                frustrationLevel,
+                confidenceProxy,
+                recommendedActionBias,
+                memoryRefs,
+                narrativeText,
+                personalizationEnabled
+        );
+    }
+
+    private List<Map<String, Object>> retrieveMemoryRefs(Long userId, ContextSignals contextSignals) {
+        if (contextSignals != null && (contextSignals.hasErrorContext() || contextSignals.hasKcs())) {
+            List<Map<String, Object>> semantic = memorySemanticRetrievalService.retrieveByContext(
+                    userId,
+                    contextSignals.currentKcs(),
+                    contextSignals.currentErrorContext(),
+                    5
+            );
+            if (!semantic.isEmpty()) {
+                return semantic;
+            }
+        }
+        return learnerMemoryService.listActiveMemoryRefs(userId);
+    }
+
+    public void persistSnapshot(Long userId, Long problemId, String sessionId, LearnerState learnerState) {
+        jdbcTemplate.update(
+                """
+                insert into ai_learner_profile_snapshot(
+                    user_id, problem_id, session_id, mastery_by_kc, weak_kcs,
+                    misconception_distribution, recent_behavior, frustration_level,
+                    confidence_proxy, recommended_action_bias, memory_refs, created_at
+                )
+                values (?, ?, ?, cast(? as jsonb), cast(? as jsonb), cast(? as jsonb), cast(? as jsonb), ?, ?, cast(? as jsonb), cast(? as jsonb), now())
+                """,
+                userId,
+                problemId,
+                sessionId,
+                toJson(learnerState.masteryByKc()),
+                toJson(learnerState.weakKcs()),
+                toJson(learnerState.misconceptionDistribution()),
+                toJson(learnerState.recentBehavior()),
+                learnerState.frustrationLevel(),
+                learnerState.confidenceProxy(),
+                toJson(learnerState.recommendedActionBias()),
+                toJson(learnerState.memoryRefs())
+        );
+    }
+
+    private CalibrationSnapshot loadCalibrationSnapshot(Long userId) {
+        if (userId == null) {
+            return new CalibrationSnapshot(false, Map.of());
+        }
+        try {
+            CalibrationSnapshot snapshot = jdbcTemplate.queryForObject(
+                    """
+                    select calibrated, accumulated::text as accumulated_json
+                    from ai_calibration_state
+                    where user_id = ?
+                    """,
+                    (rs, rowNum) -> new CalibrationSnapshot(
+                            rs.getBoolean("calibrated"),
+                            parseCalibrationAccumulated(rs.getString("accumulated_json"))
+                    ),
+                    userId
+            );
+            return snapshot == null ? new CalibrationSnapshot(false, Map.of()) : snapshot;
+        } catch (EmptyResultDataAccessException ignored) {
+            return new CalibrationSnapshot(false, Map.of());
+        }
+    }
+
+    private Map<String, Double> loadMisconceptionDistribution(Long userId) {
+        if (userId == null) {
+            return Map.of();
+        }
+        List<Map<String, Object>> rows = jdbcTemplate.query(
+                """
+                select coalesce(extra_data->>'detector_name', 'unknown') as detector_name, count(*) as total
+                from ai_learning_event
+                where user_id = ?
+                  and event_type in ('misconception_detected_ast', 'preflight_go_edit', 'preflight_force_submit')
+                group by coalesce(extra_data->>'detector_name', 'unknown')
+                order by total desc
+                limit 5
+                """,
+                (rs, rowNum) -> {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("detector_name", rs.getString("detector_name"));
+                    row.put("total", rs.getLong("total"));
+                    return row;
+                },
+                userId
+        );
+        long total = rows.stream().mapToLong(row -> ((Number) row.get("total")).longValue()).sum();
+        if (total <= 0L) {
+            return Map.of();
+        }
+        Map<String, Double> distribution = new LinkedHashMap<>();
+        for (Map<String, Object> row : rows) {
+            double score = ((Number) row.get("total")).doubleValue() / total;
+            distribution.put(String.valueOf(row.get("detector_name")), Math.round(score * 1000.0) / 1000.0);
+        }
+        return distribution;
+    }
+
+    private Map<String, Double> blendCalibrationIntoMastery(
+            Map<String, Double> baseMastery,
+            Map<String, Double> calibrationPrior,
+            boolean calibrated
+    ) {
+        Map<String, Double> safeBase = baseMastery == null ? Map.of() : baseMastery;
+        Map<String, Double> safePrior = calibrationPrior == null ? Map.of() : calibrationPrior;
+        if (safePrior.isEmpty()) {
+            return new LinkedHashMap<>(safeBase);
+        }
+        if (safeBase.isEmpty()) {
+            return new LinkedHashMap<>(safePrior);
+        }
+
+        double globalPrior = safePrior.values().stream()
+                .mapToDouble(Double::doubleValue)
+                .average()
+                .orElse(0.5);
+        double weight = calibrated ? 0.35 : 0.2;
+
+        Map<String, Double> blended = new LinkedHashMap<>();
+        for (Map.Entry<String, Double> entry : safeBase.entrySet()) {
+            double baseScore = clamp01(entry.getValue() == null ? 0.0 : entry.getValue());
+            Double matchedPrior = matchCalibrationPrior(entry.getKey(), safePrior);
+            double priorScore = matchedPrior == null ? globalPrior : matchedPrior;
+            double merged = (1.0 - weight) * baseScore + weight * clamp01(priorScore);
+            blended.put(entry.getKey(), round(merged));
+        }
+        return blended;
+    }
+
+    private Double matchCalibrationPrior(String kcName, Map<String, Double> calibrationPrior) {
+        if (kcName == null || kcName.isBlank() || calibrationPrior.isEmpty()) {
+            return null;
+        }
+        String normalizedKc = normalizeToken(kcName);
+        for (Map.Entry<String, Double> entry : calibrationPrior.entrySet()) {
+            String normalizedGroup = normalizeToken(entry.getKey());
+            if (!normalizedGroup.isBlank() && normalizedKc.contains(normalizedGroup)) {
+                return entry.getValue();
+            }
+        }
+        if (containsAny(normalizedKc, List.of("loop", "for", "while", "iteration", "循环", "迭代"))) {
+            return calibrationPrior.get("loop");
+        }
+        if (containsAny(normalizedKc, List.of("array", "list", "index", "数组", "下标", "索引"))) {
+            return calibrationPrior.get("array");
+        }
+        if (containsAny(normalizedKc, List.of("recursion", "recursive", "dfs", "backtrack", "递归", "回溯"))) {
+            return calibrationPrior.get("recursion");
+        }
+        return null;
+    }
+
+    private boolean containsAny(String text, List<String> candidates) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        for (String candidate : candidates) {
+            if (text.contains(normalizeToken(candidate))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String normalizeToken(String value) {
+        return value == null ? "" : value.toLowerCase(Locale.ROOT).replace("_", "").replace("-", "").trim();
+    }
+
+    private Map<String, Double> parseCalibrationAccumulated(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return Map.of();
+        }
+        try {
+            Map<String, Object> parsed = objectMapper.readValue(raw, new TypeReference<>() {});
+            Map<String, Double> result = new LinkedHashMap<>();
+            for (Map.Entry<String, Object> entry : parsed.entrySet()) {
+                String key = entry.getKey() == null ? "" : entry.getKey().trim();
+                if (key.isBlank()) {
+                    continue;
+                }
+                result.put(key, round(clamp01(parseDouble(entry.getValue()))));
+            }
+            return result;
+        } catch (JsonProcessingException ignored) {
+            return Map.of();
+        }
+    }
+
+    private String deriveFrustrationLevel(Map<String, Object> behaviorMetrics) {
+        int consecutiveErrors = parseInt(behaviorMetrics.get("consecutiveErrors"));
+        if (consecutiveErrors >= 5) {
+            return "severe";
+        }
+        if (consecutiveErrors >= 3) {
+            return "high";
+        }
+        if (consecutiveErrors >= 1) {
+            return "medium";
+        }
+        return "low";
+    }
+
+    private String deriveConfidenceProxy(String currentPhase, Map<String, Object> behaviorMetrics) {
+        int submissionCount = parseInt(behaviorMetrics.get("submissionCount"));
+        if ("IDEATING".equals(currentPhase) || "CODING".equals(currentPhase)) {
+            return submissionCount > 0 ? "medium" : "low";
+        }
+        if ("AC_REVIEW".equals(currentPhase)) {
+            return "high";
+        }
+        return "low";
+    }
+
+    private int parseInt(Object raw) {
+        if (raw instanceof Number number) {
+            return number.intValue();
+        }
+        if (raw == null) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(String.valueOf(raw).trim());
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
+    }
+
+    private double parseDouble(Object raw) {
+        if (raw instanceof Number number) {
+            return number.doubleValue();
+        }
+        if (raw == null) {
+            return 0.0;
+        }
+        try {
+            return Double.parseDouble(String.valueOf(raw).trim());
+        } catch (NumberFormatException ignored) {
+            return 0.0;
+        }
+    }
+
+    private double clamp01(double value) {
+        if (value < 0.0) {
+            return 0.0;
+        }
+        if (value > 1.0) {
+            return 1.0;
+        }
+        return value;
+    }
+
+    private double round(double value) {
+        return Math.round(value * 1000.0) / 1000.0;
+    }
+
+    private String toJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value == null ? new ArrayList<>() : value);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("json serialize failed", exception);
+        }
+    }
+
+    private record CalibrationSnapshot(boolean calibrated, Map<String, Double> accumulated) {
+    }
+}

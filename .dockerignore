@@ -1,0 +1,17 @@
+.git
+.pytest_cache
+.tools
+**/__pycache__
+**/*.pyc
+
+release
+deploy/data
+backend/target
+backend/.mvn
+frontend/node_modules
+frontend/dist
+
+*.dump
+*.tar
+*.tar.gz
+*.zip

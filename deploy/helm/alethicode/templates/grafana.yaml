@@ -1,0 +1,261 @@
+{{- if .Values.observability.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "alethicode.fullname" . }}-grafana-datasources
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "alethicode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+        editable: true
+
+      - name: Tempo
+        type: tempo
+        access: proxy
+        url: http://tempo:3200
+        editable: true
+        jsonData:
+          tracesToMetrics:
+            datasourceUid: prometheus
+          serviceMap:
+            datasourceUid: prometheus
+          nodeGraph:
+            enabled: true
+
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://loki:3100
+        editable: true
+        jsonData:
+          derivedFields:
+            - datasourceUid: tempo
+              matcherRegex: "traceID=(\\w+)"
+              name: TraceID
+              url: "$${__value.raw}"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "alethicode.fullname" . }}-grafana-dashboards-provider
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "alethicode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: default
+        orgId: 1
+        folder: Alethicode
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards
+          foldersFromFilesStructure: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "alethicode.fullname" . }}-grafana-dashboard-overview
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "alethicode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+data:
+  alethicode-overview.json: |
+    {
+      "annotations": { "list": [] },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "title": "Backend QPS",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "targets": [
+            {
+              "expr": "rate(http_server_requests_seconds_count{service_name=\"alethicode-backend\"}[5m])",
+              "legendFormat": "{{ "{{" }}method{{ "}}" }} {{ "{{" }}uri{{ "}}" }}"
+            }
+          ]
+        },
+        {
+          "title": "Backend P99 Latency",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.99, rate(http_server_requests_seconds_bucket{service_name=\"alethicode-backend\"}[5m]))",
+              "legendFormat": "{{ "{{" }}uri{{ "}}" }}"
+            }
+          ]
+        },
+        {
+          "title": "JVM Heap Usage",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "targets": [
+            {
+              "expr": "jvm_memory_used_bytes{area=\"heap\",service_name=\"alethicode-backend\"} / 1024 / 1024",
+              "legendFormat": "{{ "{{" }}id{{ "}}" }} (MB)"
+            }
+          ]
+        },
+        {
+          "title": "AI Tutor Inference Latency",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, rate(http_client_requests_seconds_bucket{service_name=\"alethicode-backend\",uri=~\".*openai.*|.*minimaxi.*\"}[5m]))",
+              "legendFormat": "LLM P95"
+            }
+          ]
+        },
+        {
+          "title": "Submission Judge Throughput",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 16 },
+          "targets": [
+            {
+              "expr": "sum(rate(http_server_requests_seconds_count{uri=~\"/api/submission.*\",method=\"POST\"}[5m])) * 60",
+              "legendFormat": "submissions/min"
+            }
+          ]
+        },
+        {
+          "title": "Active Judge Pods",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 16 },
+          "targets": [
+            {
+              "expr": "count(up{job=\"judge\"})",
+              "legendFormat": "pods"
+            }
+          ]
+        },
+        {
+          "title": "Redis Stream Pending",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 16 },
+          "targets": [
+            {
+              "expr": "alethicode_submission_stream_pending",
+              "legendFormat": "pending"
+            }
+          ]
+        },
+        {
+          "title": "Backend Pod Count",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 16 },
+          "targets": [
+            {
+              "expr": "count(up{job=\"alethicode-backend\"})",
+              "legendFormat": "pods"
+            }
+          ]
+        }
+      ],
+      "schemaVersion": 39,
+      "tags": ["alethicode"],
+      "templating": { "list": [] },
+      "time": { "from": "now-1h", "to": "now" },
+      "title": "Alethicode Overview",
+      "uid": "alethicode-overview"
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "alethicode.fullname" . }}-grafana
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "alethicode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: grafana
+  template:
+    metadata:
+      labels:
+        {{- include "alethicode.labels" . | nindent 8 }}
+        app.kubernetes.io/component: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: "{{ .Values.observability.grafana.image.repository }}:{{ .Values.observability.grafana.image.tag }}"
+          env:
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: {{ .Values.observability.grafana.adminPassword | quote }}
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+            - name: GF_SERVER_ROOT_URL
+              value: "%(protocol)s://%(domain)s/grafana/"
+            - name: GF_SERVER_SERVE_FROM_SUB_PATH
+              value: "true"
+            - name: GF_SECURITY_ALLOW_EMBEDDING
+              value: "true"
+          ports:
+            - containerPort: 3000
+              name: http
+          resources:
+            {{- toYaml .Values.observability.grafana.resources | nindent 12 }}
+          volumeMounts:
+            - name: grafana-datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: grafana-dashboards-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: grafana-dashboard-overview
+              mountPath: /var/lib/grafana/dashboards
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+      volumes:
+        - name: grafana-datasources
+          configMap:
+            name: {{ include "alethicode.fullname" . }}-grafana-datasources
+        - name: grafana-dashboards-provider
+          configMap:
+            name: {{ include "alethicode.fullname" . }}-grafana-dashboards-provider
+        - name: grafana-dashboard-overview
+          configMap:
+            name: {{ include "alethicode.fullname" . }}-grafana-dashboard-overview
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "alethicode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: http
+      name: http
+  selector:
+    app.kubernetes.io/component: grafana
+{{- end }}

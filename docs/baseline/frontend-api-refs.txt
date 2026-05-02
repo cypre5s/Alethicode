@@ -1,0 +1,23 @@
+/home/cypress/Alethicode/frontend/src/pages/admin/components/Simditor.vue:37:          url: '/api/admin/upload-image/',
+/home/cypress/Alethicode/frontend/src/pages/oj/api.js:6:axios.defaults.baseURL = '/api'
+/home/cypress/Alethicode/frontend/src/pages/admin/components/simditor-file-upload.js:60:        url: '/api/admin/upload-file',
+/home/cypress/Alethicode/frontend/src/pages/admin/views/problem/Problem.vue:198:                action="/api/admin/test-cases"
+/home/cypress/Alethicode/frontend/src/pages/admin/views/problem/ImportAndExport.vue:74:        action="/api/admin/import-problems"
+/home/cypress/Alethicode/frontend/src/pages/admin/views/problem/ImportAndExport.vue:93:        action="/api/admin/import-fps"
+/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/CollaborativeCoding.vue:406:    this.connectWebSocket()
+/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/CollaborativeCoding.vue:523:      const wsUrl = `${wsProtocol}://${window.location.host}/ws/classroom/collab/${this.sessionId}/`
+/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/CollaborativeCoding.vue:524:      this.ws = new window.WebSocket(wsUrl)
+/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/CollaborativeCoding.vue:548:          this.connectWebSocket()
+/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/CollaborativeCoding.vue:688:          this.connectWebSocket()
+/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/CollaborativeCoding.vue:727:        this.connectWebSocket()
+/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/MonitorDashboard.vue:450:    this.connectWebSocket()
+/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/MonitorDashboard.vue:594:        const wsUrl = `${protocol}//${window.location.host}/ws/classroom/monitor/${this.classroomId}/`
+/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/MonitorDashboard.vue:595:        this.ws = new WebSocket(wsUrl)
+/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/MonitorDashboard.vue:608:              this.connectWebSocket()
+/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/LessonManagement.vue:522:      window.open(`/api/classroom/${this.classroomId}/lessons/${lesson.id}/download/`, '_blank')
+/home/cypress/Alethicode/frontend/src/pages/oj/views/classroom/LessonManagement.vue:552:      return `/api/classroom/${this.classroomId}/lessons/${lesson.id}/view/?page=${this.currentPage}`
+/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/Problem.vue:572:          const url = '/api/ai/learning-events/batch'
+/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/Problem.vue:989:        window.open(`/api/problems/dataset/download/?${query.join('&')}`, '_blank')
+/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/workflowStateMachine.js:597:      const wsUrl = `${protocol}//${window.location.host}/ws/workflow/${sessionId}`
+/home/cypress/Alethicode/frontend/src/pages/oj/views/problem/workflowStateMachine.js:598:      const ws = new WebSocket(wsUrl)
+/home/cypress/Alethicode/frontend/src/pages/admin/api.js:7:axios.defaults.baseURL = '/api'

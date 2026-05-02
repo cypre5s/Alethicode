@@ -1,0 +1,19 @@
+{
+  "transfer_draft": {
+    "title": "九九乘法表",
+    "description": "请编写一个程序，输出标准的九九乘法表。每行输出一个乘法等式，格式为 a*b=c。",
+    "input_description": "无输入",
+    "output_description": "输出 9 行，每行包含若干个乘法等式，用空格分隔。",
+    "samples": [
+      {
+        "input": "",
+        "output": "1*1=1\n1*2=2 2*2=4\n..."
+      }
+    ],
+    "test_cases": [],
+    "hint": "使用两层嵌套循环，外层控制行数，内层控制列数。",
+    "reference_solution_language": "Python3",
+    "reference_solution_code": "for i in range(1, 10):\n    for j in range(1, i+1):\n        print(f'{j}*{i}={i*j}', end=' ')\n    print()",
+    "target_kcs": ["嵌套循环", "格式化输出"]
+  }
+}

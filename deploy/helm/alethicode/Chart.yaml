@@ -1,0 +1,12 @@
+apiVersion: v2
+name: alethicode
+description: Alethicode - Intelligent Online Judge with AI Tutoring
+type: application
+version: 1.0.0
+appVersion: "2026.04"
+keywords:
+  - online-judge
+  - ai-tutoring
+  - education
+maintainers:
+  - name: Alethicode Team

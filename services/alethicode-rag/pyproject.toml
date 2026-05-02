@@ -1,0 +1,50 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "alethicode-rag"
+version = "0.1.0"
+description = "Alethicode RAG microservice (FastAPI + LightRAG + PostgreSQL pgvector + Memgraph)"
+# LightRAG 1.4.15 requires Python >=3.10. We align with `tutor_graph`
+# whose container ships 3.11, but the local dev env (3.10) must work too
+# for the demo / regression scripts.
+requires-python = ">=3.10"
+dependencies = [
+    "lightrag-hku==1.4.15",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.5",
+    "asyncpg>=0.29",
+    "pgvector>=0.3",
+    "httpx>=0.27",
+    "neo4j>=5.20",
+    "openai>=1.55",
+    "structlog>=24.4",
+    "tenacity>=9.0",
+    "prometheus-client>=0.20",
+    "python-multipart>=0.0.9",
+    "tiktoken>=0.7",
+    "numpy>=1.26",
+    "tenacity>=9.0",
+    "nano-vectordb>=0.0.4.3",
+    "networkx>=3.3",
+    "aiofiles>=24.1",
+    "xxhash>=3.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "respx>=0.21",
+    "httpx",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["app/tests"]

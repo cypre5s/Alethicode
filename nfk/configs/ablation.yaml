@@ -1,0 +1,44 @@
+# Alethicode-NFK 消融实验配置
+# DKT (LSTM) + FoLiBiKT (遗忘线性偏置注意力) + simpleKT (交叉注意力)
+# Leave-One-Component-Out (LOCO) 设计
+
+seeds: [42, 3407, 2024]  # 每折重复 3 次
+n_folds: 5               # 5-fold 学生级 CV
+
+variants:
+  full:
+    experiment_name: "A+B+C_Full"
+    use_sparse_attention: true
+    use_kt_attention: true
+
+  wo_kt_attn:
+    experiment_name: "A+B_wo_KTAttn"
+    use_sparse_attention: true
+    use_kt_attention: false
+
+  wo_sparse_attn:
+    experiment_name: "A+C_wo_SparseAttn"
+    use_sparse_attention: false
+    use_kt_attention: true
+
+  base:
+    experiment_name: "A_only_Base"
+    use_sparse_attention: false
+    use_kt_attention: false
+
+# 共享超参数
+shared:
+  embed_dim: 128
+  hidden_dim: 256
+  n_heads: 8
+  top_k: 20
+  n_kt_heads: 1
+  dropout: 0.2
+  max_seq_len: 200
+  learning_rate: 0.001
+  weight_decay: 0.01
+  batch_size: 64
+  max_epochs: 100
+  patience: 15
+  grad_clip: 1.0
+  lambda_kt: 1.0

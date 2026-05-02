@@ -1,0 +1,5 @@
+# NFK 训练数据契约校验最小依赖（R-02）
+# 训练管线（torch / numpy / yaml 等）有自己的环境，不在本文件范围。
+
+jsonschema>=4.21.0
+pytest>=7.4

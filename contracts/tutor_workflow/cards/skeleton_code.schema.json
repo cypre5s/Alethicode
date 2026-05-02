@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SkeletonCodeCard",
+  "type": "object",
+  "required": [
+    "description",
+    "skeleton"
+  ],
+  "properties": {
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "skeleton": {
+      "type": "string",
+      "minLength": 1
+    },
+    "teaching_goal": {
+      "type": "string"
+    },
+    "checkpoint_prompt": {
+      "type": "string"
+    },
+    "mentor_role": {
+      "type": "string"
+    },
+    "reflection_prompt": {
+      "type": "string"
+    },
+    "kc_error_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kc_id": {
+            "type": "integer"
+          },
+          "kc_name": {
+            "type": "string"
+          },
+          "error_count": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

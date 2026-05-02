@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Alethicode · 升级维护中</title>
+  <meta name="robots" content="noindex">
+  <!--
+    使用方式：
+    1. 在 URL 中设置 ?reopen=2026-05-02T14:00:00 指定重新开放时间（ISO 8601，北京时间）
+    2. 或修改下方 REOPEN_TIME 变量
+    3. nginx 维护时把流量重定向到此页面：
+       location / { return 503; error_page 503 /maintenance.html; }
+  -->
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-main: #0f0d1a;
+      --bg-card: rgba(255, 255, 255, 0.04);
+      --text-primary: #f1f0f5;
+      --text-secondary: rgba(241, 240, 245, 0.6);
+      --accent-from: #6366f1;
+      --accent-to: #ec4899;
+      --border-glow: rgba(99, 102, 241, 0.2);
+      --font-sans: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
+    }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-sans);
+      color: var(--text-primary);
+      background: var(--bg-main);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .bg-grid {
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(99, 102, 241, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(99, 102, 241, 0.04) 1px, transparent 1px);
+      background-size: 60px 60px;
+      pointer-events: none;
+    }
+
+    .bg-glow {
+      position: fixed;
+      width: 600px;
+      height: 600px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(99, 102, 241, 0.12) 0%, transparent 70%);
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      animation: glow-pulse 6s ease-in-out infinite;
+    }
+
+    @keyframes glow-pulse {
+      0%, 100% { opacity: 0.6; transform: translate(-50%, -50%) scale(1); }
+      50% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+    }
+
+    .container {
+      position: relative;
+      z-index: 1;
+      max-width: 520px;
+      width: 90%;
+      text-align: center;
+      padding: 20px;
+    }
+
+    .logo-wrap {
+      margin-bottom: 32px;
+    }
+
+    .logo-icon {
+      width: 80px;
+      height: 80px;
+      margin: 0 auto 16px;
+      border-radius: 50%;
+      display: block;
+      object-fit: contain;
+      box-shadow: 0 8px 32px rgba(99, 102, 241, 0.28);
+      animation: logo-float 4s ease-in-out infinite;
+    }
+
+    @keyframes logo-float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-6px); }
+    }
+
+    .logo-text {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    h1 {
+      font-size: 28px;
+      font-weight: 800;
+      line-height: 1.3;
+      margin-bottom: 12px;
+      background: linear-gradient(135deg, var(--accent-from), var(--accent-to));
+      background-clip: text;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .subtitle {
+      font-size: 15px;
+      color: var(--text-secondary);
+      line-height: 1.7;
+      margin-bottom: 36px;
+    }
+
+    .countdown-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-glow);
+      border-radius: 16px;
+      padding: 28px 24px;
+      margin-bottom: 24px;
+      backdrop-filter: blur(12px);
+    }
+
+    .countdown-label {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-bottom: 16px;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      font-weight: 600;
+    }
+
+    .countdown-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+
+    .countdown-unit {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .countdown-number {
+      font-family: var(--font-mono);
+      font-size: 42px;
+      font-weight: 800;
+      line-height: 1;
+      background: linear-gradient(180deg, var(--text-primary) 0%, rgba(241, 240, 245, 0.5) 100%);
+      background-clip: text;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      min-width: 60px;
+      text-align: center;
+      transition: transform 0.3s ease;
+    }
+
+    .countdown-number.flip {
+      animation: num-flip 0.4s ease;
+    }
+
+    @keyframes num-flip {
+      0% { transform: scale(1); }
+      30% { transform: scale(1.15); }
+      100% { transform: scale(1); }
+    }
+
+    .countdown-text {
+      font-size: 11px;
+      color: var(--text-secondary);
+      font-weight: 500;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    .reopen-time {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-bottom: 36px;
+    }
+
+    .reopen-time strong {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+
+    .progress-bar {
+      width: 100%;
+      height: 4px;
+      border-radius: 2px;
+      background: rgba(255, 255, 255, 0.06);
+      overflow: hidden;
+      margin-bottom: 32px;
+    }
+
+    .progress-bar__fill {
+      height: 100%;
+      border-radius: 2px;
+      background: linear-gradient(90deg, var(--accent-from), var(--accent-to));
+      width: 0%;
+      transition: width 1s linear;
+    }
+
+    .done-message {
+      display: none;
+      padding: 16px 24px;
+      background: rgba(16, 185, 129, 0.1);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 600;
+      color: #10b981;
+      margin-bottom: 24px;
+    }
+
+    .done-message.visible { display: block; }
+
+    .action-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 14px;
+      color: var(--text-secondary);
+      text-decoration: none;
+      padding: 10px 20px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 999px;
+      transition: all 0.2s ease;
+    }
+
+    .action-link:hover {
+      color: var(--text-primary);
+      border-color: var(--accent-from);
+      background: rgba(99, 102, 241, 0.08);
+    }
+
+    .particles {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .particle {
+      position: absolute;
+      width: 3px;
+      height: 3px;
+      border-radius: 50%;
+      background: var(--accent-from);
+      opacity: 0.3;
+      animation: float-up linear infinite;
+    }
+
+    @keyframes float-up {
+      0% { transform: translateY(100vh) scale(0); opacity: 0; }
+      10% { opacity: 0.3; }
+      90% { opacity: 0.1; }
+      100% { transform: translateY(-10vh) scale(1.5); opacity: 0; }
+    }
+
+    @media (max-width: 480px) {
+      h1 { font-size: 22px; }
+      .countdown-number { font-size: 32px; }
+      .countdown-grid { gap: 8px; }
+      .logo-icon { width: 64px; height: 64px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .logo-icon, .bg-glow { animation: none; }
+      .countdown-number.flip { animation: none; }
+      .particle { animation: none; display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <div class="bg-glow"></div>
+
+  <div class="particles" id="particles"></div>
+
+  <div class="container">
+    <div class="logo-wrap">
+      <img class="logo-icon" src="/logo.png" alt="Alethicode logo">
+      <div class="logo-text">Alethicode</div>
+    </div>
+
+    <h1>系统升级维护中</h1>
+    <p class="subtitle">
+      我们正在进行系统升级以提升您的使用体验。<br>
+      升级期间所有服务暂停，您的数据不会受到影响。
+    </p>
+
+    <div class="countdown-card">
+      <div class="countdown-label">预计恢复倒计时</div>
+      <div class="countdown-grid">
+        <div class="countdown-unit">
+          <span class="countdown-number" id="hours">00</span>
+          <span class="countdown-text">小时</span>
+        </div>
+        <div class="countdown-unit">
+          <span class="countdown-number" id="minutes">00</span>
+          <span class="countdown-text">分钟</span>
+        </div>
+        <div class="countdown-unit">
+          <span class="countdown-number" id="seconds">00</span>
+          <span class="countdown-text">秒</span>
+        </div>
+        <div class="countdown-unit">
+          <span class="countdown-number" id="days" style="display:none">0</span>
+          <span class="countdown-text" id="days-label" style="display:none">天</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="reopen-time">
+      <span>预计开放时间：</span>
+      <strong id="reopen-display">--</strong>
+    </div>
+
+    <div class="progress-bar">
+      <div class="progress-bar__fill" id="progress-fill"></div>
+    </div>
+
+    <div class="done-message" id="done-msg">
+      升级已完成，正在为您跳转……
+    </div>
+
+    <a href="/" class="action-link" id="go-home" style="display:none">
+      进入 Alethicode →
+    </a>
+  </div>
+
+  <script>
+    (function () {
+      var DEFAULT_REOPEN = '2026-05-02T14:00:00+08:00';
+      var MAINTENANCE_START = new Date().toISOString();
+
+      var params = new URLSearchParams(window.location.search);
+      var reopenParam = params.get('reopen') || DEFAULT_REOPEN;
+      var reopenDate = new Date(reopenParam);
+      if (isNaN(reopenDate.getTime())) reopenDate = new Date(DEFAULT_REOPEN);
+
+      var startParam = params.get('start');
+      var startDate = startParam ? new Date(startParam) : new Date();
+      if (isNaN(startDate.getTime())) startDate = new Date();
+
+      var hoursEl = document.getElementById('hours');
+      var minutesEl = document.getElementById('minutes');
+      var secondsEl = document.getElementById('seconds');
+      var daysEl = document.getElementById('days');
+      var daysLabel = document.getElementById('days-label');
+      var reopenDisplay = document.getElementById('reopen-display');
+      var progressFill = document.getElementById('progress-fill');
+      var doneMsg = document.getElementById('done-msg');
+      var goHome = document.getElementById('go-home');
+
+      reopenDisplay.textContent = reopenDate.toLocaleString('zh-CN', {
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', weekday: 'short'
+      });
+
+      var totalDuration = reopenDate.getTime() - startDate.getTime();
+
+      function pad(n) { return n < 10 ? '0' + n : '' + n; }
+
+      function animateFlip(el, newVal) {
+        if (el.textContent !== newVal) {
+          el.textContent = newVal;
+          el.classList.remove('flip');
+          void el.offsetWidth;
+          el.classList.add('flip');
+        }
+      }
+
+      function tick() {
+        var now = Date.now();
+        var diff = reopenDate.getTime() - now;
+
+        if (diff <= 0) {
+          hoursEl.textContent = '00';
+          minutesEl.textContent = '00';
+          secondsEl.textContent = '00';
+          progressFill.style.width = '100%';
+          doneMsg.classList.add('visible');
+          goHome.style.display = 'inline-flex';
+          setTimeout(function () {
+            window.location.href = '/';
+          }, 5000);
+          return;
+        }
+
+        var days = Math.floor(diff / 86400000);
+        var hours = Math.floor((diff % 86400000) / 3600000);
+        var mins = Math.floor((diff % 3600000) / 60000);
+        var secs = Math.floor((diff % 60000) / 1000);
+
+        if (days > 0) {
+          daysEl.style.display = '';
+          daysLabel.style.display = '';
+          animateFlip(daysEl, '' + days);
+        }
+        animateFlip(hoursEl, pad(hours));
+        animateFlip(minutesEl, pad(mins));
+        animateFlip(secondsEl, pad(secs));
+
+        var elapsed = now - startDate.getTime();
+        var pct = totalDuration > 0 ? Math.min(100, (elapsed / totalDuration) * 100) : 0;
+        progressFill.style.width = pct + '%';
+
+        requestAnimationFrame(tick);
+      }
+
+      tick();
+
+      var particlesEl = document.getElementById('particles');
+      var prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (!prefersReduced) {
+        for (var i = 0; i < 20; i++) {
+          var p = document.createElement('div');
+          p.className = 'particle';
+          p.style.left = Math.random() * 100 + '%';
+          p.style.animationDuration = (8 + Math.random() * 12) + 's';
+          p.style.animationDelay = Math.random() * 10 + 's';
+          p.style.width = (2 + Math.random() * 3) + 'px';
+          p.style.height = p.style.width;
+          p.style.background = Math.random() > 0.5 ? '#6366f1' : '#ec4899';
+          particlesEl.appendChild(p);
+        }
+      }
+    })();
+  </script>
+</body>
+</html>

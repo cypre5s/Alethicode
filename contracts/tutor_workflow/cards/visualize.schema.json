@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VisualizeCard",
+  "type": "object",
+  "required": ["intent", "format", "payload"],
+  "properties": {
+    "intent": { "type": "string", "minLength": 1 },
+    "format": { "type": "string", "enum": ["mermaid", "chart", "svg"] },
+    "payload": { "type": "string", "minLength": 1 },
+    "alt_text": { "type": "string" },
+    "source_role": { "type": "string" }
+  },
+  "additionalProperties": false
+}

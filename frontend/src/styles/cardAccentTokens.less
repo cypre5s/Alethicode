@@ -1,0 +1,96 @@
+/* Tutor card accent tokens (Phase 1.1)
+ * 8 accent palettes: primary / guide / ideate / success / danger / transfer / review / encouragement
+ * Each palette exposes 4 CSS variables consumed by BaseAgentCard:
+ *   --card-accent           : 主色（标题 / 图标 / 边框）
+ *   --card-accent-bg        : 头部背景柔化色
+ *   --card-accent-border    : 容器边框色
+ *   --card-accent-bg-strong : foot 区或 hint 区强调背景
+ */
+
+.card-accent-primary () {
+  --card-accent: #2563eb;
+  --card-accent-bg: rgba(37, 99, 235, 0.07);
+  --card-accent-border: rgba(37, 99, 235, 0.18);
+  --card-accent-bg-strong: rgba(37, 99, 235, 0.12);
+}
+
+.card-accent-guide () {
+  --card-accent: #2563eb;
+  --card-accent-bg: rgba(37, 99, 235, 0.08);
+  --card-accent-border: rgba(37, 99, 235, 0.18);
+  --card-accent-bg-strong: rgba(37, 99, 235, 0.14);
+}
+
+.card-accent-ideate () {
+  --card-accent: #7c3aed;
+  --card-accent-bg: rgba(124, 58, 237, 0.08);
+  --card-accent-border: rgba(124, 58, 237, 0.20);
+  --card-accent-bg-strong: rgba(124, 58, 237, 0.14);
+}
+
+.card-accent-success () {
+  --card-accent: #10b981;
+  --card-accent-bg: rgba(16, 185, 129, 0.08);
+  --card-accent-border: rgba(16, 185, 129, 0.20);
+  --card-accent-bg-strong: rgba(16, 185, 129, 0.14);
+}
+
+.card-accent-danger () {
+  --card-accent: #ef4444;
+  --card-accent-bg: rgba(239, 68, 68, 0.07);
+  --card-accent-border: rgba(239, 68, 68, 0.18);
+  --card-accent-bg-strong: rgba(239, 68, 68, 0.14);
+}
+
+.card-accent-transfer () {
+  --card-accent: #d97706;
+  --card-accent-bg: rgba(217, 119, 6, 0.08);
+  --card-accent-border: rgba(217, 119, 6, 0.20);
+  --card-accent-bg-strong: rgba(217, 119, 6, 0.14);
+}
+
+.card-accent-review () {
+  --card-accent: #6366f1;
+  --card-accent-bg: rgba(99, 102, 241, 0.08);
+  --card-accent-border: rgba(99, 102, 241, 0.20);
+  --card-accent-bg-strong: rgba(99, 102, 241, 0.14);
+}
+
+.card-accent-encouragement () {
+  --card-accent: #ec4899;
+  --card-accent-bg: rgba(236, 72, 153, 0.08);
+  --card-accent-border: rgba(236, 72, 153, 0.20);
+  --card-accent-bg-strong: rgba(236, 72, 153, 0.14);
+}
+
+.card-accent-primary-class {
+  .card-accent-primary();
+}
+
+.card-accent-guide-class {
+  .card-accent-guide();
+}
+
+.card-accent-ideate-class {
+  .card-accent-ideate();
+}
+
+.card-accent-success-class {
+  .card-accent-success();
+}
+
+.card-accent-danger-class {
+  .card-accent-danger();
+}
+
+.card-accent-transfer-class {
+  .card-accent-transfer();
+}
+
+.card-accent-review-class {
+  .card-accent-review();
+}
+
+.card-accent-encouragement-class {
+  .card-accent-encouragement();
+}

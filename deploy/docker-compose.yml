@@ -1,0 +1,578 @@
+name: alethicode-java
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: java-oj-postgres
+    restart: unless-stopped
+    env_file: .env
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U onlinejudge -d alethicode"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: ${POSTGRES_MEMORY_LIMIT:-384m}
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.max=2000
+      - -c
+      - pg_stat_statements.track=top
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - work_mem=2MB
+      - -c
+      - maintenance_work_mem=24MB
+      - -c
+      - effective_cache_size=128MB
+      - -c
+      - max_connections=40
+      - -c
+      - wal_buffers=2MB
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - max_wal_size=512MB
+      - -c
+      - min_wal_size=80MB
+    environment:
+      POSTGRES_DB: alethicode
+      POSTGRES_USER: onlinejudge
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "127.0.0.1:5436:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    container_name: java-oj-redis
+    restart: unless-stopped
+    env_file: .env
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: ${REDIS_MEMORY_LIMIT:-96m}
+    command: redis-server --requirepass ${REDIS_PASSWORD} --maxmemory 64mb --maxmemory-policy allkeys-lru --save "" --lazyfree-lazy-eviction yes
+    ports:
+      - "127.0.0.1:6381:6379"
+    volumes:
+      - ./data/redis:/data
+
+  pgbouncer:
+    # 2C4G 容量优化（2026-04-30）：transaction pooling 代理。
+    # backend / tutor-graph / alethicode-rag 全部走 6432 共享后端连接，PG 最多
+    # 同时给应用 20 个真实连接（PGBOUNCER_MAX_DB_CONNECTIONS=20），剩余 20 个
+    # PG 连接预算留给临时启动的 temporal + admin/migration。
+    # IGNORE_STARTUP_PARAMETERS 必须包含 extra_float_digits / application_name /
+    # search_path —— PostgreSQL JDBC 驱动握手时会发这些，PgBouncer 默认拒绝
+    # 非白名单参数会导致连接失败。
+    image: bitnami/pgbouncer:1.23.1
+    container_name: java-oj-pgbouncer
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "PGPASSWORD=${DB_PASSWORD} psql -h 127.0.0.1 -p 6432 -U onlinejudge -d pgbouncer -c 'SHOW VERSION' >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: ${PGBOUNCER_MEMORY_LIMIT:-32m}
+    environment:
+      POSTGRESQL_HOST: postgres
+      POSTGRESQL_PORT: 5432
+      POSTGRESQL_USERNAME: onlinejudge
+      POSTGRESQL_PASSWORD: ${DB_PASSWORD}
+      POSTGRESQL_DATABASE: alethicode
+      PGBOUNCER_PORT: 6432
+      PGBOUNCER_DATABASE: alethicode
+      PGBOUNCER_AUTH_TYPE: scram-sha-256
+      PGBOUNCER_POOL_MODE: transaction
+      PGBOUNCER_DEFAULT_POOL_SIZE: 12
+      PGBOUNCER_MIN_POOL_SIZE: 3
+      PGBOUNCER_RESERVE_POOL_SIZE: 4
+      PGBOUNCER_RESERVE_POOL_TIMEOUT: 3
+      PGBOUNCER_MAX_CLIENT_CONN: 200
+      PGBOUNCER_MAX_DB_CONNECTIONS: 20
+      PGBOUNCER_SERVER_IDLE_TIMEOUT: 180
+      PGBOUNCER_QUERY_WAIT_TIMEOUT: 30
+      PGBOUNCER_LOG_CONNECTIONS: 0
+      PGBOUNCER_LOG_DISCONNECTIONS: 0
+      PGBOUNCER_STATS_PERIOD: 60
+      PGBOUNCER_IGNORE_STARTUP_PARAMETERS: "extra_float_digits,application_name,search_path"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:6432:6432"
+
+  nats:
+    image: nats:2.10-alpine
+    container_name: java-oj-nats
+    restart: unless-stopped
+    command: ["-js", "-m", "8222"]
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 4222"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: ${NATS_MEMORY_LIMIT:-128m}
+    ports:
+      - "127.0.0.1:4222:4222"
+      - "127.0.0.1:8222:8222"
+
+  temporal:
+    # 2C4G 主机优化：Temporal 改为 profile 化按需启动，日常 docker compose up 不启动它。
+    # 释放 ~512MB 内存供 OJ 主路径使用。需要跑课件流水线时执行 scripts/temporal-on.sh。
+    # backend 通过 lazy 探测 + 60s 轮询自动重连 Temporal worker，无需重启 backend。
+    image: temporalio/auto-setup:1.25
+    container_name: java-oj-temporal
+    restart: unless-stopped
+    profiles: ["temporal"]
+    env_file: .env
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: onlinejudge
+      POSTGRES_PWD: ${DB_PASSWORD}
+      POSTGRES_SEEDS: postgres
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/docker.yaml
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      all_proxy: ""
+      NO_PROXY: 127.0.0.1,localhost,postgres,temporal
+      no_proxy: 127.0.0.1,localhost,postgres,temporal
+    healthcheck:
+      test: ["CMD-SHELL", "temporal operator cluster health --address \"$$(hostname -i):7233\" >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: ${TEMPORAL_MEMORY_LIMIT:-512m}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:7233:7233"
+
+  memgraph:
+    # Graph storage backend for LightRAG (alethicode-rag).
+    # Decision (2026-04-28): Memgraph over PG+AGE — issue #2255 reports 12h+
+    # downtime upgrading PGGraphStorage; issue #1277 reports 3-5min query
+    # latency at 3.5k nodes/4.5k edges. Memgraph speaks bolt via the neo4j
+    # driver LightRAG already imports, no schema migration needed.
+    # WSL2 6.6 内核兼容性决策：原 `memgraph/memgraph:latest` (v3.9.0) 在
+    # 4/29 实测中容器启动后即 signal 11 SIGSEGV (exit 139) 死循环（dmesg 抓到
+    # "memgraph: potentially unexpected fatal signal 11"），关闭 rseq
+    # (GLIBC_TUNABLES=glibc.pthread.rseq=0) 也无效。同一 WSL2 内核下
+    # `memgraph-platform:latest` (内含 v2.14.1) 启动正常。Platform 比纯
+    # memgraph 大（6.5GB vs 867MB），但 v2 系列对 LightRAG 调用所需 bolt
+    # 协议完全等价，且镜像已在本地不需重新拉取。Lab UI 在容器内 :3000，
+    # 不向 host 暴露不影响 grafana。等 memgraph 官方修复 v3.x 在
+    # WSL2 6.6 上的 segfault 后再切回轻量镜像。
+    image: memgraph/memgraph-platform:latest
+    container_name: java-oj-memgraph
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "echo 'RETURN 1;' | mgconsole --output-format=csv 2>/dev/null | grep -q 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: ${MEMGRAPH_MEMORY_LIMIT:-768m}
+    # 2C4G 容量优化（2026-04-30）：内存与 CPU 紧约束。
+    # --memory-limit=600 (MiB) 是 Memgraph 进程内部硬上限；容器外层再用
+    # MEMGRAPH_MEMORY_LIMIT=768m 留 168MB 余量给 mmap / page cache。
+    # bolt-num-workers=2 对齐 2 核 CPU，多了反而让 worker 抢调度。
+    command:
+      - --memory-limit=600
+      - --query-execution-timeout-sec=30
+      - --log-level=WARNING
+      - --telemetry-enabled=false
+      - --storage-snapshot-on-exit=true
+      - --storage-snapshot-interval-sec=1800
+      - --storage-wal-enabled=true
+      - --storage-snapshot-retention-count=2
+      - --storage-recover-on-startup=true
+      - --bolt-num-workers=2
+    ports:
+      - "127.0.0.1:7687:7687"
+    volumes:
+      # WSL2 + memgraph mmap 兼容性：host bind mount (`./data/memgraph`) 会
+      # 在 v2.14.1 启动期 SIGABRT (exit 134)；改用 docker named volume
+      # （存在 /var/lib/docker/volumes，不经过 WSL2 9P 文件系统转译）即可。
+      - java-oj-memgraph-data:/var/lib/memgraph
+
+  alethicode-rag:
+    build:
+      context: ..
+      dockerfile: services/alethicode-rag/Dockerfile
+      # WSL/dev 场景：build 容器需要走 host 上的代理（HTTP_PROXY=127.0.0.1:7892）
+      # 才能 apt-get / pip。`network: host` 把 build 容器与 host 共享网络栈，
+      # 容器内 127.0.0.1 = host 127.0.0.1，能解析到 host 代理。tutor-graph
+      # 镜像走相同策略（start.sh 的 ensure_tutor_graph_image 用 docker build
+      # --network=host）。
+      network: host
+    container_name: java-oj-alethicode-rag
+    restart: unless-stopped
+    # 注意：故意不写 `env_file: .env`。deploy/.env 里 OPENAI_API_KEY= 空字符串
+    # 在某些 docker compose 版本下会覆盖 environment 段已经替换好的值，导致
+    # alethicode-rag 拿不到 backend/.env 里的真实 DeepSeek key，调 LLM 全部
+    # `Authentication Fails (governor)`。所有需要变量都在下面的 environment
+    # 段显式声明，从 docker compose 进程 shell env 替换（start.sh 已先后
+    # source deploy/.env + backend/.env，shell env 里能拿到正确 key）。
+    # WSL/dev 场景：host 走 WSL2 mirrored networking，host 上 127.0.0.1:7892 是
+    # Windows 代理透传（ss 看不到 listener 但 curl 能连）。docker bridge 网络
+    # 的容器无法借由 host.docker.internal:host-gateway 透传到 Windows 代理；
+    # 唯一可靠的方式是让 alethicode-rag 容器与 host 共用网络栈
+    # （`network_mode: host`），这样容器内 127.0.0.1:7892 直接命中 Windows 代理。
+    # 副作用：原来通过 docker bridge 的 service-name 解析（postgres / memgraph）
+    # 都不可用，必须改用 host 暴露端口（127.0.0.1:5436 / 127.0.0.1:7687）；
+    # `ports:` 段也无意义被去掉（host network 下 uvicorn 直接绑 host 8200）。
+    # tiktoken o200k_base 编码文件 3.6MB 通过 host 代理一次拉取后写入容器
+    # 内 ~/.cache/tiktoken 持久缓存。
+    network_mode: host
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; r=urllib.request.urlopen('http://localhost:8200/health',timeout=3); sys.exit(0 if r.status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: ${ALETHICODE_RAG_MEMORY_LIMIT:-768m}
+    environment:
+      RAG_INTERNAL_TOKEN: ${RAG_INTERNAL_TOKEN:-${INTERNAL_SERVICE_KEY:-dev-internal-key}}
+      RAG_INTERNAL_PREVIOUS_TOKEN: ${RAG_INTERNAL_PREVIOUS_TOKEN:-${INTERNAL_SERVICE_PREVIOUS_KEY:-}}
+      RAG_WORKING_DIR: /data/alethicode-rag/workspace
+      # network_mode: host 下，原来的 service-name 解析失效，改走 host 暴露端口
+      # 2C4G 优化：走 PgBouncer 暴露的 6432 端口（host 网络下与容器同地址空间）
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: 6432
+      POSTGRES_USER: onlinejudge
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DATABASE: alethicode
+      POSTGRES_VECTOR_INDEX_TYPE: ${POSTGRES_VECTOR_INDEX_TYPE:-HNSW_HALFVEC}
+      POSTGRES_HNSW_M: ${POSTGRES_HNSW_M:-16}
+      POSTGRES_HNSW_EF: ${POSTGRES_HNSW_EF:-200}
+      MEMGRAPH_URI: bolt://127.0.0.1:7687
+      MEMGRAPH_DATABASE: memgraph
+      MEMGRAPH_WORKSPACE: ${MEMGRAPH_WORKSPACE:-alethicode}
+      LIGHTRAG_KV_STORAGE: PGKVStorage
+      LIGHTRAG_VECTOR_STORAGE: PGVectorStorage
+      LIGHTRAG_DOC_STATUS_STORAGE: PGDocStatusStorage
+      LIGHTRAG_GRAPH_STORAGE: MemgraphStorage
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-v4-flash}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://open.bigmodel.cn/api/paas/v4}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-embedding-3}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-2048}
+      # WSL 开发：在 deploy/.env 或 shell env 里设 RAG_HTTP_PROXY=http://127.0.0.1:7892
+      # ECS 生产：不设（默认空，直连公网）
+      HTTP_PROXY: ${RAG_HTTP_PROXY:-}
+      HTTPS_PROXY: ${RAG_HTTPS_PROXY:-${RAG_HTTP_PROXY:-}}
+      http_proxy: ${RAG_HTTP_PROXY:-}
+      https_proxy: ${RAG_HTTPS_PROXY:-${RAG_HTTP_PROXY:-}}
+      NO_PROXY: localhost,127.0.0.1,memgraph,postgres,redis,nats,temporal,tutor-graph,backend
+      no_proxy: localhost,127.0.0.1,memgraph,postgres,redis,nats,temporal,tutor-graph,backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      memgraph:
+        condition: service_healthy
+    volumes:
+      - ./data/alethicode-rag:/data/alethicode-rag
+
+  jaeger:
+    # 全链路追踪的 OTLP 接收端。国内私有化部署常用的替代：
+    # - 阿里云 Trace Application Real-Time Monitoring Service (ARMS)：OTLP gRPC
+    # - 自建 SigNoz / Tempo + Grafana
+    # 镜像仓库建议：registry.cn-hangzhou.aliyuncs.com/acs/jaeger-all-in-one:1.58
+    image: jaegertracing/all-in-one:1.58
+    container_name: java-oj-jaeger
+    profiles: ["observability"]
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "127.0.0.1:16686:16686"  # UI
+      - "127.0.0.1:4318:4318"    # OTLP HTTP
+      - "127.0.0.1:4317:4317"    # OTLP gRPC
+    deploy:
+      resources:
+        limits:
+          memory: ${JAEGER_MEMORY_LIMIT:-512m}
+
+  tutor-graph:
+    build:
+      context: ..
+      dockerfile: services/tutor-graph/Dockerfile
+    container_name: java-oj-tutor-graph
+    restart: unless-stopped
+    env_file: .env
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; r=urllib.request.urlopen('http://localhost:8100/health',timeout=3); sys.exit(0 if r.status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: ${TUTOR_GRAPH_MEMORY_LIMIT:-512m}
+    environment:
+      TUTOR_GRAPH_CHECKPOINTER: ${TUTOR_GRAPH_CHECKPOINTER:-postgres}
+      # 2C4G 优化：默认走 PgBouncer:6432
+      TUTOR_GRAPH_DATABASE_URI: ${TUTOR_GRAPH_DATABASE_URI:-postgresql://onlinejudge:${DB_PASSWORD}@pgbouncer:6432/alethicode}
+      TUTOR_GRAPH_JAVA_TOOL_BASE_URL: ${TUTOR_GRAPH_JAVA_TOOL_BASE_URL:-http://backend:8080}
+      TUTOR_GRAPH_INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:-dev-internal-key}
+      TUTOR_GRAPH_INTERNAL_SERVICE_PREVIOUS_KEY: ${INTERNAL_SERVICE_PREVIOUS_KEY:-}
+      TUTOR_GRAPH_LLM_PROVIDER: ${TUTOR_GRAPH_LLM_PROVIDER:-openai}
+      TUTOR_GRAPH_LLM_MODEL: ${TUTOR_GRAPH_LLM_MODEL:-${LLM_MODEL:-deepseek-v4-flash}}
+      TUTOR_GRAPH_LLM_API_KEY: ${TUTOR_GRAPH_LLM_API_KEY:-${OPENAI_API_KEY:-}}
+      TUTOR_GRAPH_LLM_BASE_URL: ${TUTOR_GRAPH_LLM_BASE_URL:-${LLM_BASE_URL:-https://api.deepseek.com}}
+      TUTOR_GRAPH_LLM_TEMPERATURE: ${TUTOR_GRAPH_LLM_TEMPERATURE:-0.3}
+      TUTOR_GRAPH_REACT_ENABLED: ${TUTOR_GRAPH_REACT_ENABLED:-false}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_TRACING_ENVIRONMENT: ${LANGFUSE_TRACING_ENVIRONMENT:-production}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_SERVICE_NAME: ${TUTOR_GRAPH_OTEL_SERVICE_NAME:-tutor-graph}
+      DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-prod}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8100:8100"
+
+  backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    container_name: java-oj-backend
+    restart: unless-stopped
+    env_file: .env
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request,sys; r=urllib.request.urlopen('http://localhost:8080/actuator/health',timeout=5); sys.exit(0 if r.status==200 else 1)\""]
+      interval: 20s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: ${BACKEND_MEMORY_LIMIT:-1536m}
+    environment:
+      JAVA_OPTS: ${JAVA_OPTS:--Xms256m -Xmx1024m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=96m -XX:+UseCompressedOops -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump.hprof -Xlog:gc*:file=/tmp/gc.log:time,uptime,level,tags:filecount=3,filesize=10m}
+      SPRING_PROFILES_ACTIVE: prod
+      # 2C4G 优化：经 PgBouncer 走 6432。query 串参数对 PgBouncer transaction pool 必需。
+      SPRING_DATASOURCE_URL: jdbc:postgresql://pgbouncer:6432/alethicode?prepareThreshold=0&preparedStatementCacheQueries=0&assumeMinServerVersion=12
+      SPRING_DATASOURCE_USERNAME: onlinejudge
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD}
+      SPRING_DATA_REDIS_LETTUCE_POOL_ENABLED: ${REDIS_POOL_ENABLED:-false}
+      JUDGE_SERVER_TOKEN: ${JUDGE_SERVER_TOKEN}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-v4}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-v4-flash}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
+      INIT_LLM_API_KEY: ${INIT_LLM_API_KEY:-}
+      INIT_LLM_MODEL: ${INIT_LLM_MODEL:-${LLM_MODEL:-deepseek-v4-flash}}
+      INIT_LLM_BASE_URL: ${INIT_LLM_BASE_URL:-${LLM_BASE_URL:-https://api.deepseek.com}}
+      LLM_API_TIMEOUT_SECONDS: ${LLM_API_TIMEOUT_SECONDS:-150}
+      LLM_API_MAX_RETRIES: ${LLM_API_MAX_RETRIES:-3}
+      TUTOR_REACT_ENABLED: ${TUTOR_REACT_ENABLED:-false}
+      TUTOR_REACT_MAX_ITERATIONS: ${TUTOR_REACT_MAX_ITERATIONS:-3}
+      QA_REACT_ENABLED: ${QA_REACT_ENABLED:-false}
+      QA_REACT_MAX_ITERATIONS: ${QA_REACT_MAX_ITERATIONS:-3}
+      VIDEO_TTS_PROVIDER: ${VIDEO_TTS_PROVIDER:-stub}
+      VIDEO_RENDER_PROVIDER: ${VIDEO_RENDER_PROVIDER:-stub}
+      GRAFANA_PUBLIC_URL: ${GRAFANA_PUBLIC_URL:-/grafana/}
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:-dev-internal-key}
+      INTERNAL_SERVICE_PREVIOUS_KEY: ${INTERNAL_SERVICE_PREVIOUS_KEY:-}
+      TUTOR_GRAPH_BASE_URL: ${TUTOR_GRAPH_BASE_URL:-http://tutor-graph:8100}
+      RAG_SERVICE_URL: ${RAG_SERVICE_URL:-http://alethicode-rag:8200}
+      RAG_INTERNAL_TOKEN: ${RAG_INTERNAL_TOKEN:-${INTERNAL_SERVICE_KEY:-dev-internal-key}}
+      RAG_INTERNAL_PREVIOUS_TOKEN: ${RAG_INTERNAL_PREVIOUS_TOKEN:-${INTERNAL_SERVICE_PREVIOUS_KEY:-}}
+      JUDGE_DISPATCH_TRANSPORT: ${JUDGE_DISPATCH_TRANSPORT:-nats}
+      NATS_URL: ${NATS_URL:-nats://nats:4222}
+      TEMPORAL_ENABLED: ${TEMPORAL_ENABLED:-true}
+      TEMPORAL_TARGET: ${TEMPORAL_TARGET:-temporal:7233}
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-language-pack-pipeline}
+      ALETHICODE_WEBSOCKET_ALLOWED_ORIGINS: ${ALETHICODE_WEBSOCKET_ALLOWED_ORIGINS:-}
+      MANAGEMENT_TRACING_ENABLED: ${MANAGEMENT_TRACING_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318/v1/traces}
+      OTEL_SAMPLING_PROBABILITY: ${OTEL_SAMPLING_PROBABILITY:-0.1}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_TRACING_ENVIRONMENT: ${LANGFUSE_TRACING_ENVIRONMENT:-production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      # temporal 改为 profile 化按需启动，backend 不再硬依赖它
+      # 启动 Temporal: bash scripts/temporal-on.sh
+      tutor-graph:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8081:8080"
+    volumes:
+      - ./data/test_case:/test_case
+      - ./data/public:/data/public
+      - ./data/classroom_lessons:/data/classroom_lessons
+      - ./data/language_pack:/data/language_pack
+      - ./data/backend/submission:/data/submission
+
+  prometheus:
+    image: prom/prometheus:v2.53.3
+    container_name: java-oj-prometheus
+    restart: unless-stopped
+    profiles: ["monitoring"]
+    deploy:
+      resources:
+        limits:
+          memory: ${PROMETHEUS_MEMORY_LIMIT:-64m}
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.size=256MB
+      - --web.enable-lifecycle
+    volumes:
+      - ./observability/prometheus/prometheus.compose.yml:/etc/prometheus/prometheus.yml:ro
+      - java-oj-prometheus-data:/prometheus
+    depends_on:
+      - backend
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: java-oj-grafana
+    restart: unless-stopped
+    profiles: ["monitoring"]
+    deploy:
+      resources:
+        limits:
+          memory: ${GRAFANA_MEMORY_LIMIT:-96m}
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin@localhost}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: "/var/lib/grafana/dashboards/alethicode-overview.json"
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s/grafana/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      PROMETHEUS_URL: http://prometheus:9090
+      ALETHICODE_DASHBOARDS_PATH: /var/lib/grafana/dashboards
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - java-oj-grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+  judge:
+    image: registry.cn-hongkong.aliyuncs.com/oj-image/judge:1.6.1
+    container_name: java-oj-judge
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: ${JUDGE_MEMORY_LIMIT:-256m}
+    volumes:
+      - ./data/test_case:/test_case:ro
+      - ./data/judge_server/log:/log
+      - ./data/judge_server/run:/judger
+    environment:
+      SERVICE_URL: http://judge:8080
+      BACKEND_URL: http://backend:8080/api/judge-server-heartbeat/
+      TOKEN: ${JUDGE_SERVER_TOKEN}
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      all_proxy: ""
+      NO_PROXY: 127.0.0.1,localhost,backend,judge,postgres,redis,frontend
+      no_proxy: 127.0.0.1,localhost,backend,judge,postgres,redis,frontend
+    depends_on:
+      - backend
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: deploy/frontend.Dockerfile
+    container_name: java-oj-frontend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:80/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: ${FRONTEND_MEMORY_LIMIT:-32m}
+    ports:
+      - "127.0.0.1:18080:80"
+    volumes:
+      # 维护开关：host 上 touch ./data/runtime/maintenance.flag 即时启用维护页，
+      # rm 即时关闭，无需 reload nginx（worker 在每个请求里 if -f 判断）。
+      - ./data/runtime:/etc/nginx/runtime:ro
+    depends_on:
+      - backend
+
+volumes:
+  java-oj-prometheus-data:
+  java-oj-grafana-data:
+  java-oj-memgraph-data:

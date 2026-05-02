@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1500" viewBox="0 0 2400 1500">
+  <defs>
+    <marker id="openArrow" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="12" markerHeight="12" orient="auto-start-reverse"><path d="M2,2 L10,6 L2,10" fill="none" stroke="#415167" stroke-width="1.8"/></marker>
+    <marker id="hollowTriangle" viewBox="0 0 14 14" refX="13" refY="7" markerWidth="14" markerHeight="14" orient="auto"><path d="M1,1 L13,7 L1,13 Z" fill="#fff" stroke="#111827" stroke-width="1.8"/></marker>
+    <filter id="shadow" x="-8%" y="-8%" width="116%" height="116%"><feDropShadow dx="0" dy="3" stdDeviation="6" flood-color="#0f172a" flood-opacity="0.08"/></filter>
+  </defs>
+  <style>
+    .title { font: 800 42px 'Noto Sans CJK SC','Microsoft YaHei',Arial,sans-serif; fill: #111827; }
+    .subtitle { font: 400 21px 'Noto Sans CJK SC','Microsoft YaHei',Arial,sans-serif; fill: #64748b; }
+    .boundary { fill: #f8fafc; stroke: #24364a; stroke-width: 3; filter: url(#shadow); }
+    .boundary-label { font: 800 28px 'Noto Sans CJK SC','Microsoft YaHei',Arial,sans-serif; fill: #1f2937; }
+    .lane-label { font: 800 21px 'Noto Sans CJK SC','Microsoft YaHei',Arial,sans-serif; fill: #334155; }
+    .lane { stroke: #d8dee8; stroke-width: 1.5; stroke-dasharray: 9 9; }
+    .usecase ellipse { fill: #fff; stroke: #2d557a; stroke-width: 2.5; }
+    .usecase text { font: 600 20px 'Noto Sans CJK SC','Microsoft YaHei',Arial,sans-serif; fill: #142033; dominant-baseline: middle; }
+    .actor circle, .actor line { fill: #fff; stroke: #111827; stroke-width: 3.2; stroke-linecap: round; }
+    .actor text { font: 800 23px 'Noto Sans CJK SC','Microsoft YaHei',Arial,sans-serif; fill: #111827; }
+    .assoc line { stroke: #6b7280; stroke-width: 1.8; }
+    .dashed line { stroke: #415167; stroke-width: 1.8; stroke-dasharray: 8 7; }
+    .inherit line { stroke: #111827; stroke-width: 2.2; }
+    .edge-label { font: 600 16px Arial,'Noto Sans CJK SC','Microsoft YaHei',sans-serif; fill: #475569; paint-order: stroke; stroke: #f8fafc; stroke-width: 7px; stroke-linejoin: round; }
+  </style>
+  <rect width="2400" height="1500" fill="#ffffff"/>
+  <text class="title" x="80" y="66">Alethicode 项目用例图</text>
+  <text class="subtitle" x="80" y="101">SysAdmin 与 Admin 合并为“管理员”；角色连到主用例，主用例再展开核心 include / extend 关系</text>
+  <rect class="boundary" x="330" y="130" width="1995" height="1300" rx="22"/>
+  <text class="boundary-label" x="365" y="176">Alethicode OJ + AI 教学平台</text>
+  <line class="lane" x1="810" y1="205" x2="810" y2="1385"/>
+  <line class="lane" x1="1370" y1="205" x2="1370" y2="1385"/>
+  <line class="lane" x1="1830" y1="205" x2="1830" y2="1385"/>
+  <text class="lane-label" x="500" y="145">基础 OJ</text>
+  <text class="lane-label" x="1030" y="145">AI 导学</text>
+  <text class="lane-label" x="1510" y="145">课件 / 学情 / 班级</text>
+  <text class="lane-label" x="1970" y="145">后台管理 / 运维</text>
+  <g id="guest" class="actor"><circle cx="145" cy="191" r="24"/><line x1="145" y1="215" x2="145" y2="287"/><line x1="101" y1="243" x2="189" y2="243"/><line x1="145" y1="287" x2="103" y2="345"/><line x1="145" y1="287" x2="187" y2="345"/><text x="145" y="383" text-anchor="middle">访客</text></g>
+<g id="student" class="actor"><circle cx="145" cy="541" r="24"/><line x1="145" y1="565" x2="145" y2="637"/><line x1="101" y1="593" x2="189" y2="593"/><line x1="145" y1="637" x2="103" y2="695"/><line x1="145" y1="637" x2="187" y2="695"/><text x="145" y="733" text-anchor="middle">学生</text></g>
+<g id="teacher" class="actor"><circle cx="145" cy="926" r="24"/><line x1="145" y1="950" x2="145" y2="1022"/><line x1="101" y1="978" x2="189" y2="978"/><line x1="145" y1="1022" x2="103" y2="1080"/><line x1="145" y1="1022" x2="187" y2="1080"/><text x="145" y="1118" text-anchor="middle">教师 / 助教</text></g>
+<g id="admin" class="actor"><circle cx="145" cy="1231" r="24"/><line x1="145" y1="1255" x2="145" y2="1327"/><line x1="101" y1="1283" x2="189" y2="1283"/><line x1="145" y1="1327" x2="103" y2="1385"/><line x1="145" y1="1327" x2="187" y2="1385"/><text x="145" y="1423" text-anchor="middle">管理员</text><text x="145" y="1451" text-anchor="middle">平台 / 教研 / 系统</text></g>
+  <g id="auth" class="usecase"><ellipse cx="600" cy="210" rx="135" ry="40"/><text x="600" y="204" text-anchor="middle">账户访问</text><text x="600" y="230" text-anchor="middle">注册 / 登录 / 找回密码</text></g>
+<g id="browse" class="usecase"><ellipse cx="600" cy="340" rx="135" ry="40"/><text x="600" y="334" text-anchor="middle">浏览学习内容</text><text x="600" y="360" text-anchor="middle">公告 / 题库 / 题目详情</text></g>
+<g id="ojLoop" class="usecase"><ellipse cx="600" cy="520" rx="165" ry="48"/><text x="600" y="514" text-anchor="middle">OJ 编程练习闭环</text><text x="600" y="540" text-anchor="middle">编写代码 / 调试 / 提交 / 记录</text></g>
+<g id="judge" class="usecase"><ellipse cx="600" cy="675" rx="135" ry="39"/><text x="600" y="669" text-anchor="middle">真实判题</text><text x="600" y="695" text-anchor="middle">AC / WA / CE / TLE</text></g>
+<g id="profile" class="usecase"><ellipse cx="600" cy="830" rx="150" ry="43"/><text x="600" y="824" text-anchor="middle">个人学习空间</text><text x="600" y="850" text-anchor="middle">主页 / 设置 / 学习笔记</text></g>
+<g id="tutor" class="usecase"><ellipse cx="1110" cy="230" rx="165" ry="48"/><text x="1110" y="224" text-anchor="middle">AI 导学会话</text><text x="1110" y="250" text-anchor="middle">题目页统一入口</text></g>
+<g id="reading" class="usecase"><ellipse cx="960" cy="390" rx="115" ry="34"/><text x="960" y="397" text-anchor="middle">审题导读</text></g>
+<g id="ideating" class="usecase"><ellipse cx="1260" cy="390" rx="115" ry="34"/><text x="1260" y="397" text-anchor="middle">思路分析</text></g>
+<g id="skeleton" class="usecase"><ellipse cx="960" cy="505" rx="125" ry="36"/><text x="960" y="499" text-anchor="middle">骨架代码</text><text x="960" y="525" text-anchor="middle">Parsons 拼装</text></g>
+<g id="chat" class="usecase"><ellipse cx="1260" cy="505" rx="125" ry="36"/><text x="1260" y="499" text-anchor="middle">自由对话</text><text x="1260" y="525" text-anchor="middle">知识回顾 / 可视化</text></g>
+<g id="diagnosis" class="usecase"><ellipse cx="960" cy="650" rx="115" ry="34"/><text x="960" y="657" text-anchor="middle">错误诊断</text></g>
+<g id="acReview" class="usecase"><ellipse cx="1260" cy="650" rx="115" ry="34"/><text x="1260" y="657" text-anchor="middle">AC 复盘</text></g>
+<g id="transfer" class="usecase"><ellipse cx="1110" cy="775" rx="120" ry="35"/><text x="1110" y="782" text-anchor="middle">迁移练习</text></g>
+<g id="checkpoint" class="usecase"><ellipse cx="1110" cy="900" rx="142.5" ry="38"/><text x="1110" y="894" text-anchor="middle">Checkpoint 恢复</text><text x="1110" y="920" text-anchor="middle">人工确认</text></g>
+<g id="qa" class="usecase"><ellipse cx="1620" cy="210" rx="142.5" ry="42"/><text x="1620" y="204" text-anchor="middle">课件问答</text><text x="1620" y="230" text-anchor="middle">基于 Language Pack</text></g>
+<g id="citation" class="usecase"><ellipse cx="1620" cy="335" rx="127.5" ry="37"/><text x="1620" y="329" text-anchor="middle">课件引用</text><text x="1620" y="355" text-anchor="middle">PDF 页面查看</text></g>
+<g id="mastery" class="usecase"><ellipse cx="1620" cy="485" rx="155" ry="43"/><text x="1620" y="479" text-anchor="middle">学情与自适应</text><text x="1620" y="505" text-anchor="middle">技能雷达 / 掌握度 / 推荐题</text></g>
+<g id="reviewPack" class="usecase"><ellipse cx="1620" cy="620" rx="130" ry="37"/><text x="1620" y="627" text-anchor="middle">专项复习错题包</text></g>
+<g id="classroom" class="usecase"><ellipse cx="1620" cy="800" rx="165" ry="46"/><text x="1620" y="794" text-anchor="middle">班级教学</text><text x="1620" y="820" text-anchor="middle">创建/加入/成员/邀请码</text></g>
+<g id="assignment" class="usecase"><ellipse cx="1620" cy="945" rx="155" ry="42"/><text x="1620" y="939" text-anchor="middle">作业流转</text><text x="1620" y="965" text-anchor="middle">发布 / 提交 / 批改</text></g>
+<g id="monitor" class="usecase"><ellipse cx="1620" cy="1080" rx="155" ry="42"/><text x="1620" y="1074" text-anchor="middle">课堂协作与监控</text><text x="1620" y="1100" text-anchor="middle">实时监控 / 学情分析</text></g>
+<g id="aiProblem" class="usecase"><ellipse cx="1620" cy="1215" rx="150" ry="41"/><text x="1620" y="1209" text-anchor="middle">课堂 AI 题目</text><text x="1620" y="1235" text-anchor="middle">生成 / 管理</text></g>
+<g id="contentAdmin" class="usecase"><ellipse cx="2070" cy="245" rx="160" ry="45"/><text x="2070" y="239" text-anchor="middle">平台内容管理</text><text x="2070" y="265" text-anchor="middle">题库 / 测试用例 / 用户 / 公告</text></g>
+<g id="importExport" class="usecase"><ellipse cx="2070" cy="385" rx="135" ry="37"/><text x="2070" y="392" text-anchor="middle">题目导入导出</text></g>
+<g id="kcAdmin" class="usecase"><ellipse cx="2070" cy="505" rx="130" ry="37"/><text x="2070" y="512" text-anchor="middle">知识点 KC 管理</text></g>
+<g id="variant" class="usecase"><ellipse cx="2070" cy="625" rx="145" ry="39"/><text x="2070" y="632" text-anchor="middle">AI 生成题 / 变体题审核</text></g>
+<g id="langPack" class="usecase"><ellipse cx="2070" cy="790" rx="170" ry="47"/><text x="2070" y="784" text-anchor="middle">Language Pack 课程引擎</text><text x="2070" y="810" text-anchor="middle">上传课件 / 解析 / 抽取 KC</text></g>
+<g id="langPipeline" class="usecase"><ellipse cx="2070" cy="930" rx="175" ry="48"/><text x="2070" y="924" text-anchor="middle">生成题目 / Judge 验证</text><text x="2070" y="950" text-anchor="middle">发布课程包 / 检测依赖</text></g>
+<g id="governance" class="usecase"><ellipse cx="2070" cy="1110" rx="165" ry="46"/><text x="2070" y="1104" text-anchor="middle">AI 治理与观测</text><text x="2070" y="1130" text-anchor="middle">Trace / 质量报告 / 灰度 / Beta</text></g>
+<g id="ops" class="usecase"><ellipse cx="2070" cy="1285" rx="165" ry="46"/><text x="2070" y="1279" text-anchor="middle">系统运维配置</text><text x="2070" y="1305" text-anchor="middle">Judge Server / 密钥 / 监控 / 清理</text></g>
+  <g class="inherit"><line x1="73" y1="565" x2="73" y2="327" marker-end="url(#hollowTriangle)"/></g>
+<g class="inherit"><line x1="73" y1="950" x2="73" y2="677" marker-end="url(#hollowTriangle)"/></g>
+<g class="inherit"><line x1="73" y1="1255" x2="73" y2="1062" marker-end="url(#hollowTriangle)"/></g>
+<g class="assoc"><line x1="221" y1="225" x2="465" y2="210"/></g>
+<g class="assoc"><line x1="221" y1="263" x2="465" y2="340"/></g>
+<g class="assoc"><line x1="221" y1="543" x2="435" y2="520"/></g>
+<g class="assoc"><line x1="221" y1="577" x2="450" y2="830"/></g>
+<g class="assoc"><line x1="221" y1="613" x2="945" y2="230"/></g>
+<g class="assoc"><line x1="221" y1="649" x2="1477.5" y2="210"/></g>
+<g class="assoc"><line x1="221" y1="683" x2="1465" y2="485"/></g>
+<g class="assoc"><line x1="221" y1="938" x2="1455" y2="800"/></g>
+<g class="assoc"><line x1="221" y1="972" x2="1465" y2="945"/></g>
+<g class="assoc"><line x1="221" y1="1004" x2="1465" y2="1080"/></g>
+<g class="assoc"><line x1="221" y1="1038" x2="1470" y2="1215"/></g>
+<g class="assoc"><line x1="221" y1="1233" x2="1910" y2="245"/></g>
+<g class="assoc"><line x1="221" y1="1273" x2="1900" y2="790"/></g>
+<g class="assoc"><line x1="221" y1="1313" x2="1905" y2="1110"/></g>
+<g class="assoc"><line x1="221" y1="1351" x2="1905" y2="1285"/></g>
+<g class="dashed"><line x1="600" y1="520" x2="600" y2="675" marker-end="url(#openArrow)"/><text class="edge-label" x="600" y="589.5" text-anchor="middle">&lt;&lt;include&gt;&gt;</text></g>
+<g class="dashed"><line x1="1110" y1="230" x2="960" y2="390" marker-end="url(#openArrow)"/><text class="edge-label" x="1017" y="302" text-anchor="middle">&lt;&lt;include&gt;&gt;</text></g>
+<g class="dashed"><line x1="1110" y1="230" x2="1260" y2="390" marker-end="url(#openArrow)"/><text class="edge-label" x="1203" y="302" text-anchor="middle">&lt;&lt;include&gt;&gt;</text></g>
+<g class="dashed"><line x1="1110" y1="230" x2="960" y2="505" marker-end="url(#openArrow)"/><text class="edge-label" x="1011" y="359.5" text-anchor="middle">&lt;&lt;include&gt;&gt;</text></g>
+<g class="dashed"><line x1="1110" y1="230" x2="1260" y2="505" marker-end="url(#openArrow)"/><text class="edge-label" x="1209" y="359.5" text-anchor="middle">&lt;&lt;include&gt;&gt;</text></g>
+<g class="dashed"><line x1="1110" y1="230" x2="1110" y2="900" marker-end="url(#openArrow)"/><text class="edge-label" x="1110" y="557" text-anchor="middle">&lt;&lt;include&gt;&gt;</text></g>
+<g class="dashed"><line x1="960" y1="650" x2="1110" y2="230" marker-end="url(#openArrow)"/><text class="edge-label" x="1017" y="432" text-anchor="middle">&lt;&lt;extend&gt;&gt;</text></g>
+<g class="dashed"><line x1="1260" y1="650" x2="1110" y2="230" marker-end="url(#openArrow)"/><text class="edge-label" x="1203" y="432" text-anchor="middle">&lt;&lt;extend&gt;&gt;</text></g>
+<g class="dashed"><line x1="1260" y1="650" x2="1110" y2="775" marker-end="url(#openArrow)"/><text class="edge-label" x="1185" y="704.5" text-anchor="middle">&lt;&lt;extend&gt;&gt;</text></g>
+<g class="dashed"><line x1="600" y1="675" x2="960" y2="650" marker-end="url(#openArrow)"/><text class="edge-label" x="780" y="644.5" text-anchor="middle">&lt;&lt;extend: WA/CE/TLE&gt;&gt;</text></g>
+<g class="dashed"><line x1="600" y1="675" x2="1260" y2="650" marker-end="url(#openArrow)"/><text class="edge-label" x="950" y="678.5" text-anchor="middle">&lt;&lt;extend: AC&gt;&gt;</text></g>
+<g class="dashed"><line x1="1620" y1="210" x2="1620" y2="335" marker-end="url(#openArrow)"/><text class="edge-label" x="1620" y="264.5" text-anchor="middle">&lt;&lt;include&gt;&gt;</text></g>
+<g class="dashed"><line x1="1620" y1="485" x2="1620" y2="620" marker-end="url(#openArrow)"/><text class="edge-label" x="1620" y="544.5" text-anchor="middle">&lt;&lt;include&gt;&gt;</text></g>
+<g class="dashed"><line x1="1620" y1="800" x2="1620" y2="945" marker-end="url(#openArrow)"/><text class="edge-label" x="1620" y="864.5" text-anchor="middle">&lt;&lt;include&gt;&gt;</text></g>
+<g class="dashed"><line x1="1620" y1="800" x2="1620" y2="1080" marker-end="url(#openArrow)"/><text class="edge-label" x="1620" y="932" text-anchor="middle">&lt;&lt;include&gt;&gt;</text></g>
+<g class="dashed"><line x1="1620" y1="800" x2="1620" y2="1215" marker-end="url(#openArrow)"/><text class="edge-label" x="1620" y="999.5" text-anchor="middle">&lt;&lt;extend&gt;&gt;</text></g>
+<g class="dashed"><line x1="2070" y1="245" x2="2070" y2="385" marker-end="url(#openArrow)"/><text class="edge-label" x="2070" y="307" text-anchor="middle">&lt;&lt;include&gt;&gt;</text></g>
+<g class="dashed"><line x1="2070" y1="245" x2="2070" y2="505" marker-end="url(#openArrow)"/><text class="edge-label" x="2070" y="367" text-anchor="middle">&lt;&lt;include&gt;&gt;</text></g>
+<g class="dashed"><line x1="2070" y1="245" x2="2070" y2="625" marker-end="url(#openArrow)"/><text class="edge-label" x="2070" y="427" text-anchor="middle">&lt;&lt;extend&gt;&gt;</text></g>
+<g class="dashed"><line x1="2070" y1="790" x2="2070" y2="930" marker-end="url(#openArrow)"/><text class="edge-label" x="2070" y="852" text-anchor="middle">&lt;&lt;include&gt;&gt;</text></g>
+</svg>

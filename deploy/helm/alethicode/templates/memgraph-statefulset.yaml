@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "alethicode.fullname" . }}-memgraph
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "alethicode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: memgraph
+spec:
+  serviceName: {{ include "alethicode.fullname" . }}-memgraph
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: memgraph
+  template:
+    metadata:
+      labels:
+        {{- include "alethicode.labels" . | nindent 8 }}
+        app.kubernetes.io/component: memgraph
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: memgraph
+          # Phase 4 切流：Memgraph 作为 LightRAG 的 GRAPH_STORAGE 后端，承载实体与关系
+          # 图。bolt 协议在 7687 端口；alethicode-rag pod 通过
+          # bolt://{{ fullname }}-memgraph:7687 直连。
+          image: "{{ .Values.memgraph.image.repository }}:{{ .Values.memgraph.image.tag }}"
+          imagePullPolicy: {{ .Values.memgraph.image.pullPolicy }}
+          args:
+            - --log-level=WARNING
+            - --storage-snapshot-interval-sec=300
+            - --storage-properties-on-edges=true
+          ports:
+            - containerPort: 7687
+              name: bolt
+          resources:
+            {{- toYaml .Values.memgraph.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/memgraph
+          readinessProbe:
+            tcpSocket:
+              port: bolt
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: bolt
+            initialDelaySeconds: 30
+            periodSeconds: 30
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: {{ .Values.memgraph.persistence.size | default "10Gi" | quote }}
+        {{- with .Values.memgraph.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "alethicode.fullname" . }}-memgraph
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "alethicode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: memgraph
+spec:
+  type: ClusterIP
+  ports:
+    - port: 7687
+      targetPort: bolt
+      name: bolt
+  selector:
+    app.kubernetes.io/component: memgraph

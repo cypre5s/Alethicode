@@ -1,0 +1,114 @@
+@import "../../styles/common.less";
+
+[class^="el-icon-"],
+[class*=" el-icon-"] {
+  font-family: FontAwesome !important;
+  font-style: normal;
+  font-weight: normal;
+  line-height: 1;
+  display: inline-block;
+  text-rendering: auto;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@import "../../../node_modules/font-awesome/less/variables.less";
+@fa-font-path: "/fonts";
+@fa-css-prefix: el-icon-fa;
+@import "../../../node_modules/font-awesome/less/mixins.less";
+@import "../../../node_modules/font-awesome/less/path.less";
+@import "../../../node_modules/font-awesome/less/core.less";
+@import "../../../node_modules/font-awesome/less/larger.less";
+@import "../../../node_modules/font-awesome/less/fixed-width.less";
+@import "../../../node_modules/font-awesome/less/list.less";
+@import "../../../node_modules/font-awesome/less/bordered-pulled.less";
+@import "../../../node_modules/font-awesome/less/animated.less";
+@import "../../../node_modules/font-awesome/less/rotated-flipped.less";
+@import "../../../node_modules/font-awesome/less/stacked.less";
+@import "../../../node_modules/font-awesome/less/icons.less";
+@import "../../../node_modules/font-awesome/less/screen-reader.less";
+
+.el-icon-search:before {
+  content: @fa-var-search;
+}
+
+.el-icon-refresh:before {
+  content: @fa-var-refresh;
+}
+
+.el-icon-delete:before {
+  content: @fa-var-trash;
+}
+
+.el-icon-plus:before {
+  content: @fa-var-plus;
+}
+
+.el-icon-edit:before {
+  content: @fa-var-pencil;
+}
+
+.el-icon-setting:before {
+  content: @fa-var-cog;
+}
+
+.el-icon-caret-bottom:before {
+  content: @fa-var-caret-down;
+}
+
+.el-icon-caret-top:before {
+  content: @fa-var-caret-up;
+}
+
+.el-icon-arrow-up:before {
+  content: @fa-var-arrow-up;
+}
+
+.el-icon-arrow-down:before {
+  content: @fa-var-arrow-down;
+}
+
+.el-icon-download:before {
+  content: @fa-var-download;
+}
+
+.el-icon-upload2:before {
+  content: @fa-var-upload;
+}
+
+.el-icon-document-checked:before {
+  content: @fa-var-check-square-o;
+}
+
+.el-icon-loading:before {
+  content: @fa-var-spinner;
+}
+
+.el-icon-loading {
+  animation: legacy-icon-spin 1s linear infinite;
+}
+
+@keyframes legacy-icon-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(359deg);
+  }
+}
+
+body {
+  font-family: var(--admin-font-sans);
+  color: var(--admin-text-strong);
+  background: var(--admin-shell-bg);
+}
+
+#app {
+  min-height: 100vh;
+}
+
+.panel-options .pagination-wrapper,
+.pagination-wrapper.admin-pagination {
+  margin-top: 0;
+}

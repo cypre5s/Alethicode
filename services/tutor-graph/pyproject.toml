@@ -1,0 +1,50 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tutor-graph"
+version = "0.1.0"
+description = "LangGraph-based AI tutor workflow runtime"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=0.2",
+    "langgraph-checkpoint-postgres>=2.0",
+    "langchain-core>=0.3",
+    "langchain-openai>=0.3",
+    "langfuse>=3.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "httpx>=0.27",
+    "jsonschema>=4.23",
+    "structlog>=24.4",
+    "psycopg[binary,pool]>=3.2",
+    "sse-starlette>=2.1",
+    "cachetools>=5.3",
+    # OpenTelemetry：跨进程 trace 跟 Java 侧 Micrometer Tracing 通过 W3C traceparent
+    # 关联。国内部署可换阿里云 SLS Trace（同样 OTLP）或自建 SigNoz。
+    "opentelemetry-api>=1.27",
+    "opentelemetry-sdk>=1.27",
+    "opentelemetry-exporter-otlp-proto-http>=1.27",
+    "opentelemetry-instrumentation-fastapi>=0.48b0",
+    "opentelemetry-instrumentation-httpx>=0.48b0",
+    "opentelemetry-instrumentation-logging>=0.48b0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "respx>=0.21",
+    "httpx",
+]
+
+[tool.hatch.build.targets.wheel]
+# 项目名是 tutor-graph 但源码目录是 app/；新版 hatchling 的默认包发现
+# 逻辑会找 `services/tutor-graph/` 同名目录失败，必须显式声明把 `app/` 打进 wheel。
+packages = ["app"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["app/tests"]

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alethicode.com/contracts/nfk/training_dataset.schema.json",
+  "title": "NFK Training Row",
+  "description": "Single row of the NFK (Next-Frame Knowledge) training dataset. Java side `backend/.../NfkDataExportService` writes this format as CSV; Python side `research/nfk/data/contract_validator.py` validates it before training. CSV header line is fixed to: 'user_id,question_id,skill_id,response,timestamp'. Rows are validated against this schema before being written by the exporter and after being parsed by the trainer.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "user_id",
+    "question_id",
+    "skill_id",
+    "response",
+    "timestamp"
+  ],
+  "properties": {
+    "user_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Platform user ID (alethicode.users.id). Always strictly positive — the backend SQL filter excludes user_id <= 0 to drop anonymous and system rows."
+    },
+    "question_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Platform problem ID (alethicode.problem.id)."
+    },
+    "skill_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Primary KC ID for the question. When ai_problem_kc_mapping has multiple KCs for one problem_id, the row with highest weight wins; ties are broken by ascending kc_id. The exporter joins via `DISTINCT ON (problem_id)` ORDER BY weight DESC, kc_id ASC."
+    },
+    "response": {
+      "type": "integer",
+      "enum": [
+        0,
+        1
+      ],
+      "description": "Submission outcome encoding: 1 if submission.result = 0 (Accepted), else 0. All non-AC verdicts (WA / TLE / RE / CE / ...) collapse to 0."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,9})?Z$",
+      "description": "Submission creation time in canonical ISO-8601 UTC, exactly as produced by `java.time.Instant.toString()`. Examples: '2026-04-29T07:13:45Z', '2026-04-29T07:13:45.123Z', '2026-04-29T07:13:45.123456789Z'. Local-time formats (with space separator or trailing offset) are rejected to prevent timezone drift between Java exporter and Python trainer."
+    }
+  }
+}

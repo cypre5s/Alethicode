@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "alethicode.fullname" . }}-judge
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "alethicode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: judge
+spec:
+  replicas: {{ .Values.judge.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: judge
+  template:
+    metadata:
+      labels:
+        {{- include "alethicode.labels" . | nindent 8 }}
+        app.kubernetes.io/component: judge
+    spec:
+      containers:
+        - name: judge
+          image: "{{ .Values.judge.image.repository }}:{{ .Values.judge.image.tag }}"
+          imagePullPolicy: {{ .Values.judge.image.pullPolicy }}
+          env:
+            - name: SERVICE_URL
+              value: "http://$(POD_IP):8080"
+            - name: BACKEND_URL
+              value: http://backend:8080/api/judge-server-heartbeat/
+            - name: TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "alethicode.fullname" . }}-secrets
+                  key: JUDGE_SERVER_TOKEN
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: HTTP_PROXY
+              value: ""
+            - name: HTTPS_PROXY
+              value: ""
+            - name: NO_PROXY
+              value: "127.0.0.1,localhost,backend,postgres,redis,frontend"
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            {{- toYaml .Values.judge.resources | nindent 12 }}
+          volumeMounts:
+            - name: test-case
+              mountPath: /test_case
+              readOnly: true
+          securityContext:
+            privileged: true
+      volumes:
+        - name: test-case
+          persistentVolumeClaim:
+            claimName: {{ include "alethicode.fullname" . }}-test-case
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: judge
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "alethicode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: judge
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      name: http
+  selector:
+    app.kubernetes.io/component: judge

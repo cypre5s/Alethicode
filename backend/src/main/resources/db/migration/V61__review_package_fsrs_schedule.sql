@@ -1,0 +1,12 @@
+ALTER TABLE ai_error_review_package
+    ADD COLUMN IF NOT EXISTS fsrs_state VARCHAR(16) NOT NULL DEFAULT 'new',
+    ADD COLUMN IF NOT EXISTS fsrs_due_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ADD COLUMN IF NOT EXISTS fsrs_stability NUMERIC(10,4) NOT NULL DEFAULT 0.4000,
+    ADD COLUMN IF NOT EXISTS fsrs_difficulty NUMERIC(10,4) NOT NULL DEFAULT 5.0000,
+    ADD COLUMN IF NOT EXISTS fsrs_retrievability NUMERIC(10,4) NOT NULL DEFAULT 1.0000,
+    ADD COLUMN IF NOT EXISTS fsrs_reps INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS fsrs_lapses INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS fsrs_last_review_at TIMESTAMPTZ NULL;
+
+CREATE INDEX IF NOT EXISTS idx_ai_error_review_package_fsrs_due
+    ON ai_error_review_package(user_id, fsrs_due_at);
