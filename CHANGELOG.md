@@ -121,6 +121,27 @@
 - 2026-05-02 **[修复/Redis 连接池缺失依赖]** `application-prod.yml` 启用了 `spring.data.redis.lettuce.pool.enabled: true`，但 `pom.xml` 缺少 `commons-pool2` 依赖，Spring Boot 3.5 创建 `LettucePoolingClientConfiguration` 时抛 `NoClassDefFoundError: GenericObjectPoolConfig`，导致 backend 启动失败。修复：`pom.xml` 添加 `org.apache.commons:commons-pool2`；`docker-compose.yml` 增加 `REDIS_POOL_ENABLED` 开关（默认关闭，2C4G 低规格不需要连接池）。
 - 2026-05-02 **[改进/.env.example]** 新增 `MANAGEMENT_TRACING_ENABLED` 和 `RAG_HTTP_PROXY` 文档说明。
 
+### 5/2 ECS 部署陷阱与修复（fresh clone 暴露的本地工作区漂移）
+
+> 背景：晚间从 GitHub 私有 repo `cypre5s/Alethicode` fresh clone 到 ECS 部署，连续暴露 5 个"本地工作区与 ECS 实际部署不一致"的暗坑。每个坑都是因为之前在 ECS 上直接 `vim` / `sed` 改了文件但没同步回本地工作区，squash 重建 git history 后这些 ECS 手改丢失，fresh clone 拿到的是本地"上一次合理 commit"状态。**下次重新部署务必逐项检查**。
+
+- 2026-05-02 **[修复/部署 sh 路径错]** 部署脚本 `mv /opt/Alethicode.old/data /opt/Alethicode/` 失败 `No such file or directory`。根因：`docker-compose.yml` 中 `volumes: ./data/postgres:...` 是相对 compose 文件目录，所以 host 实际路径是 `/opt/Alethicode/deploy/data/`（而非 `/opt/Alethicode/data/`）。修复后的部署脚本必须 `mv /opt/Alethicode.old/deploy/data /opt/Alethicode/deploy/`；`set -e` 在 mv 失败后退出，但 `docker compose down` 已先执行 → 服务彻底挂。强制规则：任何"备份+替换+恢复 data"链路必须先 `[[ -d "${SOURCE_DATA_PATH}" ]] || exit 1` sanity check 再走 down。
+
+- 2026-05-02 **[运维/Workbench session timeout]** 阿里云 Workbench WebSocket 隧道默认 15 min 无活动断、90 min 总时长断，断开瞬间 SIGHUP 杀正在跑的命令（如 `docker compose build`）。**所有 > 60s 的部署命令必须 nohup 后台跑**：`nohup /root/deploy.sh < /dev/null > /dev/null 2>&1 &; echo $! > /tmp/pid; tail -f /root/deploy.log`。重连后 `tail -f` 日志接续看进度。长期治本：解封 SSH IP `141.11.42.68` 走 `ssh + tmux`。
+
+- 2026-05-02 **[修复/frontend lock]** `frontend/.gitignore` 第 1 行 `package-lock.json` ignore 规则导致 squash repo 不含 lock 文件，ECS clone 后 `frontend.Dockerfile` 的 `RUN npm ci --legacy-peer-deps` 立刻报错 "The npm ci command can only install with an existing package-lock.json"。修复：移除 `frontend/.gitignore` 第 1 行，把现有 633KB lock 文件 add 进 git。**根本原则**：CI/CD 用 `npm ci` 时 lock 文件必须进 git，否则等于没 lock；如果担心 npm install 改动 lock 噪音，应该用 `npm ci --omit=dev` + 关 husky pre-commit 自动改 lock，而不是 ignore。
+
+- 2026-05-02 **[修复/pgbouncer image 下架]** `bitnami/pgbouncer:1.23.1` 在 docker.io 上 2025-08 起 404（Bitnami 整体迁移到 `bitnamilegacy/*` 命名空间，老 tag 删除）。修复：`deploy/docker-compose.yml` 改 `image: bitnamilegacy/pgbouncer:1.23.1`。**注意**：未来其他 bitnami/* 镜像（比如 redis、kafka）若引入也都要走 `bitnamilegacy/*` 路径；新部署可考虑 `bitnami/pgbouncer:1.24+` 是否回到主命名空间，或迁移到 PgPool / PgCat 替代品。详见 https://github.com/bitnami/containers#deprecation-policy
+
+- 2026-05-02 **[修复/memgraph image 与 entrypoint 不匹配]** 本地 `image: memgraph/memgraph-platform:latest`（带 Memgraph Lab UI 复合镜像）entrypoint 是 supervisor 启动 lab + memgraph，**不接受**直接 `command: --memory-limit=600` 等参数 → `exec: --memory-limit=600: executable file not found`。ECS 之前部署用 `memgraph/memgraph:2.14.1`（纯 binary，entrypoint 直接是 memgraph 进程，接受 `--xxx` 参数）。修复：`deploy/docker-compose.yml` 改 `image: memgraph/memgraph:2.14.1` 与 ECS 历史一致。**通用规则**：任何用 `command:` 传 binary 参数的 service，image 必须是 `entrypoint=该 binary` 的纯镜像，不能是 platform/all-in-one 复合镜像。
+
+- 2026-05-02 **[运维/部署 checklist]** 沉淀 5 个 ECS fresh clone 部署的预检查项，下次重新部署务必执行：
+  1. `git ls-tree HEAD frontend/ | grep package-lock` 确认 lock 在 git；
+  2. `grep -E 'image: bitnami/' deploy/docker-compose.yml` 应为空（无未迁移的 bitnami 老命名空间）；
+  3. `grep -E 'image:.*memgraph-platform' deploy/docker-compose.yml` 应为空；
+  4. 部署脚本中所有 mv data 操作必须用 `${PROJECT}/deploy/data` 而非 `${PROJECT}/data`；
+  5. 部署命令必须 nohup + tail，不可直接前台跑 `docker compose build`。
+
 ## [Unreleased] - 2026-05-01
 
 ### 5/1 公测反馈统计与 `/guide` 图片预览修复
