@@ -82,7 +82,9 @@ services:
     # IGNORE_STARTUP_PARAMETERS 必须包含 extra_float_digits / application_name /
     # search_path —— PostgreSQL JDBC 驱动握手时会发这些，PgBouncer 默认拒绝
     # 非白名单参数会导致连接失败。
-    image: bitnami/pgbouncer:1.23.1
+    # 2025-08 起 bitnami/* 老 tag 下架，所有镜像迁移到 bitnamilegacy/*。
+    # 见: https://github.com/bitnami/containers#deprecation-policy
+    image: bitnamilegacy/pgbouncer:1.23.1
     container_name: java-oj-pgbouncer
     restart: unless-stopped
     healthcheck:
