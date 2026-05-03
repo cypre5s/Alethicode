@@ -706,7 +706,12 @@ export default {
       selectedCoursewareRef: null,
       coursewarePreviewPage: null,
       welcomeData: {},
-      profileDrawerVisible: false
+      profileDrawerVisible: false,
+      // 用户可以通过 @ 菜单引用的课件包列表（来自 LanguagePackQaService.listQaPacks 的鉴权过滤）。
+      // 第一次输入 @ 触发 ensureCoursewarePacksLoaded() 懒加载，避免 panel 挂载即拉取。
+      coursewarePacks: [],
+      coursewarePacksLoaded: false,
+      coursewarePacksLoading: false
     }
   },
   computed: {
@@ -821,10 +826,30 @@ export default {
         })
       return cards
     },
+    /**
+     * 把当前用户可见的语言包包装成与 referenceCards 同形态的引用项，让 @ 菜单可以
+     * 复用同一套渲染 / 插入逻辑。reference_token 落 ASCII `@courseware:<lpId>` 与
+     * backend ReferenceResolver 的正则一致；display_label 用中文「课件 · <name>」
+     * 让用户一眼能区分卡片引用和课件引用。
+     */
+    referenceCoursewares () {
+      const packs = Array.isArray(this.coursewarePacks) ? this.coursewarePacks : []
+      return packs
+        .filter(pack => pack && pack.id != null)
+        .map(pack => ({
+          card_id: `courseware-${pack.id}`,
+          card_type: 'courseware',
+          display_label: `课件 · ${pack.name || ('LP-' + pack.id)}`,
+          short_text: pack.description || (pack.documents_count != null ? `${pack.documents_count} 份文档` : ''),
+          reference_key: `courseware-${pack.id}`,
+          reference_token: `@courseware:${pack.id}`
+        }))
+    },
     filteredReferenceCards () {
+      const all = [...this.referenceCards, ...this.referenceCoursewares]
       const query = String(this.referenceQuery || '').toLowerCase()
-      if (!query) return this.referenceCards.slice(0, 8)
-      return this.referenceCards.filter(card => {
+      if (!query) return all.slice(0, 8)
+      return all.filter(card => {
         const haystack = `${card.card_id} ${card.card_type} ${card.display_label} ${card.short_text}`.toLowerCase()
         return haystack.includes(query)
       }).slice(0, 8)
@@ -1011,6 +1036,26 @@ export default {
       const match = text.match(/(?:^|\s)@([A-Za-z0-9_-]*)$/)
       this.referenceMenuVisible = Boolean(match)
       this.referenceQuery = match ? match[1] : ''
+      // 第一次弹出 @ 菜单时懒加载课件清单（避免 panel 挂载即拉取）。
+      if (this.referenceMenuVisible) {
+        this.ensureCoursewarePacksLoaded()
+      }
+    },
+    ensureCoursewarePacksLoaded () {
+      if (this.coursewarePacksLoaded || this.coursewarePacksLoading) return
+      this.coursewarePacksLoading = true
+      api.getLanguagePackQaPacks().then(res => {
+        const packs = res && res.data && Array.isArray(res.data.data) ? res.data.data : []
+        this.coursewarePacks = packs
+        this.coursewarePacksLoaded = true
+      }).catch(err => {
+        // failfast 不掩盖：拉不到列表 = 用户没访问权或服务挂，记录但不阻塞 @ 菜单
+        // 显示卡片引用部分（cards 仍可用）。
+        console.warn('[UnifiedAgentPanel] load courseware packs failed:', err && err.message)
+        this.coursewarePacks = []
+      }).finally(() => {
+        this.coursewarePacksLoading = false
+      })
     },
     insertReferenceCard (card) {
       if (!card || !card.reference_token) return

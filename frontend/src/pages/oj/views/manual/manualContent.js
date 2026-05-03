@@ -558,6 +558,11 @@ export const CONTEXT_TOKENS = [
     token: '@last_visualize',
     name: '最近一次「教学可视化」',
     when: '让 AI 围绕刚生成的图 / 动画继续解释。'
+  },
+  {
+    token: '@courseware:<lpId>',
+    name: '某份课件（RAG 检索）',
+    when: '想让 AI 基于某份课件原文答；后端会用你这条问题做 RAG，top-k 段落塞进 LLM。'
   }
 ]
 
@@ -585,6 +590,12 @@ export const CONTEXT_EXAMPLES = [
     label: '@card:&lt;id&gt;',
     prompt: '@card:C-V-001 这张教学可视化的过程能再讲清楚一点吗？为什么第 3 步要这么走？',
     note: '复盘时把之前任意一张已生成的卡片（按 card_id）拿出来继续讨论，避免重新生成同类卡片。'
+  },
+  {
+    id: 'ctx-courseware',
+    label: '@courseware:&lt;lpId&gt;',
+    prompt: '@courseware:42 课件里讲的「列表推导式」是什么意思？给两个对比例子说明用法。',
+    note: '让 AI 基于课件原文答；后端会用你这条问题对该课件做 RAG，top-k 段落塞进 LLM，回答会附「（参考课件第 X 页）」标注。'
   }
 ]
 

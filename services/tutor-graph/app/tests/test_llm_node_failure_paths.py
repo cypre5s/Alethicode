@@ -105,7 +105,7 @@ def _java_client() -> MagicMock:
     java.get_courseware_hits = AsyncMock(return_value={"hits": []})
     java.get_similar_errors = AsyncMock(return_value=[])
     java.get_last_cards = AsyncMock(return_value=[])
-    java.resolve_references = AsyncMock(return_value=[])
+    java.resolve_references = AsyncMock(return_value={"cards": [], "coursewares": []})
     java.post_workflow_event = AsyncMock(return_value={"status": "recorded"})
     return java
 

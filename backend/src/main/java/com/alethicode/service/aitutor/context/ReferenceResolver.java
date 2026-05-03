@@ -15,6 +15,9 @@ import java.util.regex.Pattern;
  *   <li>{@code @last_guide} – the most recent PROBLEM_GUIDE card</li>
  *   <li>{@code @last_review} – the most recent KNOWLEDGE_REVIEW card</li>
  *   <li>{@code @last_post_ac} – the most recent POST_AC card</li>
+ *   <li>{@code @courseware:&lt;lpId&gt;} – language pack reference; the AI tutor will pull RAG
+ *       top-k chunks of that pack scoped to the current question. See
+ *       <code>docs/plans/2026-05-03-courseware-reference-token-design.md</code>.</li>
  * </ul>
  *
  * <p>Design: <code>docs/plans/2026-04-25-unified-chat-context-design.md</code> 附录 B</p>
@@ -26,6 +29,9 @@ public final class ReferenceResolver {
 
     /** {@code @last_xxx} shorthand. */
     public static final Pattern SHORTHAND_REF = Pattern.compile("@last_([a-z_]+)");
+
+    /** {@code @courseware:42} – language pack id (positive integer). */
+    public static final Pattern COURSEWARE_REF = Pattern.compile("@courseware:(\\d+)");
 
     public enum ShorthandKind {
         ERROR("error", "error_diagnosis"),
@@ -78,5 +84,27 @@ public final class ReferenceResolver {
         Matcher m = SHORTHAND_REF.matcher(raw.trim());
         if (!m.matches()) return null;
         return ShorthandKind.fromSuffix(m.group(1));
+    }
+
+    /** True iff the raw token is a {@code @courseware:<digits>} reference. */
+    public static boolean isCoursewareRef(String raw) {
+        if (raw == null) return false;
+        Matcher m = COURSEWARE_REF.matcher(raw.trim());
+        return m.matches();
+    }
+
+    /**
+     * Extracts the language pack id from {@code @courseware:<lpId>}; returns null if not a valid ref
+     * or the digit string overflows {@code long}.
+     */
+    public static Long extractCoursewareId(String raw) {
+        if (raw == null) return null;
+        Matcher m = COURSEWARE_REF.matcher(raw.trim());
+        if (!m.matches()) return null;
+        try {
+            return Long.parseLong(m.group(1));
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 }

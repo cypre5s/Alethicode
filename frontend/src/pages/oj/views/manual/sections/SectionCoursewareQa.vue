@@ -30,7 +30,10 @@
           </div>
         </dl>
         <p class="qa-vs__note">
-          <strong>规划中</strong>：让 AI 导学助手对话里也能 <code class="inline-code">@课件:&lt;id&gt;</code> 引用某份具体课件，把课件检索结果作为对话 context 塞进 AI 导学助手——目前还没上线，先用「课件问答」入口处理课件相关问题。
+          <strong>已上线</strong>：在「AI 导学助手」对话框里现在也能用 <code class="inline-code">@courseware:&lt;lpId&gt;</code>
+          引用某份具体课件，把基于你当前问题的课件 RAG 检索结果作为对话 context 塞进 AI 导学助手。
+          所以做题时遇到不会的概念，可以直接 <code class="inline-code">@</code> 弹菜单选「课件 · &lt;课件名&gt;」，
+          不用切到这个页面。本入口仍是「整段对话只围绕一份课件」时的更专注体验。
         </p>
       </aside>
     </div>

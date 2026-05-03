@@ -260,6 +260,15 @@ public class InternalAITutorToolController {
         List<String> references = raw instanceof List<?> list
                 ? list.stream().map(String::valueOf).toList()
                 : List.of();
-        return ResponseEntity.ok(service.resolveReferences(sessionId, references));
+        // current_query 用作 @courseware:<lpId> 的 RAG 检索 query；缺失时不解析 courseware
+        // 引用（保留 backwards compat：tutor-graph 老调用者只传 references 仍能拿到 cards）。
+        String currentQuery = request == null ? null : asTrimmedString(request.get("current_query"));
+        return ResponseEntity.ok(service.resolveReferences(sessionId, references, currentQuery));
+    }
+
+    private static String asTrimmedString(Object raw) {
+        if (raw == null) return null;
+        String s = String.valueOf(raw).trim();
+        return s.isEmpty() ? null : s;
     }
 }

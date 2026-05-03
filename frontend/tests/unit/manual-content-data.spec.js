@@ -320,20 +320,22 @@ describe('manualContent.js · 新增 AI 教学数据 (ai 三段式)', () => {
 })
 
 describe('manualContent.js · 新增 @ 上下文引用数据', () => {
-  test('CONTEXT_TOKENS 列出 8 个 @ token (1 个 @card + 7 个 @last_*)', () => {
-    expect(countObjectsInArray('CONTEXT_TOKENS')).toBe(8)
+  test('CONTEXT_TOKENS 列出 9 个 @ token (1 个 @card + 7 个 @last_* + 1 个 @courseware)', () => {
+    expect(countObjectsInArray('CONTEXT_TOKENS')).toBe(9)
     const block = extractObjectArray('CONTEXT_TOKENS')
     for (const tok of ['@card:', '@last_guide', '@last_ideate', '@last_error',
-      '@last_post_ac', '@last_transfer', '@last_review', '@last_visualize']) {
+      '@last_post_ac', '@last_transfer', '@last_review', '@last_visualize',
+      '@courseware:']) {
       expect(block).toContain(tok)
     }
   })
 
-  test('CONTEXT_EXAMPLES 4 条示例提问，全部带 prompt 字段', () => {
-    expect(countObjectsInArray('CONTEXT_EXAMPLES')).toBe(4)
+  test('CONTEXT_EXAMPLES 5 条示例提问，全部带 prompt 字段（含 @courseware 示例）', () => {
+    expect(countObjectsInArray('CONTEXT_EXAMPLES')).toBe(5)
     const block = extractObjectArray('CONTEXT_EXAMPLES')
-    expect((block.match(/prompt:/g) || []).length).toBe(4)
-    expect((block.match(/label:/g) || []).length).toBe(4)
+    expect((block.match(/prompt:/g) || []).length).toBe(5)
+    expect((block.match(/label:/g) || []).length).toBe(5)
+    expect(block).toContain('@courseware:')
   })
 
   test('CONTEXT_TIPS 4 条使用建议', () => {

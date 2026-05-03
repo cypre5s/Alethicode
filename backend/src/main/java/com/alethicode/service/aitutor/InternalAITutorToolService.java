@@ -30,5 +30,5 @@ public interface InternalAITutorToolService {
 
     Map<String, Object> getLastCards(String sessionId, int limit);
 
-    Map<String, Object> resolveReferences(String sessionId, List<String> references);
+    Map<String, Object> resolveReferences(String sessionId, List<String> references, String currentQuery);
 }

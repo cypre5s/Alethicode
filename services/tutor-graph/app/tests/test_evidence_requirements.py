@@ -41,9 +41,11 @@ async def test_chat_evidence_calls_get_last_cards_and_resolves_references():
     java.get_last_cards = AsyncMock(return_value=[
         {"card_id": "C-E-001", "card_type": "error_diagnosis", "short_text": "范围错"}
     ])
-    java.resolve_references = AsyncMock(return_value=[
-        {"card_id": "C-V-001", "card_type": "visualize", "short_text": "图"}
-    ])
+    # 新签名：resolve_references 现在返回 dict {cards, coursewares}
+    java.resolve_references = AsyncMock(return_value={
+        "cards": [{"card_id": "C-V-001", "card_type": "visualize", "short_text": "图"}],
+        "coursewares": [],
+    })
 
     state = {
         "client_event": "CHAT",
@@ -61,11 +63,60 @@ async def test_chat_evidence_calls_get_last_cards_and_resolves_references():
     assert result["evidence_pack"]["references"] == [
         {"card_id": "C-V-001", "card_type": "visualize", "short_text": "图"}
     ]
+    assert result["evidence_pack"]["coursewares"] == []
     assert result["user_mode"] == "chat"
     assert result["last_cards"] == result["evidence_pack"]["last_cards"]
     assert result["references"] == result["evidence_pack"]["references"]
     java.get_last_cards.assert_awaited_once_with("twf_chat", limit=5)
-    java.resolve_references.assert_awaited_once_with("twf_chat", ["@card:C-V-001"])
+    # 新签名：current_query 用 user message 文本
+    java.resolve_references.assert_awaited_once_with(
+        "twf_chat", ["@card:C-V-001"], current_query="@card:C-V-001 这图哪里错了"
+    )
+
+
+@pytest.mark.asyncio
+async def test_chat_evidence_resolves_courseware_references_with_current_query():
+    java = MagicMock()
+    java.get_learner_state = AsyncMock(return_value={})
+    java.get_last_cards = AsyncMock(return_value=[])
+    # 模拟 backend resolve_references 真返回了 courseware 检索结果
+    java.resolve_references = AsyncMock(return_value={
+        "cards": [],
+        "coursewares": [{
+            "language_pack_id": 42,
+            "pack_name": "Python 入门",
+            "chunks": [{
+                "document_id": 9, "document_title": "Python 入门",
+                "page_number": 12, "text": "递归是函数自己调用自己。", "score": 0.9,
+            }],
+        }],
+    })
+
+    state = {
+        "client_event": "CHAT",
+        "event_data": {
+            "message": "@courseware:42 递归是什么？",
+            "references": ["@courseware:42"],
+            "mode": "chat",
+        },
+        "user_id": 1,
+        "problem_id": 1,
+        "session_id": "twf_chat",
+        "language": "Python3",
+    }
+    result = await assemble_evidence_pack(state, java_client=java)
+
+    assert result["evidence_pack"]["coursewares"] == [{
+        "language_pack_id": 42,
+        "pack_name": "Python 入门",
+        "chunks": [{
+            "document_id": 9, "document_title": "Python 入门",
+            "page_number": 12, "text": "递归是函数自己调用自己。", "score": 0.9,
+        }],
+    }]
+    java.resolve_references.assert_awaited_once_with(
+        "twf_chat", ["@courseware:42"], current_query="@courseware:42 递归是什么？"
+    )
 
 
 @pytest.mark.asyncio

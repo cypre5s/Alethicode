@@ -168,18 +168,38 @@ class JavaToolsClient:
         cards = body.get("cards", [])
         return cards if isinstance(cards, list) else []
 
-    async def resolve_references(self, session_id: str, references: list[str]) -> list[dict]:
-        """Unified Chat P3: resolve `@card:<id>` / `@last_*` refs to CardSummary maps."""
+    async def resolve_references(
+        self,
+        session_id: str,
+        references: list[str],
+        current_query: str | None = None,
+    ) -> dict:
+        """Unified Chat P3: resolve refs to a dict with `cards` (CardSummary) and `coursewares`
+        (CoursewareSummary, requires `current_query`).
+
+        Backwards compatibility: callers that pass no `current_query` still get cards as before;
+        coursewares will be an empty list because the Java side skips RAG retrieval without a query.
+
+        Returns:
+            {"cards": [...], "coursewares": [...]} — both lists default to [] when missing.
+        """
         if not session_id or not references:
-            return []
+            return {"cards": [], "coursewares": []}
+        payload: dict = {"references": references}
+        if current_query and current_query.strip():
+            payload["current_query"] = current_query.strip()
         r = await self._client.post(
             f"/internal/ai-tutor/sessions/{session_id}/references/resolve",
-            json={"references": references},
+            json=payload,
         )
         r.raise_for_status()
         body = r.json() or {}
-        cards = body.get("cards", [])
-        return cards if isinstance(cards, list) else []
+        cards = body.get("cards", []) or []
+        coursewares = body.get("coursewares", []) or []
+        return {
+            "cards": cards if isinstance(cards, list) else [],
+            "coursewares": coursewares if isinstance(coursewares, list) else [],
+        }
 
     async def close(self) -> None:
         await self._client.aclose()

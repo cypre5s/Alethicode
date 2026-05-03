@@ -4,6 +4,9 @@ import com.alethicode.service.aitutor.InternalAITutorToolService;
 import com.alethicode.service.aitutor.context.CardSummary;
 import com.alethicode.service.aitutor.context.ConversationContextService;
 import com.alethicode.service.aitutor.context.ConversationMode;
+import com.alethicode.service.aitutor.context.CoursewareContextProvider;
+import com.alethicode.service.aitutor.context.CoursewareSummary;
+import com.alethicode.service.aitutor.context.ReferenceResolver;
 import com.alethicode.service.aitutor.profile.ContextSignals;
 import com.alethicode.service.aitutor.profile.LearnerProfileProjector;
 import com.alethicode.service.aitutor.profile.LearnerState;
@@ -44,6 +47,7 @@ public class InternalAITutorToolServiceImpl implements InternalAITutorToolServic
     private final LearnerProfileProjector learnerProfileProjector;
     private final VisualizeCapabilityService visualizeCapabilityService;
     private final ConversationContextService conversationContextService;
+    private final CoursewareContextProvider coursewareContextProvider;
     private final ParsonsCapabilityService parsonsCapabilityService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -53,6 +57,7 @@ public class InternalAITutorToolServiceImpl implements InternalAITutorToolServic
                                           LearnerProfileProjector learnerProfileProjector,
                                           VisualizeCapabilityService visualizeCapabilityService,
                                           ConversationContextService conversationContextService,
+                                          CoursewareContextProvider coursewareContextProvider,
                                           ParsonsCapabilityService parsonsCapabilityService) {
         this.jdbc = jdbc;
         this.coursewareRetrievalService = coursewareRetrievalService;
@@ -60,6 +65,7 @@ public class InternalAITutorToolServiceImpl implements InternalAITutorToolServic
         this.learnerProfileProjector = learnerProfileProjector;
         this.visualizeCapabilityService = visualizeCapabilityService;
         this.conversationContextService = conversationContextService;
+        this.coursewareContextProvider = coursewareContextProvider;
         this.parsonsCapabilityService = parsonsCapabilityService;
     }
 
@@ -694,16 +700,62 @@ public class InternalAITutorToolServiceImpl implements InternalAITutorToolServic
     }
 
     @Override
-    public Map<String, Object> resolveReferences(String sessionId, List<String> references) {
+    public Map<String, Object> resolveReferences(String sessionId, List<String> references, String currentQuery) {
         if (sessionId == null || sessionId.isBlank()) {
             throw new IllegalArgumentException("session_id is required");
         }
-        return Map.of(
-                "cards",
-                conversationContextService.resolveReferences(sessionId, references == null ? List.of() : references).stream()
-                        .map(CardSummary::toMap)
-                        .toList()
-        );
+        List<String> safeRefs = references == null ? List.of() : references;
+        // 现有 cards 解析维持不变（含 @card / @last_*）
+        List<Map<String, Object>> cards = conversationContextService
+                .resolveReferences(sessionId, safeRefs).stream()
+                .map(CardSummary::toMap)
+                .toList();
+
+        // 新增：@courseware:<lpId> 解析。currentQuery 用作 RAG query；session 内反查 username 做鉴权。
+        // currentQuery 缺失时不做 courseware 解析（保留 backwards compat：调用方不传 query 时只拿 cards）。
+        List<Map<String, Object>> coursewares = List.of();
+        if (currentQuery != null && !currentQuery.isBlank() && hasCoursewareToken(safeRefs)) {
+            String username = lookupSessionUsername(sessionId);
+            if (username != null) {
+                coursewares = coursewareContextProvider.resolveCoursewareReferences(
+                        username, safeRefs, currentQuery, null
+                ).stream().map(CoursewareSummary::toMap).toList();
+            }
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("cards", cards);
+        result.put("coursewares", coursewares);
+        return result;
+    }
+
+    /** 任意一条 token 是 @courseware:<digits> → true，避免无意义跳到 username 查询。 */
+    private static boolean hasCoursewareToken(List<String> references) {
+        for (String raw : references) {
+            if (ReferenceResolver.isCoursewareRef(raw)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 从 session_id 反查会话所属用户名。失败（session 不存在 / user 不存在）返回 null，
+     * 调用方据此放弃 courseware 解析（不阻断主链路）。
+     */
+    private String lookupSessionUsername(String sessionId) {
+        try {
+            return jdbc.queryForObject(
+                    "SELECT u.username FROM ai_tutor_workflow_session s "
+                            + "JOIN \"user\" u ON u.id = s.user_id "
+                            + "WHERE s.session_id = :sid AND s.is_active = TRUE",
+                    new MapSqlParameterSource("sid", sessionId),
+                    String.class
+            );
+        } catch (org.springframework.dao.EmptyResultDataAccessException ex) {
+            return null;
+        } catch (Exception ex) {
+            log.warn("lookupSessionUsername failed for session {}: {}", sessionId, ex.getMessage());
+            return null;
+        }
     }
 
     @SuppressWarnings("unchecked")

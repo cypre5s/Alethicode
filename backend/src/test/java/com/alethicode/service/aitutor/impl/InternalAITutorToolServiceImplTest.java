@@ -2,6 +2,7 @@ package com.alethicode.service.aitutor.impl;
 
 import com.alethicode.service.aitutor.context.ConversationContextService;
 import com.alethicode.service.aitutor.context.ConversationMode;
+import com.alethicode.service.aitutor.context.CoursewareContextProvider;
 import com.alethicode.service.aitutor.parsons.ParsonsCapabilityService;
 import com.alethicode.service.aitutor.profile.LearnerProfileProjector;
 import com.alethicode.service.aitutor.retrieval.CoursewareRetrievalService;
@@ -38,6 +39,7 @@ class InternalAITutorToolServiceImplTest {
                 mock(LearnerProfileProjector.class),
                 mock(VisualizeCapabilityService.class),
                 conversationContextService,
+                mock(CoursewareContextProvider.class),
                 mock(ParsonsCapabilityService.class)
         );
     }

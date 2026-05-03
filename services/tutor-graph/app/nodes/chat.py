@@ -14,7 +14,8 @@ SYSTEM_PROMPT = """你是面向非计算机专业 Python 初学者的 AI 导学�
 - 不退化为普通闲聊
 - 引用当前题、当前阶段、最近输出
 - 如果用户消息中含有 @card:<id> 或 @last_xxx，必须明确引用对应卡片的内容
-- 不要凭空编造没看到的卡片内容
+- 如果用户消息中含有 @courseware:<id>，必须基于「用户引用的课件原文」段落作答，并在文末以「（参考课件第 X 页）」形式标注页码
+- 不要凭空编造没看到的卡片或课件内容
 - 输出 JSON 格式，字段: content, history(数组，每项含 role 和 content), referenced_card_ids(数组，仅包含你真实引用过的 card_id)"""
 
 
@@ -36,6 +37,41 @@ def _format_card_refs(label: str, cards: list[dict]) -> str:
     return "\n".join(lines) if len(lines) > 1 else ""
 
 
+def _format_courseware_refs(coursewares: list[dict]) -> str:
+    """Render the user-referenced courseware chunks as a labelled context block.
+
+    Each courseware bundle (one @courseware:<lpId> resolves to one bundle) contains
+    several page-level chunks. We bound the per-chunk text to keep the LLM prompt
+    tight (~600 chars per chunk) and skip empty / malformed entries silently.
+    """
+    if not coursewares:
+        return ""
+    sections: list[str] = []
+    for bundle in coursewares:
+        if not isinstance(bundle, dict):
+            continue
+        lp_id = bundle.get("language_pack_id")
+        pack_name = bundle.get("pack_name") or ""
+        chunks = bundle.get("chunks") or []
+        if not isinstance(chunks, list) or not chunks:
+            sections.append(f"【用户引用的课件 #{lp_id} · {pack_name}】（检索结果为空，可如实告知用户）")
+            continue
+        lines: list[str] = [f"【用户引用的课件 #{lp_id} · {pack_name}】"]
+        for chunk in chunks:
+            if not isinstance(chunk, dict):
+                continue
+            text = (chunk.get("text") or "").strip()
+            page = chunk.get("page_number")
+            if not text:
+                continue
+            if len(text) > 600:
+                text = text[:600] + "…"
+            page_tag = f"第 {page} 页" if page is not None else "(未知页)"
+            lines.append(f"- {page_tag}: {text}")
+        sections.append("\n".join(lines))
+    return "\n\n".join(sections)
+
+
 async def chat_node(
     state: TutorGraphState,
     *,
@@ -54,8 +90,10 @@ async def chat_node(
 
     references = state.get("references", []) or []
     last_cards = state.get("last_cards", []) or []
+    coursewares = state.get("evidence_pack", {}).get("coursewares", []) or []
     references_block = _format_card_refs("用户显式引用的卡片", references)
     last_cards_block = _format_card_refs("最近卡片摘要（仅供上下文）", last_cards[:5])
+    coursewares_block = _format_courseware_refs(coursewares)
 
     user_msg_parts = [
         f"当前阶段: {phase}",
@@ -67,6 +105,8 @@ async def chat_node(
         user_msg_parts.append(references_block)
     if last_cards_block:
         user_msg_parts.append(last_cards_block)
+    if coursewares_block:
+        user_msg_parts.append(coursewares_block)
     user_msg = "\n".join(user_msg_parts)
 
     learner = state.get("evidence_pack", {}).get("learner_state", {})
@@ -76,6 +116,7 @@ async def chat_node(
     metadata["learner_block_injected"] = bool(learner_block)
     metadata["references_count"] = len(references)
     metadata["last_cards_count"] = len(last_cards)
+    metadata["coursewares_count"] = len(coursewares)
 
     try:
         result = await llm_client.generate_json(

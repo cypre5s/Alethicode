@@ -94,9 +94,30 @@ async def assemble_evidence_pack(
                     text = str(item).strip()
                     if text:
                         normalized.append(text)
-            evidence["references"] = (
-                await java_client.resolve_references(session_id, normalized) if normalized else []
-            )
+            # Pass the user's current message as the RAG query so backend can resolve any
+            # @courseware:<lpId> tokens into top-k page chunks. Backwards compat: legacy
+            # call sites that don't include @courseware tokens get empty `coursewares`.
+            current_query = ""
+            if isinstance(event_data, dict):
+                msg = event_data.get("message")
+                if isinstance(msg, str):
+                    current_query = msg.strip()
+            if normalized:
+                resolved = await java_client.resolve_references(
+                    session_id, normalized, current_query=current_query or None
+                )
+                # Preserve old field shape (list of cards) for downstream nodes that haven't
+                # adopted the new dict shape yet, but also expose coursewares for prompt nodes.
+                if isinstance(resolved, dict):
+                    evidence["references"] = resolved.get("cards", [])
+                    evidence["coursewares"] = resolved.get("coursewares", [])
+                else:
+                    # Defensive fallback: old call site that returned a flat list.
+                    evidence["references"] = resolved if isinstance(resolved, list) else []
+                    evidence["coursewares"] = []
+            else:
+                evidence["references"] = []
+                evidence["coursewares"] = []
 
     except Exception as e:
         return {

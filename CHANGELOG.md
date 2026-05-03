@@ -4,6 +4,30 @@
 
 ## [Unreleased] - 2026-05-03
 
+### `@courseware:<lpId>` AI 导学对话课件引用（新功能上线）
+
+> **背景**：之前的 `/guide` review 中提到「@课件 是个好功能、需要在课件问答里实现」。这次按 `docs/plans/2026-05-03-courseware-reference-token-design.md` 把 AI 导学助手对话框扩展到支持 `@courseware:<lpId>` token——选某份用户可见的已发布课件后，把基于当前提问的 RAG top-k 检索结果作为 context 塞给 LLM，让学生在做题中插入式问课件概念，无需切到「课件问答」页面。
+
+- 2026-05-03 **[领域/aitutor]** `ReferenceResolver` 新增 `COURSEWARE_REF = Pattern.compile("@courseware:(\\d+)")` + `isCoursewareRef(String)` / `extractCoursewareId(String): Long` 静态方法。Token 走纯 ASCII（与 `@card:<id>` 风格一致），不与 card / shorthand 模式碰撞。
+- 2026-05-03 **[领域/aitutor]** 新增 `CoursewareSummary` record + 嵌套 `RetrievedChunk` record：承载 `language_pack_id` / `pack_name` / `chunks[]` / `retrieved_at`，每个 chunk 含 `document_id` / `document_title` / `page_number` / `text` / `score`。`toMap()` 输出 snake_case 与 tutor_graph 对齐。
+- 2026-05-03 **[领域/aitutor]** 新增 `CoursewareContextProvider` 接口与 `CoursewareContextProviderImpl`：`resolveCoursewareReferences(username, rawTokens, currentQuery, recentContext)` 三层行为——(1) 提取 `@courseware:*` token + 去重；(2) 通过 `LanguagePackQaService.listQaPacks(username)` 取允许列表，**未授权 lp_id 立即抛 `LegacyBusinessException("permission-denied")` 失败到底**（同时 RAG 不被调用，封死侧信道）；(3) 对每个授权 lp_id 调 `PageRetrievalService.retrieve(lpId, currentQuery, null)` 拿 chunks。RAG 抛 `RagServiceException` 时该项 chunks 为空但 `CoursewareSummary` 仍返回，**不阻断对话主链路**。
+- 2026-05-03 **[业务/aitutor]** `InternalAITutorToolService.resolveReferences` 接口签名扩展为三参（追加 `currentQuery`），`Impl` 注入 `CoursewareContextProvider`：在原有 cards 解析之外，当 message 含 `@courseware:` 且 `currentQuery` 非空时，反查 `ai_tutor_workflow_session.user_id → user.username` 鉴权后调 provider，将 `coursewares` 与 `cards` 一并返回（{cards: [...], coursewares: [...]}）。session lookup 失败 → 跳过 courseware 解析（不阻断）。
+- 2026-05-03 **[控制器/internal]** `InternalAITutorToolController` 解析 request body 里可选的 `current_query` 字段（缺失时传 null，保持 backwards compat）。
+- 2026-05-03 **[python/tutor-graph]** `app/clients/java_tools_client.py.resolve_references` 签名加 `current_query: str | None`，POST body 含 `current_query` 字段（非空时），返回值从 `list[dict]`（cards）改为 `dict{cards, coursewares}`。`app/nodes/evidence.py` 在 CHAT event 装载 evidence 时把用户消息文本作为 `current_query` 传入，把 `coursewares` 写到 `evidence_pack.coursewares`。`app/nodes/chat.py` 新增 `_format_courseware_refs()`：把每条 `CoursewareSummary` 渲染为「【用户引用的课件 #lpId · packName】」标签 + 各 chunk「第 X 页: text」（每 chunk 上限 600 字符），拼到 LLM user message；SYSTEM_PROMPT 增加规则「如果用户消息中含有 @courseware:<id>，必须基于「用户引用的课件原文」段落作答，并在文末以「（参考课件第 X 页）」形式标注页码」。`metadata.coursewares_count` 进入 langfuse trace。
+- 2026-05-03 **[前端/UnifiedAgentPanel]** `UnifiedAgentPanel.vue` 新增 `coursewarePacks` data + 懒加载方法 `ensureCoursewarePacksLoaded()`（首次输入 `@` 触发，调 `api.getLanguagePackQaPacks()` 拿允许列表）；computed `referenceCoursewares` 把 packs 包装成 `{ display_label: '课件 · <name>', reference_token: '@courseware:<id>' }` 与 `referenceCards` 同形态；`filteredReferenceCards` 现在合并两套引用并按 query 过滤。模板复用，不需要新增 UI 分支。
+- 2026-05-03 **[内容/manual]** `manualContent.js` `CONTEXT_TOKENS` 加第 9 项 `@courseware:<lpId>`；`CONTEXT_EXAMPLES` 加第 5 个示例 PromptCard。`SectionCoursewareQa.vue` 把"规划中"灰底改成"已上线"+ 引导学生做题中直接 @ 课件，「课件问答」页保留为"整段对话只围绕一份课件"的更专注体验。
+- 2026-05-03 **[测试]** Java：`ReferenceResolverTest` 新增 3 用例（@courseware 解析 / 错误形式拒绝 / 与 card / shorthand 不碰撞）；`CoursewareContextProviderImplTest` 新增 6 用例（授权 + 两个 chunk / 越权 403 + 不调 RAG / RAG 部分降级 / 同 lp 去重 / 无 token 不调白名单 / 匿名 403）；`InternalAITutorToolServiceImplTest` 构造函数补 mock 适配。Python：`test_evidence_requirements.py` 加 `test_chat_evidence_resolves_courseware_references_with_current_query` 验证 dict 返回 + current_query 透传，原 chat reference 用例改用新 dict shape；`test_llm_node_failure_paths.py` 适配 dict mock。前端：`manual-content-data.spec.js` CONTEXT_TOKENS 期望 9 / CONTEXT_EXAMPLES 期望 5。**统计**：Java 43/43 PASS，Python 25/25 PASS，前端 jest 296/296 PASS，eslint 0 errors，build 51.64s OK。
+- 2026-05-03 **[文档]** `docs/plans/2026-05-03-courseware-reference-token-design.md` 沉淀本次设计与不做事项。
+
+### `start.sh` Grafana archive 缓存复用（消除每次启动重下 117MB 的浪费）
+
+> **背景**：本地启动 `start.sh` 每次都要重新下载 117MB 的 `grafana-11.1.0.linux-amd64.tar.gz`，速度只有 100~800 KB/s，每次启动平均多花 2~5 分钟。诊断发现 `ensure_grafana_binary` 唯一的"跳过下载"判定条件是 `runtime-v11.1.0/bin/grafana-server` 已就位，**但完全不复用磁盘上已经存在的 tar.gz**——只要上一次启动在「下载完 → 解压 → mv」之间被打断（Ctrl-C / docker daemon 异常 / mv 失败），就会留下一个完整的 tar.gz 但缺 runtime 目录，下一次启动直接 `curl -o "$archive_path"` 把已存在的 tar.gz **覆盖重下**。
+
+- 2026-05-03 **[运维/start.sh]** `ensure_grafana_binary` 加 archive 缓存复用：先看 runtime 已就位 → 跳过；再看 archive 是否可复用（`-s` 非空 + `tar -tzf` 完整性测试，可选 sha256 严格校验）→ 直接走解压；都不可用才下载。下载后再 verify 一次，failfast 风格不写防御性兜底（无意义的备用 URL 重试）。
+- 2026-05-03 **[运维/start.sh]** 抽出 `verify_grafana_archive` 工具函数：必须非空 + tar gzip 结构合法；`GRAFANA_SHA256_LINUX_AMD64` env 非空时强校验 sha256（不 hardcode 任何版本特定 hash，避免脚本与 Grafana 版本号耦合，未来升 Grafana 版本不需要同步改两处代码）。
+- 2026-05-03 **[运维/start.sh]** 新增 `GRAFANA_OFFLINE` env：设 1 时完全跳过下载，archive 缺失或损坏直接 failfast 报错并提示 archive 应放置的路径；适用于内网/无外网开发机或离线 CI。
+- 2026-05-03 **[验证/start.sh]** `bash -n start.sh` 语法通过；`verify_grafana_archive` 4 条路径离线手测：(A) archive 在 + 不设 sha256 → 复用 OK；(B) archive 在 + 正确 sha256 → 复用 OK；(C) archive 在 + 错误 sha256 → 报错并触发重下；(D) archive 缺失 → 触发重下。完整 `start.sh` 跑通六大服务（backend 8081 / frontend 8080 / grafana 3000 / tutor-graph 8100 / judge 12358 / rag 8200）全部 ready。
+
 ### `/guide` 真实性修复 + Hero 收紧（review 后追加）
 
 > **背景**：之前 `/guide` 重构 PR 上线后 review 发现两个问题——(1) `RECOMMENDED_PROMPTS` 与 `CONTEXT_EXAMPLES` 里写了 `@当前题目` / `@我的代码` / `@课件` 这样的"友好汉字别名"，但 backend `ReferenceResolver` 实际只识别 `@card:<id>` + 7 个 `@last_<kind>`，写文档时为了可读性自造的 token 会误导学生照抄到对话框却被 AI 当普通文字忽略。(2) funMode=on 状态下 hero 高度过高（4 张大块能力卡 + tagline + sub + 双 CTA + mascot 全部排在一起），不美观。本次修两块。
