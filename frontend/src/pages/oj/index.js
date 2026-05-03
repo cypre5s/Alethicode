@@ -134,7 +134,7 @@ async function bootstrapServiceWorker () {
         setInterval(() => registration.update().catch(() => { /* silent */ }), 30 * 60 * 1000)
       }
     })
-  } catch (_e) {
+  } catch {
     // dev / virtual:pwa-register 缺失时静默
   }
 }

@@ -4,6 +4,19 @@
 
 ## [Unreleased] - 2026-05-03
 
+### 工程成熟度补强：错误追踪、依赖审计、覆盖率与 TypeScript 渐进
+
+> **背景**：在死代码清理后复核成熟度差距时，重新核实项目现状：OpenAPI（springdoc）、OpenTelemetry（Micrometer Tracing + OTLP）、Resilience4j 已经存在；按用户要求不改第 9 项 Resilience4j。此次只补齐不会影响主链路的工程能力：GlitchTip/Sentry 协议错误追踪、Dependabot 依赖审计、JaCoCo 覆盖率报告、前端 TypeScript 渐进入口。
+
+- 2026-05-03 **[后端/observability]** `backend/pom.xml` 新增 `io.sentry:sentry-spring-boot-starter-jakarta` 与 `io.sentry:sentry-logback` 7.18.0；`backend/src/main/resources/application.yml` 新增 `sentry.*` 配置，`SENTRY_DSN` 默认空时 SDK no-op，启用时必须指向境内 self-hosted GlitchTip/Sentry（ADR-0004 禁用 Sentry 云版）。
+- 2026-05-03 **[部署/observability]** `deploy/docker-compose.yml` 新增 GlitchTip self-hosted profile：`glitchtip-postgres` / `glitchtip-redis` / `glitchtip-web` / `glitchtip-worker`，默认通过 `GLITCHTIP_PROFILE=glitchtip` 启用，可设 `disabled` 关闭；`deploy/.env.example` 增补 GlitchTip 与 Sentry DSN 示例。
+- 2026-05-03 **[前端/observability]** `frontend` 用 `@sentry/vue` 替换未使用且已废弃的 `raven-js`，新增 `src/utils/sentry.js`，OJ 与 Admin 双入口启动时调用 `initSentry({ app, router })`；DSN 为空直接跳过初始化，开启时默认 `sendDefaultPii=false` 并在 `beforeSend` 中脱敏 password/token/secret/authorization 字段。
+- 2026-05-03 **[CI/依赖审计]** 新增 `.github/dependabot.yml`：覆盖 Maven、npm、tutor-graph pip、alethicode-rag pip、GitHub Actions、Docker；默认忽略 semver-major，按生态分组开 PR，避免一次性大升级冲击主线。
+- 2026-05-03 **[测试/覆盖率]** `backend/pom.xml` 新增 JaCoCo 0.8.13 `prepare-agent` + `report`；`.github/workflows/ci.yml` 在后端测试后生成并上传 `backend-jacoco-report` artifact，当前不设覆盖率阈值（non-blocking threshold），先建立观测基线。
+- 2026-05-03 **[前端/TypeScript]** 新增 `frontend/tsconfig.json`、`frontend/src/types/vendor.d.ts`，安装 `typescript` / `vue-tsc` / `@types/node` 并新增 `npm run typecheck`；初始采用 `allowJs=true`、`checkJs=false`、`strict=false`，让项目可以在不影响现有 JS/Vue 业务的前提下逐文件迁移到 TS。
+- 2026-05-03 **[CI/前端]** `.github/workflows/ci.yml` 前端 job 在 lint 后新增 `npm run typecheck --if-present`；本地验证 `npm run typecheck` 通过，`npm run build` 通过。
+- 2026-05-03 **[文档/架构]** `PROJECT.md` 同步下线 ReAct/Multi-Agent 架构图与 `TUTOR_REACT_*` / `QA_REACT_*` 环境变量，改为描述当前 Java FSM + tutor-graph + RAG + Reflection 主线；保留历史备注说明 ReAct/Multi-Agent 于 2026-05-03 下线。
+
 ### Parsons 入口可见性 + 全栈改名「拼装挑战」
 
 > **背景**：用户反馈做题页打开后**只有"分析这道题的思路"走完进入 IDEATING phase 才能看到 Parsons 入口**，而起手页 starter_actions 完全没有；同时 quick action 文案「试试拼装版」与卡片自身标题「拼装挑战」不一致 — 双轨命名违反 `AGENTS.md` 的「禁止同一语义出现多种拼写」原则。诊断真因：`AITutorWelcomeService.buildStarterActions` 历史上为避免起手页按钮过多保守只放了 2 个（知识点回顾 + 思路分析），从未追加 Parsons；这条策略对 mastery 高的"学霸"是合理的（避免脚手架按钮干扰），对 mastery 低的学生反而错过了"理解 → 产出"之间的拼装台阶（Faded Parsons 设计的核心价值场景）。

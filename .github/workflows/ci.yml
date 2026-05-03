@@ -63,12 +63,24 @@ jobs:
         run: |
           mvn -B test -Dtest='!*IntegrationTest,!AITutorWorkflowAdminServiceImplTest'
 
+      - name: Generate JaCoCo report (non-blocking threshold)
+        working-directory: backend
+        run: mvn -B jacoco:report
+
       - name: Publish test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: backend-surefire-reports
           path: backend/target/surefire-reports
+          retention-days: 30
+
+      - name: Publish JaCoCo report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-jacoco-report
+          path: backend/target/site/jacoco
           retention-days: 30
 
   tutor-graph-python:
@@ -150,6 +162,10 @@ jobs:
       - name: Lint
         working-directory: frontend
         run: npm run lint --if-present
+
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck --if-present
 
       - name: Unit tests
         working-directory: frontend
