@@ -1,7 +1,7 @@
 <template>
   <div class="wi-view" role="region" aria-label="What-If 分叉模拟">
     <h3 class="wi-title">分叉模拟器</h3>
-    <p class="wi-desc">如果你做对/做错这道题，知识掌握度会怎样变化？</p>
+    <p class="wi-desc">好奇做对或做错一道题会怎样影响你的知识图谱？试试看</p>
 
     <div class="wi-input-row">
       <input

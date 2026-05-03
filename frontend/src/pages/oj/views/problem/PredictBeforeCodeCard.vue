@@ -1,18 +1,18 @@
 <template>
   <div v-if="!dismissed" :class="['pbc-card', { 'pbc-card--collapsed': collapsed }]" role="complementary" aria-label="代码预测">
     <template v-if="!collapsed && !submitted">
-      <h3 class="pbc-title">先预言一下：这段代码会输出？</h3>
+      <h3 class="pbc-title">写代码前，先猜猜结果？</h3>
       <textarea
         v-model="predictedOutput"
         class="pbc-textarea pbc-textarea--mono"
-        placeholder="你觉得输出是..."
+        placeholder="我觉得会输出..."
         rows="3"
         maxlength="2000"
       ></textarea>
       <textarea
         v-model="predictedReason"
         class="pbc-textarea"
-        placeholder="为什么？（选填）"
+        placeholder="我的理由是...（选填）"
         rows="2"
         maxlength="1000"
       ></textarea>

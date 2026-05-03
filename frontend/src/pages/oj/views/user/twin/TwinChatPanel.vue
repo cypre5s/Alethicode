@@ -1,6 +1,6 @@
 <template>
   <div class="tc-panel" role="region" aria-label="与孪生对话">
-    <h3 class="tc-panel__title">和你的孪生聊聊</h3>
+    <h3 class="tc-panel__title">想聊点什么？</h3>
 
     <div v-if="quickQuestions.length > 0 && messages.length === 0" class="tc-quick">
       <button
@@ -27,7 +27,7 @@
         v-model="inputText"
         type="text"
         class="tc-input__field"
-        placeholder="问问你的孪生..."
+        placeholder="随便聊聊你的学习..."
         maxlength="500"
         @keydown.enter="sendMessage"
       />

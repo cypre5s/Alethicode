@@ -1,7 +1,7 @@
 <template>
   <div class="te-panel" role="region" aria-label="编辑孪生掌握度">
     <h3 class="te-panel__title">编辑孪生判断</h3>
-    <p class="te-panel__desc">如果你觉得系统对你的掌握度判断不对，可以在这里修正</p>
+    <p class="te-panel__desc">系统不一定比你更了解你自己——觉得哪个判断不对，随时修正</p>
 
     <div v-if="loading" class="te-skeleton">
       <el-skeleton :rows="2" animated />
@@ -15,7 +15,7 @@
         <span class="te-overridden">你说: {{ Math.round(item.overridden_mastery * 100) }}%</span>
       </div>
       <div v-if="overrides.length === 0" class="te-no-data">
-        还没有修正记录。在 KC 星系图里点击节点可以修正掌握度。
+        暂时还没有修正过。去星系图里点击任一知识点，就能告诉系统你的真实感受。
       </div>
     </div>
   </div>

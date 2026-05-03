@@ -49,7 +49,7 @@
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#6B7280" stroke-width="1.5" stroke-linecap="round">
           <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
         </svg>
-        <span>钉一个你的错误</span>
+        <span>收藏一个难忘的错误</span>
       </div>
     </template>
   </div>
