@@ -23,8 +23,10 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends maven ripgrep && \
     rm -rf /var/lib/apt/lists/*
 
-# ② 业务源码 + schema
+# ② 业务源码 + schema + maven-antrun-plugin 依赖的 scripts/m12（pom.xml validate
+#    阶段调 ../scripts/m12/guard_no_api_v1.sh 守 API v1 不出现）
 COPY backend/pom.xml backend/pom.xml
+COPY scripts scripts
 COPY backend/src backend/src
 COPY contracts contracts
 
