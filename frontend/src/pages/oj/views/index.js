@@ -16,6 +16,7 @@ const Problem = () => import('./problem/Problem.vue')
 
 const ManualPage = () => import('./manual/ManualPage.vue')
 const MaintenancePage = () => import('./general/MaintenancePage.vue')
+const TwinDashboardPage = () => import('./user/twin/TwinDashboardPage.vue')
 
 export {
   Home, NotFound, Announcements,
@@ -25,7 +26,8 @@ export {
   SubmissionList, SubmissionDetails,
   ApplyResetPassword, ResetPassword,
   ManualPage,
-  MaintenancePage
+  MaintenancePage,
+  TwinDashboardPage
 }
 
 export * from './classroom'

@@ -4,6 +4,77 @@
 
 ## [Unreleased] - 2026-05-03
 
+### L99 Sprint 01 — 学习时间轴 v1（OLM Inspectable）
+
+> **背景**：L99 Open Learner Twin 路线图 Phase A 第一个 Sprint。将 Alethicode 后台已有的 4 类学习事件（提交、记忆、AI 事件、错题笔记）从「后台黑盒」反向公开为学生可见的统一学习时间轴，是 OLM Inspectable 的起步姿势。
+
+- 2026-05-03 **[后端/迁移]** 新建 `V83__learning_timeline_view.sql`：创建 `v_learning_timeline` 聚合视图（UNION ALL 合并 `submission`、`ai_learner_memory`、`ai_learning_event`、`ai_learner_notebook` 四表），同时创建 4 个 `(user_id, time DESC)` 复合索引保障查询性能。
+- 2026-05-03 **[后端/DTO]** 新建 `LearningTimelineEntry` record（event_id / event_kind / event_at / problem_id / problem_title / summary / replay_available / meta）和 `LearningTimelineResponse` record（events / total_count / has_more）。
+- 2026-05-03 **[后端/服务]** 新建 `LearningTimelineService`：按 `(userId, from, to, kinds, limit)` 参数动态拼装 4 类事件的 UNION ALL 查询，LEFT JOIN problem 表获取题目标题，自动生成中文摘要（如「AC 了「Hello World」」），并实现 hasMore 分页。强制约束：时间跨度 ≤ 365 天、limit ≤ 1000。
+- 2026-05-03 **[后端/控制器]** 新建 `LearningTimelineController`，暴露 `GET /api/twin/timeline` 端点，参数 `from / to / kinds / limit`，仅本人可访问。
+- 2026-05-03 **[后端/测试]** 新建 `LearningTimelineServiceTest`，8 个单测覆盖：4 类事件查询、空 kinds 默认全量、非法日期范围、反转范围、超大跨度、hasMore 分页、非法 kind 过滤。
+- 2026-05-03 **[前端/设计系统]** 新建 `l99-tokens.less`：定义 L99 专属设计 token（学院蓝 + 暖琥珀配色、8pt 字号体系、4pt 间距体系、3 级圆角、3 级阴影、动效曲线），后续所有 L99 组件统一引用。
+- 2026-05-03 **[前端/API]** 新建 `api/twin.js` 模块（`getLearningTimeline`），在 `api.js` 聚合器中注册。
+- 2026-05-03 **[前端/组件]** 新建 `LearningTimelineEvent.vue`：事件点组件，含 dot 颜色映射（AC 绿 / WA 红 / 记忆橙 / AI 蓝 / 笔记灰）、hover 弹出 240×120 详情卡、a11y（role=listitem / aria-label / 键盘 Enter 打开详情）。
+- 2026-05-03 **[前端/组件]** 新建 `LearningTimeline.vue`：时间轴主组件，含日期范围选择器、4 类事件过滤 chip、按日分组竖直时间轴、3 态切换（骨架屏加载 / 错误重试 / 空态 + CTA）、加载更多分页、移动端响应式（<768px 自适应布局）。
+- 2026-05-03 **[前端/集成]** `NotebookHeader.vue` TABS 数组追加 `{ value: 'timeline', label: '学习时间线' }`；`notebookConstants.js` VIEW_MODES 追加 `TIMELINE`；`LearnerNotebook.vue` 注册 `LearningTimeline` 组件并在 `viewMode === 'timeline'` 时渲染。
+- 2026-05-03 **[前端/测试]** 新建 `learning-timeline-contract.spec.js`，14 个 contract 测试覆盖：组件存在性、API 调用参数、4 类过滤、3 态处理、hover 卡片、事件标签映射、API 模块注册、tab 集成、token 引用、响应式断点。14/14 通过。
+
+### L99 Sprint 06 — 孪生主页 v1.0 整合（Phase A 收官）
+
+> **背景**：L99 Phase A 最后一个 Sprint。整合 S01-S05 五个组件为统一的"孪生主页" `/twin`，注册路由，添加 Hero 区和 back-to-top FAB。
+
+- 2026-05-03 **[前端/组件]** 新建 `TwinHero.vue`：Hero 区顶部，左侧 TwinPersonaCard + 右侧每日金句卡（7 条编程哲理轮换 + 时段问候语），渐变背景 + 圆形 blob 装饰。
+- 2026-05-03 **[前端/组件]** 新建 `TwinDashboardPage.vue`：主页整合页面，Layout = Hero + 左 70% 时间轴 + 右 30% 健康度 + 全宽星系图 + 底部错误馆 3×3，含 back-to-top FAB（滚动 > 600px 出现），responsive 移动端。
+- 2026-05-03 **[前端/路由]** `routes.js` 注册 `{ path: '/twin', name: 'twin', requiresAuth: true }`；`views/index.js` 导出 `TwinDashboardPage`。
+- 2026-05-03 **[前端/测试]** 新建 `twin-dashboard-contract.spec.js`，9 个 contract 测试覆盖：5 组件整合、70/30 布局、FAB、Hero、路由、导出、token、响应式、10 个 twin 文件存在性。9/9 通过。
+
+### L99 Sprint 05 — 学习健康度仪表盘
+
+> **背景**：L99 Phase A 第五个 Sprint。把 FSRS 复习排程、mastery 总览、提交频率、难度曲线聚合为学生面板。
+
+- 2026-05-03 **[后端/迁移]** 新建 `V87__learning_health_summary_view.sql`：`v_learner_health_summary` 聚合视图（30 天 AC 数 / 提交数 / AC 率 / 做题数 / 活跃天）。
+- 2026-05-03 **[后端/服务]** 新建 `LearningHealthAggregator`：聚合 mastery 总览（TOP 5 KC）、频率（30d 提交 / 活跃天 / 连续天）、难度曲线（90d 按周）、待复习列表（7 天内 FSRS due）。
+- 2026-05-03 **[后端/控制器]** 新建 `TwinHealthController`，暴露 `GET /api/twin/health`。
+- 2026-05-03 **[前端/组件]** 新建 `LearningHealthCard.vue`：4 区仪表盘（SVG 圆环 mastery + 3 数字统计 + SVG 折线 sparkline + 待复习列表），2×2 网格 → 移动端 1×4。
+- 2026-05-03 **[前端/测试]** 新建 `learning-health-contract.spec.js`，10 个 contract 测试。10/10 通过。
+
+### L99 Sprint 04 — 错误模式个人馆（Bug Museum 个人版）
+
+> **背景**：L99 Phase A 第四个 Sprint。学生从所有 misconception 记忆中"钉选"最有故事的 3-9 个展品，带有个人注释，实现教育伦理引领的"错误是成就"设计理念。
+
+- 2026-05-03 **[后端/迁移]** 新建 `V86__ai_learner_misconception_pin.sql`：`ai_learner_misconception_pin` 表（user_id × memory_id 唯一约束 + pin_order 排序）。
+- 2026-05-03 **[后端/服务]** 新建 `ErrorMuseumService`：list / pin / update / unpin 四操作，强制校验 memory 归属（failfast）+ 最多 9 个 pin。
+- 2026-05-03 **[后端/控制器]** 新建 `ErrorMuseumController`：4 端点 `GET/POST/PATCH/DELETE /api/twin/museum/pins`。
+- 2026-05-03 **[前端/API]** `api/twin.js` 新增 4 个方法：`getMuseumPins / pinMuseumMemory / updateMuseumPin / unpinMuseumMemory`。
+- 2026-05-03 **[前端/组件]** 新建 `ErrorMuseumExhibit.vue`：展品卡 240×280，错误摘要 + 题目名 + 学生注释（quote 装饰），hover 上浮 + 双击编辑注释 + unpin 按钮（hover 显出）。
+- 2026-05-03 **[前端/组件]** 新建 `ErrorMuseumView.vue`：3×3 网格（桌面）/ 2×N（平板）/ 1×N（移动），空位虚线 + "+" + CTA，支持 unpin 和注释更新。
+- 2026-05-03 **[前端/测试]** 新建 `error-museum-contract.spec.js`，10 个 contract 测试。10/10 通过。
+
+### L99 Sprint 03 — 孪生人格摘要可见 + 编辑（OLM Negotiable 起手）
+
+> **背景**：L99 Phase A 第三个 Sprint。将现有 `LearnerNarrativeSummaryService` 已在为学生生成的 ≤ 500 字中文学情摘要反向公开给学生，使其可查看、编辑、反馈。
+
+- 2026-05-03 **[后端/迁移]** 新建 `V85__ai_learner_narrative_feedback.sql`：`ai_learner_narrative_feedback` 表 + 2 个索引，记录学生对摘要的准确性反馈。
+- 2026-05-03 **[后端/控制器]** 新建 `TwinPersonaController`，暴露 4 个端点：`GET /api/twin/persona`（获取摘要）、`POST /api/twin/persona`（学生覆写）、`POST /api/twin/persona/refresh`（主动刷新）、`POST /api/twin/persona/feedback`（准确/不准确反馈）。
+- 2026-05-03 **[前端/API]** `api/twin.js` 新增 4 个方法：`getTwinPersona / overrideTwinPersona / refreshTwinPersona / feedbackTwinPersona`。
+- 2026-05-03 **[前端/组件]** 新建 `TwinPersonaCard.vue`：摘要卡片组件，含 4 态（加载 / 空态 / 已关闭 / 正常），正常态显示摘要文本 + 4 个操作按钮（精确 / 不精确 / 编辑 / 关闭个性化），编辑态内联 textarea（500 字上限 + 字数计数），渐变背景 + a11y（role=region）。
+- 2026-05-03 **[前端/测试]** 新建 `twin-persona-card-contract.spec.js`，8 个 contract 测试。8/8 通过。
+
+### L99 Sprint 02 — KC 星系图（孪生主画面）
+
+> **背景**：L99 Phase A 第二个 Sprint。将 `learner_kc_mastery` + `language_pack_kc` + `language_pack_kc_prerequisite` 三表的 KC 图数据可视化为 ECharts 力导图，节点大小 = 掌握度、颜色 = 4 级色阶、边 = 先修/相关/应用三类线型，实现 OLM Inspectable + Negotiable 双效。
+
+- 2026-05-03 **[后端/迁移]** 新建 `V84__learner_kc_mastery_index.sql`：`learner_kc_mastery(user_id, mastery DESC)` 性能索引。
+- 2026-05-03 **[后端/DTO]** 新建 `KcGalaxyResponse` record（含 `KcGalaxyNode` / `KcGalaxyEdge` 内部 record）。
+- 2026-05-03 **[后端/服务]** 新建 `KcGalaxyProjector`：按 `language_pack_id` 查 KC 节点 + mastery + 最近触碰时间 + 近 7 天事件数；查先修边并按白名单过滤 relation_type；不传 language_pack_id 时跨课程合并。
+- 2026-05-03 **[后端/控制器]** 新建 `TwinKcGalaxyController`，暴露 `GET /api/twin/kc-galaxy?language_pack_id=`，仅本人可访问。
+- 2026-05-03 **[后端/测试]** 新建 `KcGalaxyProjectorTest`，6 个单测覆盖：空 KC / 节点 + mastery / 边 / 跨课程 / mastery 0 边界 / mastery 1 边界。
+- 2026-05-03 **[前端/API]** `api/twin.js` 新增 `getTwinKcGalaxy(params)`。
+- 2026-05-03 **[前端/组件]** 新建 `KcGalaxyView.vue`：ECharts graph 力导图，mastery 映射 4 色阶（灰 < 0.3 / 黄 < 0.6 / 蓝 < 0.85 / 绿 ≥ 0.85），节点 8-32px，先修=实线/相关=虚线/应用=点划线，>100 节点自动切 canvas renderer，tooltip 显示掌握度与分类，单击打开 drawer。
+- 2026-05-03 **[前端/组件]** 新建 `KcDetailDrawer.vue`：侧边栏展示 KC 详情（掌握度条 / 分类 / 最近学习 / 近 7 天事件 / 相关节点列表），slide-in 动效 320ms，移动端切 bottom sheet，a11y（role=complementary / 键盘可达）。
+- 2026-05-03 **[前端/测试]** 新建 `kc-galaxy-contract.spec.js`，12 个 contract 测试覆盖：ECharts 类型 / API / 3 态 / 4 色阶 / 3 线型 / renderer 切换 / drawer / 响应式 / token / a11y。12/12 通过。
+
 ### 项目根 README 首版（大厂标准 / 对外门面文档）
 
 > **背景**：v1.0.0 已打 tag 推送 GitHub，但仓库根目录始终缺一份对外的 README — 仅有内部 `PROJECT.md`（1064 行机密技术规格）+ 子目录 README，外部访问者打开 GitHub repo 主页是「No description」。本次按大厂开源项目对外文档标准补齐根 `README.md`，定位为「仓库门面 + 入门索引」，完整技术细节继续指向 `PROJECT.md`。

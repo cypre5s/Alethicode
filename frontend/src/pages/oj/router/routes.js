@@ -18,7 +18,8 @@ import {
   PdfViewerPage,
   ErrorReviewPackagePage,
   ManualPage,
-  MaintenancePage
+  MaintenancePage,
+  TwinDashboardPage
 } from '../views'
 
 import * as Setting from '@oj/views/setting'
@@ -163,6 +164,12 @@ export default [
     name: 'error-review-package',
     meta: { title: '专项复习', requiresAuth: true },
     component: ErrorReviewPackagePage
+  },
+  {
+    name: 'twin',
+    path: '/twin',
+    component: TwinDashboardPage,
+    meta: { requiresAuth: true, title: '我的孪生' }
   },
   {
     name: 'maintenance',

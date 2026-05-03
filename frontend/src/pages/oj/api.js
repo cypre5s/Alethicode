@@ -33,6 +33,7 @@ import profile from './api/profile'
 import conversation from './api/conversation'
 import parsons from './api/parsons'
 import beta from './api/beta'
+import twin from './api/twin'
 
 export default {
   ...common,
@@ -47,5 +48,6 @@ export default {
   ...profile,
   ...conversation,
   ...parsons,
-  ...beta
+  ...beta,
+  ...twin
 }
