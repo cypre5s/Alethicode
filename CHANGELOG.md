@@ -4,6 +4,16 @@
 
 ## [Unreleased] - 2026-05-03
 
+### 项目根 README 首版（大厂标准 / 对外门面文档）
+
+> **背景**：v1.0.0 已打 tag 推送 GitHub，但仓库根目录始终缺一份对外的 README — 仅有内部 `PROJECT.md`（1064 行机密技术规格）+ 子目录 README，外部访问者打开 GitHub repo 主页是「No description」。本次按大厂开源项目对外文档标准补齐根 `README.md`，定位为「仓库门面 + 入门索引」，完整技术细节继续指向 `PROJECT.md`。
+
+- 2026-05-03 **[文档/README]** 新建 `/home/cypress/Alethicode/README.md`（579 行），结构遵循 GitHub Awesome README 规范：居中 banner（项目名 + 中英 tagline + 9 个 shields.io badge）、TOC、项目简介（含命名缘起 *Aletheia* + Code）、核心特性矩阵（13 项 GA/Beta/Phase 标注）、系统架构 ASCII 分层图、技术栈三表（后端 / 前端 / 微服务）、快速开始（依赖矩阵 + 一键 `start.sh` + Docker Compose）、本地开发（后端 / 前端 / tutor-graph / alethicode-rag 四套）、项目结构（一级目录全注释）、配置参考（必需 env + 功能开关表）、测试（后端 / 前端 / CI 三套命令）、部署（生产拓扑图）、安全（9 项防护层表）、可观测性（Logs/Metrics/Traces/Coverage 四链路图）、文档索引（10 份关键文档 + Swagger UI）、路线图（Phase 0.5–5）、代码规范（Java/Vue/Python/API/Commit 五语速查）、更新日志摘要、License、致谢。
+- 2026-05-03 **[文档/默认服务端口]** 在「快速开始」明确列出本地默认端口表：前端 8080 / 后端 8081 / Swagger / Grafana 3000 / Jaeger 16686 / Prometheus 9090，避免新人首次启动后无法定位 web UI；admin 凭据指向已 git-ignore 的 `.local-credentials.md`，不在 README 落地任何明文 secret。
+- 2026-05-03 **[文档/License 现状澄清]** README License 一节如实说明现状：根目录尚无 LICENSE，前端 `frontend/LICENSE` 沿用 [QingdaoU/OnlineJudge](https://github.com/QingdaoU/OnlineJudge) MIT，后端 / AI 导学 / 课件管线 / tutor-graph / alethicode-rag 自研模块的根级 LICENSE 待统一发布；外部 fork / 二次分发请先与维护者 `@cypre5s` 联系。failfast 风格，不擅自创建可能与未来正式 LICENSE 不一致的占位 License。
+- 2026-05-03 **[文档/链接合约]** README 内全部交叉引用使用相对路径（`./PROJECT.md` / `./AGENTS.md` / `./CHANGELOG.md` / `./docs/...` / `./deploy/...` / `./services/...`），与 GitHub repo 静态渲染、本地 IDE preview、`grep -rn "README"` 工具链全部兼容；GitHub Actions / Issues / 仓库 URL 显式写完整 https 形式。
+- 2026-05-03 **[文档/无破坏]** README 仅新增，未修改 `PROJECT.md` / `AGENTS.md` / `CHANGELOG.md` 的任何已有结构，不引入兼容层 / 不重复 PROJECT.md 的内部细节，避免双轨文档漂移；linter 检查 0 错误。
+
 ### Parsons IDOR 越权漏洞修复（HIGH 安全 bug）
 
 > **背景**：5/3 部署后端到端模拟测试发现：`AITutorController` 的三个 user-facing parsons 端点（`GET /api/ai/tutor/parsons/{sessionId}` / `POST /api/ai/tutor/parsons/submit` / `POST /api/ai/tutor/parsons/walkthrough`）虽然校验了"已登录"但**没有校验 sessionId 是否属于当前 user**，等于 IDOR (Insecure Direct Object Reference) 越权 — 任何登录学生只要拿到/猜中别人的 sessionId 就能：(a) **越权读** 看到别人的拼装挑战卡（含 blocks 顺序提示 + distractors）；(b) **越权写** 给别人的 session 提交、污染 ai_parsons_session.submission_count、可能触发别人的 cascade 失败降级；(c) **越权写 walkthrough** 给别人的 walkthrough 写文本、污染 breakthrough notebook + 影响 FSRS rating。实测证据：stu_1 (user 17) 直接 GET user 14 的 session 返回 200。
