@@ -46,7 +46,7 @@ public class KcGalaxyProjector {
                   COALESCE(m.mastery, 0) AS mastery,
                   m.last_attempt_at AS last_touched_at,
                   COALESCE(ev.recent_count, 0) AS recent_event_count,
-                  COALESCE(ch.name, '') AS category
+                  COALESCE(ch.title, '') AS category
                 FROM language_pack_kc kc
                 LEFT JOIN learner_kc_mastery m
                   ON m.kc_id = kc.id AND m.user_id = ? AND m.language_pack_id = kc.language_pack_id
@@ -69,7 +69,7 @@ public class KcGalaxyProjector {
                   COALESCE(m.mastery, 0) AS mastery,
                   m.last_attempt_at AS last_touched_at,
                   0 AS recent_event_count,
-                  COALESCE(ch.name, '') AS category
+                  COALESCE(ch.title, '') AS category
                 FROM language_pack_kc kc
                 INNER JOIN learner_kc_mastery m
                   ON m.kc_id = kc.id AND m.user_id = ?
