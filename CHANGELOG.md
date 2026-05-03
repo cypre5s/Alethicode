@@ -2,6 +2,19 @@
 
 本项目遵循 Keep a Changelog 思想并使用中文记录，版本语义以迁移里程碑为主。
 
+## [Unreleased] - 2026-05-03
+
+### 本地 start.sh 启动链路修复
+
+> **背景**：在干净的 WSL2 (linux 6.6.87.2) 环境上首次执行 `bash start.sh`，全链路出现两处阻断：(1) PostgreSQL `max_connections=40` 在 Temporal `auto-setup` 启动后被单服务打满，导致 backend Flyway 无法获取数据库连接，启动直接 `FATAL: sorry, too many clients already`；(2) `deploy/.env` 中 `DB_PASSWORD` 与历史 PGDATA 中 `onlinejudge` 角色实际密码不一致，`backend/.env` 的密码反而是真实值，导致 `start.sh` `resolve_postgres_credentials` 从容器 env 读出的密码与 PG 内部存储不匹配，backend 启动报 `password authentication failed for user "onlinejudge"`。
+
+- 2026-05-03 **[配置/postgres]** `deploy/docker-compose.yml:36` `max_connections` 由 `40` 调整为 `80`。原值是 2C4G 容量优化下"应用走 pgbouncer 共享 20 + 预算 20 给 temporal+admin"的设定，但本地 `start.sh` 路径并未启动 `pgbouncer`，且 `start_infra` 始终强启 `temporal`（与 compose `profiles: ["temporal"]` 设计相反）。Temporal `auto-setup` 单服务即可占满 ~30 个 PG 连接，加上 backend Hikari + Flyway 共需 10+，超 40 连接上限。提到 80 即可让 backend / temporal / 后续 tutor-graph 直连模式共存，预计增加 PostgreSQL 内存约 64MB。
+- 2026-05-03 **[配置/.env]** `deploy/.env:1` `DB_PASSWORD` 从 `alethicode_db_local_2026` 调整为 `ChangeMeBeforeDeploy_2026!`，与 `backend/.env`、PGDATA 中 `onlinejudge` 角色实际密码三方对齐。修正后 `start.sh` `resolve_postgres_credentials` 通过 `docker inspect java-oj-postgres` 读出的 `POSTGRES_PASSWORD` 与 PG 内部一致，backend / tutor-graph / alethicode-rag 全链路可以用同一密码连接。
+
+### 本地启动验证
+
+- 2026-05-03 **[验证]** `bash start.sh` 全链路启动通过：postgres / redis / nats / temporal / memgraph / alethicode-rag / jaeger / prometheus / grafana / backend (8081) / judge (12358) / tutor-graph (8100) / frontend (Vite 8080) 全部健康。HTTP 探针：`/api/website` 200、`/health` (tutor-graph/rag) 200、`/api/health` (grafana) 200、`/-/healthy` (prometheus) 200。
+
 ## [Unreleased] - 2026-05-02
 
 ### Classroom AI 教学闭环升级（2026 Q2，Phase 0/A/B/C 全链路）

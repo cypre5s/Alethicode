@@ -33,7 +33,7 @@ services:
       - -c
       - effective_cache_size=128MB
       - -c
-      - max_connections=40
+      - max_connections=80
       - -c
       - wal_buffers=2MB
       - -c
