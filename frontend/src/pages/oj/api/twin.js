@@ -109,5 +109,20 @@ export default {
   },
   exportTwinDump() {
     return ajax('twin/export', 'get')
+  },
+  getWorldSetting() {
+    return ajax('twin/world-setting', 'get')
+  },
+  updateWorldSetting(data) {
+    return ajax('twin/world-setting', 'put', { data })
+  },
+  getAnnualReport(year) {
+    return ajax(`twin/annual-report/${year}`, 'get')
+  },
+  generateAnnualReport(data) {
+    return ajax('twin/annual-report', 'post', { data })
+  },
+  generateShareCard(data) {
+    return ajax('twin/share-card', 'post', { data })
   }
 }
