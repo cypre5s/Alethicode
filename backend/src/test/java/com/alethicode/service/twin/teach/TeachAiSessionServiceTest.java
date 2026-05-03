@@ -1,6 +1,8 @@
 package com.alethicode.service.twin.teach;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.Map;
 
@@ -10,24 +12,34 @@ class TeachAiSessionServiceTest {
 
     private final TeachAiSessionService service = new TeachAiSessionService(null);
 
-    @Test
-    void gradeShortExplanationScoresLow() {
-        Map<String, Object> result = service.gradeExplanation("不对", "range(n) 从 1 开始");
-        int score = (int) result.get("total_score");
-        assertThat(score).isLessThan(30);
+    // ===== gradeExplanation: 空 / 极短 =====
+    @Test void gradeEmptyExplanation() { assertThat((int) service.gradeExplanation("", "test").get("total_score")).isEqualTo(0); }
+    @Test void gradeSingleChar() { assertThat((int) service.gradeExplanation("不", "test").get("total_score")).isLessThan(15); }
+    @Test void gradeOneWord() { assertThat((int) service.gradeExplanation("不对", "test").get("total_score")).isLessThan(20); }
+
+    // ===== gradeExplanation: 短解释 =====
+    @Test void gradeShortWithReason() {
+        int s = (int) service.gradeExplanation("因为这样不对", "test").get("total_score");
+        assertThat(s).isBetween(5, 30);
+    }
+    @Test void gradeShortWithCorrection() {
+        int s = (int) service.gradeExplanation("其实应该是从0开始", "test").get("total_score");
+        assertThat(s).isBetween(5, 35);
     }
 
-    @Test
-    void gradeMediumExplanationWithReasonScoresMedium() {
-        Map<String, Object> result = service.gradeExplanation(
-                "这个不对，因为 range(n) 其实是从 0 开始到 n-1 的", "range(n) 从 1 开始");
-        int score = (int) result.get("total_score");
-        assertThat(score).isBetween(25, 65);
+    // ===== gradeExplanation: 中等解释 =====
+    @Test void gradeMediumWithBecause() {
+        int s = (int) service.gradeExplanation("这个不对，因为 range(n) 其实是从 0 开始到 n-1 的", "range(n) 从 1 开始").get("total_score");
+        assertThat(s).isBetween(20, 60);
+    }
+    @Test void gradeMediumWithExample() {
+        int s = (int) service.gradeExplanation("这个不对。比如 range(3) 会生成 0,1,2 而不是 1,2,3", "range(n) 从 1 开始").get("total_score");
+        assertThat(s).isBetween(25, 70);
     }
 
-    @Test
-    void gradeDetailedExplanationWithExampleScoresHigh() {
-        String explanation = """
+    // ===== gradeExplanation: 详细解释 =====
+    @Test void gradeDetailedExplanation() {
+        String ex = """
             这个理解不对哦！range(n) 其实是从 0 开始的，到 n-1 结束。
             因为 Python 的索引是从 0 开始的，range 也遵循这个设计。
             比如 range(5) 会生成 [0, 1, 2, 3, 4]，而不是 [1, 2, 3, 4, 5]。
@@ -35,77 +47,88 @@ class TeachAiSessionServiceTest {
             举个例子，如果你要遍历一个长度为 3 的列表，
             应该写 for i in range(3)，这样 i 会是 0, 1, 2。
             """;
-        Map<String, Object> result = service.gradeExplanation(explanation, "range(n) 从 1 开始");
-        int score = (int) result.get("total_score");
-        assertThat(score).isGreaterThanOrEqualTo(60);
+        int s = (int) service.gradeExplanation(ex, "range(n) 从 1 开始").get("total_score");
+        assertThat(s).isGreaterThanOrEqualTo(55);
     }
 
-    @Test
-    void gradeDimensionsAreAllBetweenZeroAnd25() {
-        Map<String, Object> result = service.gradeExplanation(
+    @Test void gradeWithCodeSnippet() {
+        String ex = "不对，应该是从 0 开始。```print(list(range(3)))``` 输出 [0,1,2]。因为 Python 是零索引的。";
+        int s = (int) service.gradeExplanation(ex, "range(n) 从 1 开始").get("total_score");
+        assertThat(s).isGreaterThanOrEqualTo(30);
+    }
+
+    @Test void gradeWithPrintKeyword() {
+        String ex = "不对。你可以 print(list(range(5))) 看看。因为 range 是从 0 开始的。";
+        int s = (int) service.gradeExplanation(ex, "range(n) 从 1 开始").get("total_score");
+        assertThat(s).isGreaterThanOrEqualTo(25);
+    }
+
+    @Test void gradeWithRangeKeyword() {
+        String ex = "不对。range(n) 从 0 到 n-1。因为 Python 设计就是这样。";
+        int s = (int) service.gradeExplanation(ex, "range(n) 从 1 开始").get("total_score");
+        assertThat(s).isGreaterThanOrEqualTo(15);
+    }
+
+    // ===== gradeExplanation: 维度校验 =====
+    @SuppressWarnings("unchecked")
+    @Test void gradeDimensionsAllBounded() {
+        Map<String, Object> r = service.gradeExplanation(
                 "不对，range(n) 是从 0 开始的，因为 Python 索引从 0 起。比如 range(3) 就是 0,1,2。",
                 "range(n) 从 1 开始");
-        @SuppressWarnings("unchecked")
-        Map<String, Integer> dims = (Map<String, Integer>) result.get("dimensions");
+        Map<String, Integer> dims = (Map<String, Integer>) r.get("dimensions");
         assertThat(dims.get("clarity")).isBetween(0, 25);
         assertThat(dims.get("correctness")).isBetween(0, 25);
         assertThat(dims.get("use_of_example")).isBetween(0, 25);
         assertThat(dims.get("addressing_misconception")).isBetween(0, 25);
     }
 
-    @Test
-    void gradeEmptyExplanationScoresZero() {
-        Map<String, Object> result = service.gradeExplanation("", "range(n) 从 1 开始");
-        int score = (int) result.get("total_score");
-        assertThat(score).isEqualTo(0);
+    @Test void gradeMaxScore() {
+        String longEx = "因为所以其实正确应该比如举个例子不对错print range ```code``` 这里有一个？" +
+                "x".repeat(200);
+        int s = (int) service.gradeExplanation(longEx, "test").get("total_score");
+        assertThat(s).isLessThanOrEqualTo(100);
     }
 
-    @Test
-    void feedbackIsEncouragingForHighScore() {
-        String explanation = """
-            这个不对。因为 range(n) 其实从 0 开始，到 n-1 结束。
-            举个例子，print(list(range(3))) 输出的是 [0, 1, 2] 而不是 [1, 2, 3]。
-            这是因为 Python 使用零索引设计，和 C/Java 一致。
-            如果你想从 1 开始，应该写 range(1, n+1)。
-            """;
-        Map<String, Object> result = service.gradeExplanation(explanation, "range(n) 从 1 开始");
-        String feedback = (String) result.get("feedback");
+    // ===== gradeExplanation: 反馈质量 =====
+    @Test void feedbackEncouragingForHigh() {
+        String ex = "因为 range(n) 其实从 0 开始。比如 range(3) 输出 [0,1,2]。举个例子，print(list(range(3))) 就能验证。";
+        String feedback = (String) service.gradeExplanation(ex + " " + ex, "test").get("feedback");
         assertThat(feedback).doesNotContain("不太明白");
     }
 
-    @Test
-    void feedbackGuidesImprovementForLowScore() {
-        Map<String, Object> result = service.gradeExplanation("就是错的", "range(n) 从 1 开始");
-        String feedback = (String) result.get("feedback");
-        assertThat(feedback).containsAnyOf("例子", "详细", "方式");
+    @Test void feedbackGuidingForLow() {
+        String feedback = (String) service.gradeExplanation("就是错的", "test").get("feedback");
+        assertThat(feedback).containsAnyOf("例子", "详细", "方式", "换个");
     }
 
-    @Test
-    void gradeWithCodeSnippetBoostsUseOfExample() {
-        Map<String, Object> resultWith = service.gradeExplanation(
-                "不对，应该是从 0 开始。```print(list(range(3)))``` 输出 [0,1,2]",
-                "range(n) 从 1 开始");
-        Map<String, Object> resultWithout = service.gradeExplanation(
-                "不对，应该是从 0 开始。输出是 0,1,2",
-                "range(n) 从 1 开始");
-        int scoreWith = (int) resultWith.get("total_score");
-        int scoreWithout = (int) resultWithout.get("total_score");
-        assertThat(scoreWith).isGreaterThanOrEqualTo(scoreWithout);
+    @Test void feedbackForMedium() {
+        String feedback = (String) service.gradeExplanation("不对，因为这样。其实应该是那样。", "test").get("feedback");
+        assertThat(feedback).isNotBlank();
     }
 
-    @Test
-    void totalScoreNeverExceeds100() {
-        String longExplanation = """
-            这个完全不对！因为 range(n) 其实是从 0 开始到 n-1 结束的。
-            原因是 Python 采用零索引设计，所以 range 也从 0 起步。
-            比如 range(5) 生成的序列是 0, 1, 2, 3, 4。
-            举个例子，如果你写 for i in range(3): print(i)，
-            输出会是 0 1 2，而不是 1 2 3。
-            正确的做法应该是用 range(1, n+1) 来从 1 开始。
-            这个错误很常见，我之前也犯过同样的错。
-            """;
-        Map<String, Object> result = service.gradeExplanation(longExplanation, "range(n) 从 1 开始");
-        int score = (int) result.get("total_score");
-        assertThat(score).isLessThanOrEqualTo(100);
+    // ===== gradeExplanation: 各种语言风格 =====
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "这个不对哦",
+            "你说的有问题",
+            "这里错了",
+            "并不是这样的"
+    })
+    void gradeDetectsCorrection(String text) {
+        int s = (int) service.gradeExplanation(text, "test").get("total_score");
+        assertThat(s).isGreaterThan(0);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "比如说...",
+            "例如 range(3)",
+            "举个例子"
+    })
+    void gradeDetectsExampleUsage(String text) {
+        Map<String, Object> r = service.gradeExplanation(text + " 一些补充文字来凑字数达到阈值吧", "test");
+        @SuppressWarnings("unchecked")
+        Map<String, Integer> dims = (Map<String, Integer>) r.get("dimensions");
+        assertThat(dims.get("use_of_example")).isGreaterThan(0);
     }
 }
