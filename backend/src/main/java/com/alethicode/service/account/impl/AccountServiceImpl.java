@@ -496,8 +496,42 @@ public class AccountServiceImpl implements AccountService {
         );
         // 同步发送：失败让前端能感知并重试。SMTP 缺失走 BadRequestException，
         // 链路与 admin testSmtp 一致；攻击者看到的是系统级错误而非用户存在性差异。
-        passwordResetMailService.sendResetEmail(user.username(), user.email(), token);
+        // baseUrl 自适应：从当前请求推断（X-Forwarded-Host / Proto → ServerName / Port），
+        // 让邮件链接的 host 永远等于用户实际访问的 host；admin 配置兜底。
+        String requestBaseUrl = resolveRequestBaseUrl(httpServletRequest);
+        passwordResetMailService.sendResetEmail(user.username(), user.email(), token, requestBaseUrl);
         return ApiResponse.success("Succeeded");
+    }
+
+    /**
+     * 从 {@link HttpServletRequest} 推断当前站点的 base URL（不含路径）。
+     *
+     * <p>优先级：{@code X-Forwarded-Proto + X-Forwarded-Host}（标准反代头）→
+     * {@code request.getScheme() + getServerName() + getServerPort()}。仅当 scheme + host
+     * 都拿得到时才返回，否则返回 null 让 {@code PasswordResetMailService} 退回到 admin 配置。</p>
+     */
+    @org.springframework.lang.Nullable
+    private String resolveRequestBaseUrl(@org.springframework.lang.Nullable HttpServletRequest request) {
+        if (request == null) {
+            return null;
+        }
+        String forwardedProto = trimToNull(request.getHeader("X-Forwarded-Proto"));
+        String forwardedHost = trimToNull(request.getHeader("X-Forwarded-Host"));
+        if (forwardedProto != null && forwardedHost != null) {
+            return forwardedProto + "://" + forwardedHost;
+        }
+        String scheme = trimToNull(request.getScheme());
+        String serverName = trimToNull(request.getServerName());
+        if (scheme == null || serverName == null) {
+            return null;
+        }
+        int port = request.getServerPort();
+        boolean isDefaultPort = (scheme.equals("http") && port == 80)
+                || (scheme.equals("https") && port == 443);
+        if (port <= 0 || isDefaultPort) {
+            return scheme + "://" + serverName;
+        }
+        return scheme + "://" + serverName + ":" + port;
     }
 
     @Override

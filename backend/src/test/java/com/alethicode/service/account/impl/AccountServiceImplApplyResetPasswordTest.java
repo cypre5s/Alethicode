@@ -29,6 +29,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -88,7 +89,8 @@ class AccountServiceImplApplyResetPasswordTest {
                 .hasMessage("Invalid captcha");
 
         verify(passwordResetThrottle, never()).tryAcquire(anyString());
-        verify(passwordResetMailService, never()).sendResetEmail(anyString(), anyString(), anyString());
+        verify(passwordResetMailService, never())
+                .sendResetEmail(anyString(), anyString(), anyString(), nullable(String.class));
         verify(jdbcTemplate, never()).update(anyString(), any(), any(), anyLong());
     }
 
@@ -107,7 +109,8 @@ class AccountServiceImplApplyResetPasswordTest {
                 .hasMessageContaining("already logged in");
 
         verify(passwordResetThrottle, never()).tryAcquire(anyString());
-        verify(passwordResetMailService, never()).sendResetEmail(anyString(), anyString(), anyString());
+        verify(passwordResetMailService, never())
+                .sendResetEmail(anyString(), anyString(), anyString(), nullable(String.class));
     }
 
     @Test
@@ -137,7 +140,9 @@ class AccountServiceImplApplyResetPasswordTest {
                 - expectedExpire.getEpochSecond());
         assertThat(deltaSeconds).isLessThan(5);
 
-        verify(passwordResetMailService).sendResetEmail("alice", "alice@example.com", token);
+        // 默认 MockHttpServletRequest 走 http://localhost:80（80 是 http 默认端口，不拼端口）
+        verify(passwordResetMailService).sendResetEmail(
+                "alice", "alice@example.com", token, "http://localhost");
     }
 
     @Test
@@ -151,7 +156,8 @@ class AccountServiceImplApplyResetPasswordTest {
                 withCaptcha("captcha")
         );
 
-        verify(passwordResetMailService, never()).sendResetEmail(anyString(), anyString(), anyString());
+        verify(passwordResetMailService, never())
+                .sendResetEmail(anyString(), anyString(), anyString(), nullable(String.class));
         verify(jdbcTemplate, never()).update(
                 eq("update \"user\" set reset_password_token = ?, reset_password_token_expire_time = ? where id = ?"),
                 any(), any(), anyLong()
@@ -173,7 +179,8 @@ class AccountServiceImplApplyResetPasswordTest {
                 withCaptcha("captcha")
         );
 
-        verify(passwordResetMailService, never()).sendResetEmail(anyString(), anyString(), anyString());
+        verify(passwordResetMailService, never())
+                .sendResetEmail(anyString(), anyString(), anyString(), nullable(String.class));
         verify(jdbcTemplate, never()).update(
                 eq("update \"user\" set reset_password_token = ?, reset_password_token_expire_time = ? where id = ?"),
                 any(), any(), anyLong()
@@ -202,7 +209,7 @@ class AccountServiceImplApplyResetPasswordTest {
                 .hasMessageContaining("already sent recently");
 
         verify(passwordResetMailService, times(1))
-                .sendResetEmail(anyString(), anyString(), anyString());
+                .sendResetEmail(anyString(), anyString(), anyString(), nullable(String.class));
     }
 
     @Test
@@ -210,7 +217,8 @@ class AccountServiceImplApplyResetPasswordTest {
         when(passwordResetThrottle.tryAcquire("alice@example.com")).thenReturn(true);
         stubFindUserByEmail("alice@example.com", aliceRow());
         org.mockito.Mockito.doThrow(new BadRequestException("Please setup SMTP config at first"))
-                .when(passwordResetMailService).sendResetEmail(anyString(), anyString(), anyString());
+                .when(passwordResetMailService)
+                .sendResetEmail(anyString(), anyString(), anyString(), nullable(String.class));
 
         assertThatThrownBy(() -> service.applyResetPassword(
                 new ApplyResetPasswordRequest("alice@example.com", "captcha"),
@@ -219,6 +227,73 @@ class AccountServiceImplApplyResetPasswordTest {
         ))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage("Please setup SMTP config at first");
+    }
+
+    @Test
+    void inferBaseUrlFromXForwardedHeadersWhenBehindReverseProxy() {
+        when(passwordResetThrottle.tryAcquire("alice@example.com")).thenReturn(true);
+        stubFindUserByEmail("alice@example.com", aliceRow());
+
+        MockHttpServletRequest request = withCaptcha("captcha");
+        request.addHeader("X-Forwarded-Proto", "https");
+        request.addHeader("X-Forwarded-Host", "alethicode.example.com");
+        // 反代场景下 server scheme/port 反映的是后端内部 listener，不应被用作邮件 baseUrl
+        request.setScheme("http");
+        request.setServerName("backend-internal");
+        request.setServerPort(8081);
+
+        service.applyResetPassword(
+                new ApplyResetPasswordRequest("alice@example.com", "captcha"),
+                anonymousAuth(),
+                request
+        );
+
+        verify(passwordResetMailService).sendResetEmail(
+                eq("alice"), eq("alice@example.com"), anyString(),
+                eq("https://alethicode.example.com"));
+    }
+
+    @Test
+    void inferBaseUrlFromServerNameAndPortWhenForwardedHeadersAbsent() {
+        when(passwordResetThrottle.tryAcquire("alice@example.com")).thenReturn(true);
+        stubFindUserByEmail("alice@example.com", aliceRow());
+
+        MockHttpServletRequest request = withCaptcha("captcha");
+        request.setScheme("http");
+        request.setServerName("47.98.184.170");
+        request.setServerPort(8080);
+
+        service.applyResetPassword(
+                new ApplyResetPasswordRequest("alice@example.com", "captcha"),
+                anonymousAuth(),
+                request
+        );
+
+        // 非默认端口要拼到 baseUrl 里
+        verify(passwordResetMailService).sendResetEmail(
+                eq("alice"), eq("alice@example.com"), anyString(),
+                eq("http://47.98.184.170:8080"));
+    }
+
+    @Test
+    void omitDefaultPortFromBaseUrl() {
+        when(passwordResetThrottle.tryAcquire("alice@example.com")).thenReturn(true);
+        stubFindUserByEmail("alice@example.com", aliceRow());
+
+        MockHttpServletRequest request = withCaptcha("captcha");
+        request.setScheme("https");
+        request.setServerName("alethicode.cn");
+        request.setServerPort(443); // https 默认端口
+
+        service.applyResetPassword(
+                new ApplyResetPasswordRequest("alice@example.com", "captcha"),
+                anonymousAuth(),
+                request
+        );
+
+        verify(passwordResetMailService).sendResetEmail(
+                eq("alice"), eq("alice@example.com"), anyString(),
+                eq("https://alethicode.cn"));
     }
 
     private MockHttpServletRequest withCaptcha(String captcha) {

@@ -29,6 +29,7 @@ public class PasswordResetMailServiceImpl implements PasswordResetMailService {
 
     private static final String SMTP_CONFIG_KEY = "smtp_config";
     private static final String SMTP_NOT_CONFIGURED_MESSAGE = "Please setup SMTP config at first";
+    private static final String BASE_URL_NOT_CONFIGURED_MESSAGE = "Please configure website base url";
     private static final String EMAIL_SUBJECT = "[Alethicode] 重置密码";
 
     private final JdbcTemplate jdbcTemplate;
@@ -49,12 +50,13 @@ public class PasswordResetMailServiceImpl implements PasswordResetMailService {
     }
 
     @Override
-    public void sendResetEmail(String username, String email, String token) {
+    public void sendResetEmail(String username, String email, String token, @Nullable String requestBaseUrl) {
         SmtpConfig smtpConfig = requireSmtpConfig();
         WebsiteConfigResponse website = systemOptionService.getWebsiteConfig();
-        String baseUrl = trimOrEmpty(website == null ? null : website.websiteBaseUrl());
+        String adminBaseUrl = trimOrEmpty(website == null ? null : website.websiteBaseUrl());
         String fromName = trimOrEmpty(website == null ? null : website.websiteNameShortcut());
 
+        String baseUrl = pickBaseUrl(requestBaseUrl, adminBaseUrl);
         String resetLink = baseUrl + "/reset-password/" + token;
         String content = """
                 你好 %s，
@@ -81,6 +83,26 @@ public class PasswordResetMailServiceImpl implements PasswordResetMailService {
                 EMAIL_SUBJECT,
                 content
         );
+    }
+
+    /**
+     * 解析邮件链接的 base URL：当前请求推断 → admin 配置 → 抛 BadRequest。
+     *
+     * <p>调用方推断的 {@code requestBaseUrl} 拥有最高优先级——在 nginx / 反代场景下
+     * 它来自 {@code X-Forwarded-Proto} + {@code X-Forwarded-Host}，能保证
+     * 邮件链接里的 host 就是用户浏览器实际访问的 host，无需 admin 在切公网 IP /
+     * 绑定域名时手动改 {@code sys_options.website_base_url}。
+     * admin 配置作为兜底，例如想强制覆盖反代 host 时可以通过 admin 配置生效。</p>
+     */
+    private String pickBaseUrl(@Nullable String requestBaseUrl, String adminBaseUrl) {
+        String trimmed = trimOrEmpty(requestBaseUrl);
+        if (!trimmed.isEmpty()) {
+            return trimmed;
+        }
+        if (!adminBaseUrl.isEmpty()) {
+            return adminBaseUrl;
+        }
+        throw new BadRequestException(BASE_URL_NOT_CONFIGURED_MESSAGE);
     }
 
     private SmtpConfig requireSmtpConfig() {

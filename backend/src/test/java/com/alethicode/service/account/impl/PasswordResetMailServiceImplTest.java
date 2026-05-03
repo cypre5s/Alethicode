@@ -17,6 +17,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -27,6 +28,7 @@ import static org.mockito.Mockito.verify;
  * - SMTP 完整配置 → 用 sys_options 中的真实参数调用 {@link SmtpMailService}，正文含一次性 token 链接
  * - SMTP 配置缺字段 → 与 admin {@code testSmtp} 一致 fail-fast
  * - SMTP 完全未配置（DB 无 smtp_config 行）→ 同样 fail-fast
+ * - baseUrl 三层 fallback：requestBaseUrl 非空 → 用之；为空 → admin website_base_url；都空 → fail-fast
  */
 @ExtendWith(MockitoExtension.class)
 class PasswordResetMailServiceImplTest {
@@ -66,7 +68,8 @@ class PasswordResetMailServiceImplTest {
                 ""
         )).when(systemOptionService).getWebsiteConfig();
 
-        newService().sendResetEmail("alice", "alice@example.com", "tok-1234567890abcdef");
+        // requestBaseUrl 为 null → 走 admin 配置的 https://oj.example.com
+        newService().sendResetEmail("alice", "alice@example.com", "tok-1234567890abcdef", null);
 
         ArgumentCaptor<String> subjectCaptor = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> contentCaptor = ArgumentCaptor.forClass(String.class);
@@ -90,6 +93,59 @@ class PasswordResetMailServiceImplTest {
     }
 
     @Test
+    void prefersRequestBaseUrlOverAdminBaseUrlForResetLink() {
+        doReturn("""
+                {"server":"smtp.example.com","port":465,"email":"noreply@example.com","password":"secret","tls":true}
+                """).when(jdbcTemplate).queryForObject(SMTP_OPTION_SQL, String.class, "smtp_config");
+        doReturn(new WebsiteConfigResponse(
+                "https://admin-configured.example.com",
+                "Alethicode",
+                "Alethicode",
+                "",
+                true,
+                true,
+                "",
+                ""
+        )).when(systemOptionService).getWebsiteConfig();
+
+        newService().sendResetEmail("bob", "bob@example.com", "tok-bob",
+                "https://request-host.example.com");
+
+        ArgumentCaptor<String> contentCaptor = ArgumentCaptor.forClass(String.class);
+        verify(smtpMailService).send(
+                anyString(), org.mockito.ArgumentMatchers.any(), anyString(), anyString(),
+                org.mockito.ArgumentMatchers.anyBoolean(), anyString(), anyString(), anyString(),
+                anyString(), contentCaptor.capture()
+        );
+        // 邮件链接里的 host 来自 request 推断，不是 admin 配置
+        assertThat(contentCaptor.getValue())
+                .contains("https://request-host.example.com/reset-password/tok-bob")
+                .doesNotContain("admin-configured.example.com");
+    }
+
+    @Test
+    void failsFastWhenBothRequestAndAdminBaseUrlAreEmpty() {
+        doReturn("""
+                {"server":"smtp.example.com","port":465,"email":"noreply@example.com","password":"secret","tls":true}
+                """).when(jdbcTemplate).queryForObject(SMTP_OPTION_SQL, String.class, "smtp_config");
+        doReturn(new WebsiteConfigResponse(
+                "", "Alethicode", "Alethicode", "", true, true, "", ""
+        )).when(systemOptionService).getWebsiteConfig();
+
+        PasswordResetMailService service = newService();
+
+        assertThatThrownBy(() ->
+                service.sendResetEmail("alice", "alice@example.com", "tok", null))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Please configure website base url");
+        verify(smtpMailService, never()).send(
+                anyString(), org.mockito.ArgumentMatchers.any(), anyString(), anyString(),
+                org.mockito.ArgumentMatchers.anyBoolean(), anyString(), anyString(), anyString(),
+                anyString(), anyString()
+        );
+    }
+
+    @Test
     void failsFastWhenSmtpConfigMissingPasswordField() {
         doReturn("""
                 {"server":"smtp.example.com","port":465,"email":"noreply@example.com","password":"","tls":true}
@@ -97,7 +153,7 @@ class PasswordResetMailServiceImplTest {
 
         PasswordResetMailService service = newService();
 
-        assertThatThrownBy(() -> service.sendResetEmail("alice", "alice@example.com", "tok"))
+        assertThatThrownBy(() -> service.sendResetEmail("alice", "alice@example.com", "tok", null))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage("Please setup SMTP config at first");
         verify(smtpMailService, never()).send(
@@ -121,7 +177,7 @@ class PasswordResetMailServiceImplTest {
 
         PasswordResetMailService service = newService();
 
-        assertThatThrownBy(() -> service.sendResetEmail("alice", "alice@example.com", "tok"))
+        assertThatThrownBy(() -> service.sendResetEmail("alice", "alice@example.com", "tok", null))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage("Please setup SMTP config at first");
     }

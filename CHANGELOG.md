@@ -4,6 +4,15 @@
 
 ## [Unreleased] - 2026-05-03
 
+### 重置密码邮件链接 baseUrl 自适应（消除生产 127.0.0.1 死链 bug）
+
+> **背景**：今天上线"重置密码邮件链路"后，发现 ECS 实际发出的链接是 `http://127.0.0.1/reset-password/<token>`——QQ 邮箱里点根本打不开，因为 `PasswordResetMailServiceImpl` 用的是 `sys_options.website_config.website_base_url`，而 ECS admin 默认还保留着出厂值 `http://127.0.0.1`。需要 admin 每次切公网 IP / 绑域名时手动改一次太脆，要让邮件链接的 host 自适应当前请求实际访问的 host。
+
+- 2026-05-03 **[领域/account]** `PasswordResetMailService.sendResetEmail` 接口签名追加 `@Nullable String requestBaseUrl`：base URL 解析三层 fallback——(1) 调用方推断的 `requestBaseUrl`（最高优先级，反映用户真实访问 host）→ (2) `sys_options.website_config.website_base_url`（admin 显式覆盖）→ (3) 都为空 → 抛 `BadRequestException("Please configure website base url")` failfast。`PasswordResetMailServiceImpl` 新增私有方法 `pickBaseUrl(@Nullable String requestBaseUrl, String adminBaseUrl)` 实现该顺序。无 deprecated 别名。
+- 2026-05-03 **[业务/account]** `AccountServiceImpl.applyResetPassword` 新增私有方法 `resolveRequestBaseUrl(HttpServletRequest)`：优先取标准反代头 `X-Forwarded-Proto + X-Forwarded-Host`；否则用 `request.getScheme() + getServerName()`，端口非默认（http:80 / https:443）时拼端口，默认端口省略；scheme 或 serverName 缺失返回 null 让 service 层退回 admin 配置。结果作为第 4 个参数传给 `passwordResetMailService.sendResetEmail`。这样 ECS 切公网 IP / 绑域名 / 走 nginx 反代时，邮件链接里的 host 永远等于浏览器实际访问 host，admin 不必再手动维护 `website_base_url`。
+- 2026-05-03 **[测试/account]** `AccountServiceImplApplyResetPasswordTest` 现有 7 用例适配新签名（`sendResetEmail` mock 用 `nullable(String.class)` 占位第 4 参）+ 新增 3 个 baseUrl 推断 case：(1) 反代场景含 X-Forwarded-Proto + X-Forwarded-Host → baseUrl 用反代 host 而非内部 ServerName；(2) 无反代头时用 ServerName + 非默认端口拼出 `http://47.98.184.170:8080`；(3) https + 443 时不拼端口。`PasswordResetMailServiceImplTest` 新增 2 用例：(1) requestBaseUrl 非空时优先于 admin 配置；(2) requestBaseUrl 与 admin 都空 → fail-fast 抛 `BadRequestException("Please configure website base url")`。`mvn test -Dtest='PasswordResetMailServiceImplTest,AccountServiceImplApplyResetPasswordTest,AccountServiceImplLogoutTest,RedisPasswordResetThrottleTest,AITutorWelcomeServiceTest'` 共 31 用例全过。
+- 2026-05-03 **[运维/sys_options]** ECS 上 `sys_options.website_config.website_base_url` 已从 `http://127.0.0.1` 改为 `http://47.98.184.170`（生产配置 bug 顺手修复）。本次自适应改动上线后即便 admin 不改这个值，邮件链接也会按请求 host 自动正确——admin 配置仅作为兜底。
+
 ### 重置密码：补全 SMTP 邮件链路 + 不泄露用户存在性 + 限流（HIGH）
 
 > **背景**：`backend/src/main/java/com/alethicode/service/account/impl/AccountServiceImpl.applyResetPassword` 之前只往 user 表写 `reset_password_token` 后就直接 return success——**根本没有调用任何邮件服务**。前端 `frontend/src/pages/oj/views/user/ApplyResetPassword.vue` 的「重置邮件已发送！」是空头支票，用户拿不到 token，`/reset-password/:token` 路由形同虚设，整条找回密码链路实质断裂。同一段代码还在邮箱不存在时直接抛 `User does not exist`，构成账号枚举接口。本次依据 `docs/plans/2026-05-03-password-reset-mail-design.md` 把这条链路接进现有 SMTP 出站能力（`JavaMailSmtpMailService` + `sys_options.smtp_config`），并按"不泄露存在性 + 单次 token + 每邮箱限流"原则收口。仓库本身不存在 POP3 / IMAP 接收链路，不做引入。
