@@ -1,44 +1,39 @@
+/* 默认走 Notion / Cursor / Claude 文档风：白底 + 1px 灰边 + 大留白 + mono kicker。 */
+/* `.is-fun` 模式由 ManualPage.vue 根节点添加，恢复温暖装饰、阴影与角色贴片。 */
+
 .manual-section {
   background: var(--bg-card);
-  border-radius: var(--radius-lg);
   border: 1px solid var(--border-color);
-  padding: 32px 36px 30px;
-  box-shadow: var(--shadow-sm);
+  border-radius: var(--radius-lg);
+  padding: 40px 44px 36px;
+  box-shadow: none;
   scroll-margin-top: 96px;
-  animation: section-reveal 0.6s ease both;
-}
-
-@keyframes section-reveal {
-  from {
-    opacity: 0;
-    transform: translateY(16px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .manual-section__head {
   display: flex;
   align-items: flex-start;
   gap: 16px;
-  margin-bottom: 18px;
+  margin-bottom: 24px;
 
   h2 {
-    font-size: 24px;
-    color: var(--text-primary);
-    margin: 4px 0 6px;
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--text-strong, var(--text-primary));
+    margin: 6px 0 8px;
     text-wrap: balance;
-    letter-spacing: -0.3px;
+    letter-spacing: -0.4px;
+    line-height: 1.25;
   }
 
   p {
     color: var(--text-secondary);
     font-size: 14px;
     margin: 0;
-    line-height: 1.6;
+    line-height: 1.7;
     text-wrap: pretty;
+    max-width: 62ch;
   }
 }
 
@@ -46,13 +41,19 @@
   display: inline-block;
   font-family: var(--font-mono);
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 1.5px;
-  color: var(--warm-primary);
+  font-weight: 600;
+  letter-spacing: 1.6px;
+  color: var(--text-disabled);
   text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+/* 默认模式下隐藏所有 sticker；funMode 下由 ManualPage 根 :deep 选择器恢复显示。 */
+.manual-section__head .manual-naiwa-sticker {
+  display: none;
 }
 
 @media (max-width: 768px) {
-  .manual-section { padding: 24px 20px; }
-  .manual-section__head h2 { font-size: 20px; }
+  .manual-section { padding: 28px 22px 24px; }
+  .manual-section__head h2 { font-size: 22px; }
 }

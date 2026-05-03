@@ -3,9 +3,9 @@
     <header class="manual-section__head">
       <ManualNaiwaSticker :index="2" size="md" :rotate="-3" />
       <div>
-        <span class="manual-section__kicker">03 · 导览</span>
+        <span class="manual-section__kicker">08 · Tour · 附录</span>
         <h2>页面导览</h2>
-        <p>下面涵盖了 Alethicode 的所有核心页面与子视图。每张配一段"什么时候打开它 / 主要看什么 / 主要按钮"。</p>
+        <p>14 张主要页面的截图与说明。遇到陌生页面或者忘了某个按钮在哪，回来查一下。每张配一段"什么时候打开它 / 主要看什么 / 主要按钮"。</p>
       </div>
     </header>
 

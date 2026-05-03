@@ -18,15 +18,16 @@
           <stop offset="100%" stop-color="#ec4899"/>
         </linearGradient>
       </defs>
-      <path
-        v-if="!roughMode"
-        v-for="(seg, idx) in segments"
-        :key="`seg-${idx}`"
-        :d="seg.d"
-        class="manual-flow__path"
-        :style="{ animationDelay: `${idx * 160}ms` }"
-        :stroke="seg.vertical ? 'url(#manual-flow-grad-v)' : 'url(#manual-flow-grad)'"
-      />
+      <template v-if="!roughMode">
+        <path
+          v-for="(seg, idx) in segments"
+          :key="`seg-${idx}`"
+          :d="seg.d"
+          class="manual-flow__path"
+          :style="{ animationDelay: `${idx * 160}ms` }"
+          :stroke="seg.vertical ? 'url(#manual-flow-grad-v)' : 'url(#manual-flow-grad)'"
+        />
+      </template>
     </svg>
     <ol class="manual-flow__nodes" style="position:absolute;inset:0;z-index:5">
       <li

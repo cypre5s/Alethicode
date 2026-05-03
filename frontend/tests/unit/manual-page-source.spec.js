@@ -3,10 +3,12 @@
 /**
  * `ManualPage.vue` 主容器源契约。
  *
- * 验证集成点：左侧目录、9 个 section、各种炫技层 (confetti / palette / widget /
+ * 重构后默认走 Notion / Cursor / Claude 文档风：funMode 默认 false，
+ * 标题 / Hero / 目录顺序按新 10 段 SECTIONS 注册；趣味模式由右上角开关激活。
+ *
+ * 验证集成点：左侧目录、10 个 section、各种炫技层 (confetti / palette / widget /
  * follower / popper / finale)、双门控降级 (funMode + reduce-motion)、
- * theme 切换 (ViewTransitions API + localStorage 持久化)、IntersectionObserver
- * 联动、阅读完成监听 (≥30s + COMPLETED_KEY)。
+ * IntersectionObserver 联动、阅读完成监听 (≥30s + COMPLETED_KEY)。
  */
 
 const fs = require('fs')
@@ -34,26 +36,33 @@ describe('ManualPage · component imports', () => {
     expect(SOURCE).not.toMatch(/ManualThemeToggle/)
   })
 
-  test('imports all 9 section subcomponents', () => {
+  test('imports all 10 section subcomponents (含新 SectionContext / SectionCoursewareQa)', () => {
     const sections = [
-      'SectionWelcome', 'SectionFlow', 'SectionTour', 'SectionCore',
-      'SectionAI', 'SectionFAQ', 'SectionTips', 'SectionGallery', 'SectionFeedback'
+      'SectionWelcome', 'SectionAI', 'SectionContext', 'SectionCoursewareQa',
+      'SectionFlow', 'SectionTips', 'SectionFAQ', 'SectionTour',
+      'SectionGallery', 'SectionFeedback'
     ]
     for (const name of sections) {
       expect(SOURCE).toMatch(new RegExp(`import\\s+${name}\\s+from\\s+['"]\\.\\/sections\\/${name}\\.vue['"]`))
     }
   })
 
-  test('imports the 4 plan-required constants from manualContent', () => {
+  test('does NOT import the deprecated SectionCore (内容已被 ai/context/qa/flow/tour 接管)', () => {
+    expect(SOURCE).not.toMatch(/SectionCore/)
+    expect(SOURCE).not.toMatch(/sections\/SectionCore\.vue/)
+  })
+
+  test('imports the plan-required constants from manualContent (incl. new HERO_CAPABILITIES)', () => {
     expect(SOURCE).toMatch(/FUN_MODE_KEY[\s,]/)
     expect(SOURCE).toMatch(/NAIWA_HERO[\s,]/)
     expect(SOURCE).toMatch(/NAIWA_LAUGH_AUDIO[\s,]/)
     expect(SOURCE).toMatch(/COMPLETED_KEY[\s,}]/)
+    expect(SOURCE).toMatch(/HERO_CAPABILITIES[\s,}]/)
   })
 
-  test('imports ManualTypewriter for the hero subtitle character-by-character effect', () => {
+  test('imports ManualTypewriter only used inside funMode-gated branch', () => {
     expect(SOURCE).toMatch(/import\s+ManualTypewriter\s+from\s+['"]\.\/ManualTypewriter\.vue['"]/)
-    expect(SOURCE).toMatch(/<ManualTypewriter\s/)
+    expect(SOURCE).toMatch(/<ManualTypewriter[^>]*v-if="funMode"/)
   })
 })
 
@@ -62,11 +71,16 @@ describe('ManualPage · template structure', () => {
     expect(SOURCE).toMatch(/<ManualReadingProgress[^/]*\/?>/)
   })
 
-  test('renders hero with kicker / title / subtitle / dual CTAs', () => {
-    expect(SOURCE).toContain('Alethicode 新手指南')
-    expect(SOURCE).toContain('hero-title-grad')
-    expect(SOURCE).toMatch(/立即开始/)
-    expect(SOURCE).toMatch(/先看页面导览/)
+  test('hero kicker 改为「Alethicode 使用指南」并保留双 CTA', () => {
+    expect(SOURCE).toContain('Alethicode 使用指南')
+    expect(SOURCE).toMatch(/立刻开始/)
+    expect(SOURCE).toMatch(/了解 AI 导学助手/)
+  })
+
+  test('hero 渲染 4 张能力卡（HERO_CAPABILITIES → manual-hero-cap）', () => {
+    expect(SOURCE).toMatch(/v-for="cap in capabilities"/)
+    expect(SOURCE).toMatch(/manual-hero-cap/)
+    expect(SOURCE).toMatch(/jumpTo\(cap\.target\)/)
   })
 
   test('hero exposes the two mirror switches: search / fun-toggle (dark mode removed)', () => {
@@ -100,6 +114,20 @@ describe('ManualPage · template structure', () => {
     expect(SOURCE).toMatch(/data-manual-previewable/)
     expect(SOURCE).toMatch(/MutationObserver/)
   })
+
+  test('main 区按新 SECTIONS 顺序挂载 10 个 section 子组件', () => {
+    const order = [
+      'SectionWelcome', 'SectionAI', 'SectionContext', 'SectionCoursewareQa',
+      'SectionFlow', 'SectionTips', 'SectionFAQ', 'SectionTour',
+      'SectionGallery', 'SectionFeedback'
+    ]
+    let lastIdx = -1
+    for (const name of order) {
+      const idx = SOURCE.indexOf(`<${name}`)
+      expect(idx).toBeGreaterThan(lastIdx)
+      lastIdx = idx
+    }
+  })
 })
 
 describe('ManualPage · 双门控降级', () => {
@@ -113,14 +141,20 @@ describe('ManualPage · 双门控降级', () => {
     expect(SOURCE).toMatch(/<SectionGallery[\s\S]*?v-if="funMode"/)
   })
 
+  test('hero 吉祥物图、ManualTypewriter、stats counter、FlowingText 都挂在 funMode 分支下', () => {
+    expect(SOURCE).toMatch(/<div\s+v-if="funMode"\s+class="manual-page__hero-right"/)
+    expect(SOURCE).toMatch(/<ManualTypewriter\s+v-if="funMode"/)
+    expect(SOURCE).toMatch(/<div\s+v-if="funMode"\s+class="manual-page__hero-stats"/)
+  })
+
   test('reduceMotion is detected from prefers-reduced-motion media query', () => {
     expect(SOURCE).toContain("'(prefers-reduced-motion: reduce)'")
   })
 
-  test('funMode default is true when localStorage is unset', () => {
-    // localStorage saved === 'off' is the only path that flips it false
-    expect(SOURCE).toMatch(/saved\s*===\s*'off'/)
-    expect(SOURCE).toMatch(/this\.funMode\s*=\s*true/)
+  test('funMode default 改为 false：localStorage saved === "on" 才打开', () => {
+    expect(SOURCE).toMatch(/saved\s*===\s*'on'/)
+    expect(SOURCE).toMatch(/this\.funMode\s*=\s*false/)
+    expect(SOURCE).toMatch(/funMode:\s*false/)
   })
 
   test('funMode change persists to localStorage with FUN_MODE_KEY', () => {

@@ -1,8 +1,11 @@
 /**
- * Alethicode 新手指南文案中心。
+ * Alethicode 使用指南文案中心。
  *
- * 仅描述用户可见的页面与操作；不暴露后端实现、API、模型、提示词等技术内幕。
+ * 仅描述用户在前端能看到、能点的功能；不暴露后端实现、API、模型、提示词等技术内幕。
  * 章节、FAQ、命令面板条目集中在此，组件按 id/anchor 渲染。
+ *
+ * 视觉默认走 Notion / Cursor / Claude 文档风（白底 + 灰边 + 留白 + mono kicker）；
+ * 趣味模式（funMode）通过右上角开关启用，启用后才出现奶蛙、贴片、confetti、流程手绘版。
  */
 
 const NAIWA_BASE = '/assets/manual/naiwa'
@@ -57,33 +60,39 @@ export const NAIWA_LAUGH_AUDIO = `${NAIWA_BASE}/audio/nailong-laugh.m4a`
 export const SECTIONS = [
   {
     id: 'welcome',
-    title: '欢迎与快速开始',
-    subtitle: '花 3 分钟，把 Alethicode 走一遍',
+    title: '快速开始',
+    subtitle: '第一次用 Alethicode，按 4 步走完一遍',
     sticker: 0
   },
   {
-    id: 'flow',
-    title: '新手路径',
-    subtitle: '从注册到看懂第一份判题结果',
-    sticker: 1
+    id: 'ai',
+    title: 'AI 导学助手',
+    subtitle: '它能帮你做什么、怎么问最有效',
+    sticker: 4
   },
   {
-    id: 'tour',
-    title: '页面导览',
-    subtitle: '所有核心页面与子视图，逐个讲清',
+    id: 'context',
+    title: '@ 上下文引用',
+    subtitle: '让 AI 看见你正在看的题、写的代码、读的课件',
     sticker: 2
   },
   {
-    id: 'core',
-    title: '核心操作',
-    subtitle: '写题、看 AI 卡、用错题本、问课件、入班级',
+    id: 'qa',
+    title: '课件问答',
+    subtitle: '从课件 PDF 里直接检索、查页码、对原文',
+    sticker: 1
+  },
+  {
+    id: 'flow',
+    title: '完整学习闭环',
+    subtitle: '从读题到复盘的 8 步标准流程',
     sticker: 3
   },
   {
-    id: 'ai',
-    title: '智能辅助说明',
-    subtitle: '5 位角色分工与正确使用姿势',
-    sticker: 4
+    id: 'tips',
+    title: '学习建议',
+    subtitle: '5 条容易被忽略的最佳实践',
+    sticker: 6
   },
   {
     id: 'faq',
@@ -92,10 +101,10 @@ export const SECTIONS = [
     sticker: 5
   },
   {
-    id: 'tips',
-    title: '使用建议',
-    subtitle: '比起追正确答案，更要看懂自己的错误',
-    sticker: 6
+    id: 'tour',
+    title: '附录 · 页面导览',
+    subtitle: '14 张页面截图，遇到陌生页面回来对照',
+    sticker: 2
   },
   {
     id: 'gallery',
@@ -112,33 +121,116 @@ export const SECTIONS = [
   }
 ]
 
+export const HERO_CAPABILITIES = [
+  {
+    id: 'ai',
+    label: 'AI 导学助手',
+    desc: '5 位角色覆盖审题、纠错、总结、进阶、陪练',
+    target: 'ai'
+  },
+  {
+    id: 'context',
+    label: '@ 上下文引用',
+    desc: '把当前题、代码、错误诊断卡塞进对话',
+    target: 'context'
+  },
+  {
+    id: 'qa',
+    label: '课件问答',
+    desc: '从课件 PDF 检索答案，附原文页码',
+    target: 'qa'
+  },
+  {
+    id: 'flow',
+    label: '完整学习闭环',
+    desc: '8 步从读题到复盘，每一步知道在做什么',
+    target: 'flow'
+  }
+]
+
 export const QUICK_START_STEPS = [
   {
     step: 1,
-    title: '注册账号',
-    desc: '点击右上角"注册"，填用户名、邮箱、密码即可。已有账号直接登录。'
+    title: '挑一道难度合适的题',
+    where: '题库或主页推荐',
+    look: '题号 / 难度 / 标签',
+    why: '难度差太大会卡住或失去兴趣，挑刚好略难一点的'
   },
   {
     step: 2,
-    title: '挑一份课件',
-    desc: '主页或顶部"课件问答"列出已发布的课件包，按内容选一份贴近你目前学习进度的。'
+    title: '读懂题目再动手',
+    where: '做题页左侧题面',
+    look: '输入格式、输出格式、样例',
+    why: '一半的 WA 都是题意理解错，先想清楚要做什么'
   },
   {
     step: 3,
-    title: '做第一道题',
-    desc: '进入"做题"页，挑一道难度低、知识点你刚好学过的题；写代码、提交、看判题结果。'
+    title: '写不出来就让 AI 提点',
+    where: '右下角 AI 导学卡片',
+    look: '审题卡 / 思路分析 / 报错诊断',
+    why: 'AI 不替你写代码，是和你一起想清楚下一步'
+  },
+  {
+    step: 4,
+    title: '提交、看反馈、改一遍',
+    where: '底部「提交」按钮 + 提交记录',
+    look: '通过 / 错答 / 超时 + 错误用例',
+    why: '不要看到错就放弃，改一遍比换一题更长记忆'
   }
 ]
 
 export const FLOW_NODES = [
-  { id: 'register', title: '注册 / 登录', target: 'welcome' },
-  { id: 'home', title: '主页 Dashboard', target: 'tour' },
-  { id: 'pack', title: '挑课件', target: 'tour' },
-  { id: 'problem', title: '题库浏览', target: 'tour' },
-  { id: 'code', title: '写第一份代码', target: 'core' },
-  { id: 'ai', title: '看 AI 卡片', target: 'ai', highlight: true },
-  { id: 'submit', title: '提交判题', target: 'core', highlight: true },
-  { id: 'review', title: '看错题 / 复习', target: 'core', highlight: true }
+  { id: 'read', title: '01 读题', target: 'ai' },
+  { id: 'io', title: '02 拆 I/O', target: 'ai' },
+  { id: 'idea', title: '03 想思路', target: 'ai' },
+  { id: 'code', title: '04 写代码', target: 'ai', highlight: true },
+  { id: 'submit', title: '05 提交', target: 'faq', highlight: true },
+  { id: 'feedback', title: '06 看反馈', target: 'context' },
+  { id: 'fix', title: '07 跟 AI 改', target: 'context', highlight: true },
+  { id: 'review', title: '08 复盘', target: 'tips' }
+]
+
+export const LEARNING_LOOP_STEPS = [
+  {
+    step: 1,
+    title: '读题',
+    desc: '把题面读两遍，圈出关键词；不要只看样例就猜题意。'
+  },
+  {
+    step: 2,
+    title: '拆 I/O',
+    desc: '把"输入是什么 / 输出什么 / 边界条件"逐项写下来；可以问寧寧（审题）帮你拆。'
+  },
+  {
+    step: 3,
+    title: '想思路',
+    desc: '不写代码，先用中文写步骤；卡住了 @ 当前题问 AI 思路分析。'
+  },
+  {
+    step: 4,
+    title: '写代码',
+    desc: '把伪代码翻译成真代码；先写能跑的版本，不追求一次最优。'
+  },
+  {
+    step: 5,
+    title: '提交',
+    desc: '点提交看判题结果；通过则继续，错了别急着改。'
+  },
+  {
+    step: 6,
+    title: '看反馈',
+    desc: '看错在哪个用例、报错信息是什么；@last_error 让芳乃帮你翻译报错。'
+  },
+  {
+    step: 7,
+    title: '跟 AI 改',
+    desc: 'AI 只指出最关键的一处错，自己改、再提交；不要让 AI 把整段代码重写。'
+  },
+  {
+    step: 8,
+    title: '复盘',
+    desc: '通过后用一句话讲清这题的核心思路；存进错题本反思框，比看十篇题解都管用。'
+  }
 ]
 
 export const TOUR_PAGES = [
@@ -256,60 +348,6 @@ export const TOUR_PAGES = [
   }
 ]
 
-export const CORE_OPERATIONS = [
-  {
-    id: 'write-problem',
-    title: '写一道题：从打开到提交',
-    body: [
-      '在做题页右上角选语言（推荐 Python 3）。',
-      '把代码写在编辑器里，可以使用快捷键运行（Ctrl/Cmd + Enter）。',
-      '点底部"提交"按钮，结果会出现在"提交记录"里：通过、错答、超时、编译错误都各有不同颜色。',
-      '点击某条记录可以查看具体测试用例输出，配合下方 AI 卡片定位错在哪一步。'
-    ]
-  },
-  {
-    id: 'use-ai-card',
-    title: '看 AI 卡片：5 张分别在干嘛',
-    body: [
-      '做题页底部"AI 辅导"区会按你写代码、提交、判错的进度依次出现 5 种卡片。',
-      '寧寧（审题卡）：把题目重写成你能听懂的版本，标出"该输入什么 / 输出什么"。',
-      '芳乃（纠错卡）：定位你这次代码里最关键的一处错；不要一次给一堆建议。',
-      '栞那（总结卡）：通过后给出"这一题用到了什么思路"的整理。',
-      '村雨（进阶卡）：会推荐 1~2 道相关题，帮你把学过的知识点迁移过去。',
-      '綾瀨（陪练卡）：自由对话，可以追问"为什么这样写"。',
-      '所有 AI 输出都是辅助，不是替你写代码；写完一定要自己读一遍。'
-    ]
-  },
-  {
-    id: 'use-notebook',
-    title: '用错题本：让自己变得不再害怕错题',
-    body: [
-      '判错的题会自动进错题本，按知识点分组。',
-      '点开一题可以看到"上次错在哪 / 你当时写了什么"。',
-      '在反思框里写一两句"我下次不会再 X"，比看十篇题解更有用。',
-      '当某一类错累计 3 次以上，错题本会推送一个"专项复习包"，里面是同类型 3-5 题。'
-    ]
-  },
-  {
-    id: 'use-qa',
-    title: '用课件问答：把概念讲明白',
-    body: [
-      '选一份课件包，问"这一节讲了什么"或具体名词解释。',
-      '回答下方会列出引用的课件页，点页码可以打开 PDF 直接定位到那一页。',
-      '问题越具体效果越好。例如把"什么是循环"换成"for 循环和 while 循环什么时候用哪个"。'
-    ]
-  },
-  {
-    id: 'join-classroom',
-    title: '加入班级：和老师同学一起练',
-    body: [
-      '点导航栏"班级 → 加入班级"，输入老师给你的班级码。',
-      '加入后能看到老师布置的题单与截止时间。',
-      '按题单顺序练习，完成后回到班级页查看自己的进度变化。'
-    ]
-  }
-]
-
 export const AI_CHARACTERS = [
   {
     id: 'nene',
@@ -393,38 +431,219 @@ export const AI_CHARACTERS = [
   }
 ]
 
-export const QA_GUIDE = {
-  title: '课件问答使用指南',
-  intro: '课件问答是基于你选择的课件包内容，用 AI 帮你快速找到概念解释和知识点的工具。它不是通用搜索引擎——只能回答课件里有的内容。',
-  steps: [
-    {
-      step: 1,
-      title: '选择课件包',
-      desc: '进入"课件问答"页面后，先从下拉列表中选择一份课件包。课件包由老师上传并发布，对应某门课或某章内容。'
-    },
-    {
-      step: 2,
-      title: '输入你的问题',
-      desc: '用自然语言提问，像问老师一样。越具体越好：把"什么是循环"换成"for 循环和 while 循环什么时候用哪个"效果会好很多。'
-    },
-    {
-      step: 3,
-      title: '阅读回答与引用',
-      desc: '回答下方会列出引用的课件页码。点页码可直接打开 PDF 定位到那一页，对照原文确认 AI 回答是否准确。'
-    },
-    {
-      step: 4,
-      title: '追问或换问法',
-      desc: '如果回答不够清楚，可以继续追问细节。如果完全没结果，说明这个问题超出了该课件的覆盖范围，换一份课件或换个问法试试。'
-    }
-  ],
-  tips: [
-    '问题越具体，回答越精准——"第 3 章讲的递归是什么意思"比"递归"好得多',
-    '回答引用的页码可以直接点击跳转，不用自己翻 PDF',
-    '课件问答只能基于已收录的课件内容，超出范围的问题会无答',
-    'AI 回答可能有误，务必对照原文确认关键信息'
-  ]
-}
+export const AI_CAPABILITIES = [
+  {
+    id: 'explain-problem',
+    title: '把题目讲明白',
+    desc: '把抽象的题面拆成"输入是什么、输出什么、边界条件"。'
+  },
+  {
+    id: 'split-io',
+    title: '拆 I/O 与样例',
+    desc: '把样例输入输出对应到题面要求，标出容易看漏的边界。'
+  },
+  {
+    id: 'split-thought',
+    title: '拆解思路步骤',
+    desc: '帮你把"我大概要这么做"翻成可以一步步实现的步骤。'
+  },
+  {
+    id: 'locate-bug',
+    title: '定位代码错误',
+    desc: '只指出最关键的一处错，不一次刷十条建议把人搞晕。'
+  },
+  {
+    id: 'translate-error',
+    title: '翻译报错信息',
+    desc: '把 Python Traceback 翻成"第几行、为什么错、先看哪里"。'
+  },
+  {
+    id: 'review-code',
+    title: '检查通过的代码',
+    desc: 'AC 后帮你看看有没有更简洁的写法，但不会让你重写。'
+  },
+  {
+    id: 'summarize-kc',
+    title: '总结知识点',
+    desc: '通过一题后用一两句话告诉你"这题考的是什么"。'
+  },
+  {
+    id: 'recommend-similar',
+    title: '推荐相似题',
+    desc: '基于刚做完的题推荐 1-2 道同知识点不同场景的迁移题。'
+  }
+]
+
+export const RECOMMENDED_PROMPTS = [
+  {
+    id: 'understand-problem',
+    label: '让 AI 帮你理解题目',
+    when: '题目读两遍还不懂；不知道要输入输出什么。',
+    prompt: '@当前题目 这道题在问什么？输入和输出分别是什么？有哪些容易看漏的边界条件？',
+    why: '直接让 AI 把题面"翻译"成你能听懂的中文，比直接抓代码更稳。'
+  },
+  {
+    id: 'analyze-error',
+    label: '让 AI 解释报错',
+    when: '提交后报错信息看不懂；自己 review 代码看不出问题。',
+    prompt: '@last_error 这个报错是什么意思？我应该先检查哪里？',
+    why: '把"错误诊断卡"塞回对话，AI 就能针对你这次的错给具体方向，而不是泛泛而谈。'
+  },
+  {
+    id: 'check-code',
+    label: '让 AI 检查思路',
+    when: '已经写完代码但不确定对不对；AC 后想看看有没有更优解。',
+    prompt: '@我的代码 这段代码的思路有什么问题？有没有更简洁的写法？',
+    why: '强调"思路"和"更简洁"，引导 AI 给方向而不是替你重写。'
+  },
+  {
+    id: 'explain-concept',
+    label: '让 AI 解释概念',
+    when: '碰到不会的语法 / 数据结构 / 算法术语。',
+    prompt: '@课件 第 X 节提到的「递归」是什么意思？能用一个简单例子讲讲吗？',
+    why: '把课件塞给 AI 做语境，回答会引用课件原文页码，比直接搜更靠谱。'
+  }
+]
+
+export const DISCOURAGED_PROMPTS = [
+  {
+    id: 'give-answer',
+    label: '"直接给我答案"',
+    why: '会跳过"理解 → 设计"这两步学习里最关键的环节；下次遇到同类型还是不会。'
+  },
+  {
+    id: 'write-full-code',
+    label: '"帮我把整段代码写完"',
+    why: 'AI 也不知道你"哪里不会"，只能猜一段最常见的写法；代码即使能跑，也不是你写的。'
+  }
+]
+
+export const CONTEXT_TOKENS = [
+  {
+    token: '@card:<id>',
+    name: '具体卡片',
+    when: '想引用某一张已经出现的 AI 卡片（如 C-V-001）。'
+  },
+  {
+    token: '@last_guide',
+    name: '最近一次「题目导读」',
+    when: '让 AI 接着寧寧的审题继续讲。'
+  },
+  {
+    token: '@last_ideate',
+    name: '最近一次「思路分析」',
+    when: '把刚生成的思路再展开、加约束、问反例。'
+  },
+  {
+    token: '@last_error',
+    name: '最近一次「错误诊断」',
+    when: '把芳乃的报错诊断作为上下文，问"接下来怎么改"。'
+  },
+  {
+    token: '@last_post_ac',
+    name: '最近一次「过题总结」',
+    when: '让栞那的总结再展开，问"还能怎么优化"。'
+  },
+  {
+    token: '@last_transfer',
+    name: '最近一次「迁移题推荐」',
+    when: '让村雨从推荐里挑一道讲思路。'
+  },
+  {
+    token: '@last_review',
+    name: '最近一次「知识点回顾」',
+    when: '把刚回顾的知识点带进新一轮对话。'
+  },
+  {
+    token: '@last_visualize',
+    name: '最近一次「教学可视化」',
+    when: '让 AI 围绕刚生成的图 / 动画继续解释。'
+  }
+]
+
+export const CONTEXT_EXAMPLES = [
+  {
+    id: 'ctx-current-problem',
+    label: '@当前题目',
+    prompt: '@当前题目 这道题在考什么知识点？我应该先学什么再来做？',
+    note: '把题面塞给 AI，让它结合题目本身回答而不是凭空猜。'
+  },
+  {
+    id: 'ctx-my-code',
+    label: '@我的代码',
+    prompt: '@我的代码 这段代码的思路对吗？有没有更简洁的写法？',
+    note: '用「思路 / 简洁」这种关键词引导方向，避免被改写整段。'
+  },
+  {
+    id: 'ctx-courseware',
+    label: '@课件',
+    prompt: '@课件 第 3 节提到的「列表推导式」是什么意思？给个例子。',
+    note: '让回答带原文引用页码，可以一键打开 PDF 对照。'
+  },
+  {
+    id: 'ctx-error',
+    label: '@last_error',
+    prompt: '@last_error 这个报错是什么意思？我应该先检查哪里？',
+    note: '把错误诊断卡作为对话上下文，回答才会针对你的具体错误。'
+  }
+]
+
+export const CONTEXT_TIPS = [
+  '一次只 @ 一两条最相关的，全部塞过去反而会稀释 AI 的注意力。',
+  'token 大小写敏感，必须是 `@last_error` 这样的小写下划线写法。',
+  '如果回答跟你预期的不一样，先确认 token 名称是否正确，再换问法。',
+  '@card:<id> 适合复盘——把之前的某张卡片拿出来继续问，避免反复重新生成。'
+]
+
+export const COURSEWARE_QA_SCOPE = [
+  '问课件里某个名词、定义、公式的具体含义',
+  '问某一节讲了什么、和上一节的关系是什么',
+  '让 AI 用你能听懂的话重述某个概念',
+  '让 AI 举例说明某个语法或数据结构',
+  '让 AI 比较两个相似概念的差别（比如 for 和 while）',
+  '让 AI 总结某一章的要点 / 给学习路线建议',
+  '查具体页码原文，对照 AI 回答验证'
+]
+
+export const COURSEWARE_QA_PROMPTS = [
+  {
+    id: 'qa-summary',
+    label: '让课件帮你总结一节',
+    prompt: '第 2 节主要讲了什么？和第 1 节的关系是什么？',
+    note: '提问时指明章节号，回答会更有针对性。'
+  },
+  {
+    id: 'qa-define',
+    label: '让课件解释一个名词',
+    prompt: '课件里说的「字典推导式」是什么意思？给两个例子，分别说明用法。',
+    note: '加上"举例"会让回答更具体。'
+  },
+  {
+    id: 'qa-compare',
+    label: '让课件帮你比较两个概念',
+    prompt: 'for 循环和 while 循环什么时候用哪个？课件里有没有具体的例子？',
+    note: '比较类问题让 AI 结合课件原文给指导。'
+  },
+  {
+    id: 'qa-roadmap',
+    label: '让课件帮你规划学习顺序',
+    prompt: '我刚学完第 3 章「列表」，下一步该学什么？这本课件后面哪几节是基础必看？',
+    note: '让 AI 围绕课件目录给推荐，比通用教程靠谱。'
+  },
+  {
+    id: 'qa-locate',
+    label: '让课件帮你定位原文',
+    prompt: '课件里提到「切片」的部分在哪几页？',
+    note: '回答会列出页码，点击可以直接打开 PDF。'
+  }
+]
+
+export const COURSEWARE_QA_NOTES = [
+  '课件问答只能基于已收录的课件 PDF 内容，超出范围的问题会无答。',
+  '回答里的页码引用可以点开直接定位原文，遇到不放心的内容务必对照。',
+  'AI 生成的回答可能存在偏差，关键概念以课件原文为准。',
+  '提问越具体效果越好——「第 3 章的递归是什么意思」远比「递归」精准。'
+]
 
 export const FAQ_ITEMS = [
   {
@@ -433,7 +652,7 @@ export const FAQ_ITEMS = [
   },
   {
     q: '看不懂判题给的报错信息？',
-    a: '把报错信息原样贴进 AI 卡片中的"芳乃（纠错）"区，让她翻译成中文版"哪一行错了、为什么错"。如果是 Python 的 Traceback，从最底下一行的错误类型读起，往上找代码行号。'
+    a: '把芳乃（纠错）的卡片用 @last_error 塞进对话，让她翻译成中文版"哪一行错了、为什么错"。如果是 Python 的 Traceback，从最底下一行的错误类型读起，往上找代码行号。'
   },
   {
     q: 'AI 卡片不出现 / 加载很久？',
@@ -441,19 +660,19 @@ export const FAQ_ITEMS = [
   },
   {
     q: '课件问答没结果 / 答不对？',
-    a: '换个更具体的问法（指明哪一节或哪一个名词）。课件问答只能从这份课件已收录的内容里找答案，超出范围就会无答。'
+    a: '换个更具体的问法（指明哪一节或哪一个名词）。课件问答只能从这份课件已收录的内容里找答案，超出范围就会无答；务必点回答下方的页码引用对照原文。'
+  },
+  {
+    q: '@ 引用没生效，AI 答得很泛？',
+    a: '先确认 token 写对了（如 @last_error 中间是下划线）。一次别同时 @ 太多张卡片，AI 注意力会被稀释；保留最相关的一两条即可。'
+  },
+  {
+    q: 'AI 直接把答案给我了，但下次遇到还是不会？',
+    a: '把"直接给我答案"改成"帮我理解题目 / 思路"。AI 越像答案机就越不教你，越像 review 老师就越教你。'
   },
   {
     q: '错题本里的"反思"该写什么？',
     a: '一两句话就够，例如"我把 range(n) 当成 1 到 n 了"、"我忘了字符串切片是左闭右开"。重点是用自己的话讲，不要复制题解。'
-  },
-  {
-    q: '完全不会写代码可以先看示例吗？',
-    a: '可以。点 AI 卡里的"看示例"，会出现一段"渐退示例"——大部分代码已经写好，只留几个关键空让你填。逐题填一两次就能上手。'
-  },
-  {
-    q: '为什么有的课件我看不到？',
-    a: '课件需要老师"发布"后学生才能看到。班级专属课件只对班内学生开放。'
   },
   {
     q: '我能不能不开 AI，自己默默练？',
@@ -463,24 +682,24 @@ export const FAQ_ITEMS = [
 
 export const TIPS = [
   {
+    title: '把题读懂再写代码',
+    desc: '一半的 WA 都是题意理解错。读两遍题面、圈关键词、写下输入输出格式，再开始写。'
+  },
+  {
+    title: '让 AI 当 review 老师，不是答案机',
+    desc: '问"思路对吗"而不是"答案是什么"；问"为什么错"而不是"帮我改"。'
+  },
+  {
+    title: '@ 上下文比纯聊天有效十倍',
+    desc: '把当前题、刚出的错误诊断、相关课件用 @ 塞进去，AI 才能给出对你这次具体的建议。'
+  },
+  {
+    title: '错题本反思用自己的话',
+    desc: 'AC 之后用一句话讲清"这题考什么 / 我之前哪里想错"，比看十篇题解都长记性。'
+  },
+  {
     title: '每天写一点，胜过周末爆肝',
-    desc: '哪怕 10 分钟，关键是每天都让大脑想一次"这道题怎么解"。'
-  },
-  {
-    title: '看错题比看答案更有用',
-    desc: '直接看正确题解只能让你"懂"，看自己错在哪才能让你"会"。'
-  },
-  {
-    title: '用自己的话讲一遍代码',
-    desc: 'AC 完，把代码每一行用一句话讲清楚。讲不通就是没真懂。'
-  },
-  {
-    title: '不会的概念用课件问答兜底',
-    desc: '别在百度搜里转 30 分钟。回到课件 + 问答里直接问，5 分钟搞定。'
-  },
-  {
-    title: 'AI 是辅助，不是答案',
-    desc: '它能给方向但会错。写完读一遍，自己跑一下脑里的逻辑。'
+    desc: '哪怕 10 分钟，重点是每天都让大脑想一次"这道题怎么解"，节奏比时长重要。'
   }
 ]
 

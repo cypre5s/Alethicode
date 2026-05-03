@@ -3,6 +3,8 @@ package com.alethicode.service.account.impl;
 import com.alethicode.config.AlethicodeProperties;
 import com.alethicode.dto.response.ApiResponse;
 import com.alethicode.middleware.SessionAuthenticationFilter;
+import com.alethicode.service.account.PasswordResetMailService;
+import com.alethicode.service.account.PasswordResetThrottle;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpSession;
@@ -37,7 +39,13 @@ class AccountServiceImplLogoutTest {
         AlethicodeProperties properties = new AlethicodeProperties();
         // properties.getSystem().isCookieSecure() == false 是 HTTP 部署默认；
         // 测试 HTTPS 模式时另开一组 case 单独验证 secure=true。
-        service = new AccountServiceImpl(mock(JdbcTemplate.class), new ObjectMapper(), properties);
+        service = new AccountServiceImpl(
+                mock(JdbcTemplate.class),
+                new ObjectMapper(),
+                properties,
+                mock(PasswordResetMailService.class),
+                mock(PasswordResetThrottle.class)
+        );
     }
 
     @AfterEach
@@ -103,7 +111,11 @@ class AccountServiceImplLogoutTest {
         AlethicodeProperties properties = new AlethicodeProperties();
         properties.getSystem().setCookieSecure(true);
         AccountServiceImpl httpsService = new AccountServiceImpl(
-                mock(JdbcTemplate.class), new ObjectMapper(), properties);
+                mock(JdbcTemplate.class),
+                new ObjectMapper(),
+                properties,
+                mock(PasswordResetMailService.class),
+                mock(PasswordResetThrottle.class));
 
         MockHttpServletRequest request = new MockHttpServletRequest();
         MockHttpServletResponse response = new MockHttpServletResponse();

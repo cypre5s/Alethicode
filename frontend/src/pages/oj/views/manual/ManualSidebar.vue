@@ -1,5 +1,5 @@
 <template>
-  <nav class="manual-sidebar" aria-label="章节目录">
+  <nav class="manual-sidebar" :class="{ 'is-fun': funMode }" aria-label="章节目录">
     <div class="manual-sidebar__head">
       <span class="manual-sidebar__title">目录</span>
       <span class="manual-sidebar__hint">Cmd/Ctrl + K 也能搜</span>
@@ -30,7 +30,7 @@ export default {
   name: 'ManualSidebar',
   props: {
     activeId: { type: String, default: '' },
-    funMode: { type: Boolean, default: true }
+    funMode: { type: Boolean, default: false }
   },
   computed: {
     visibleSections () {
@@ -53,11 +53,18 @@ export default {
   max-height: calc(100vh - 120px);
   overflow-y: auto;
   border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  padding: 16px 12px;
+  box-shadow: none;
+}
+
+/* 趣味模式下恢复磨砂玻璃质感（由 funMode prop → .is-fun class 控制）。 */
+.manual-sidebar.is-fun {
   background: rgba(255, 255, 255, 0.65);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid var(--glass-border);
-  padding: 16px 12px;
+  border-color: var(--glass-border);
   box-shadow: var(--shadow-sm);
 }
 

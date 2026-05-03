@@ -9,20 +9,44 @@
 
     <header class="manual-page__hero">
       <div class="manual-page__hero-left">
-        <span class="manual-page__hero-kicker">Alethicode 新手指南</span>
+        <span class="manual-page__hero-kicker">Alethicode 使用指南</span>
         <h1 class="manual-page__hero-title">
-          你好，<ManualRoughAnnotation type="underline" color="#ec4899" :stroke-width="3"><span class="hero-title-grad">欢迎来到 Alethicode</span></ManualRoughAnnotation>
+          <template v-if="funMode">
+            你好，<ManualRoughAnnotation type="underline" color="#ec4899" :stroke-width="3"><span class="hero-title-grad">欢迎来到 Alethicode</span></ManualRoughAnnotation>
+          </template>
+          <template v-else>
+            和 AI 一起，把每道题学透
+          </template>
         </h1>
         <p class="manual-page__hero-sub">
-          <ManualTypewriter :text="heroSubtitle" :speed="42" :start-delay="320" />
+          <ManualTypewriter v-if="funMode" :text="heroSubtitle" :speed="42" :start-delay="320" />
+          <span v-else>{{ heroSubtitle }}</span>
         </p>
+        <p class="manual-page__hero-tagline">
+          Alethicode 是一个让你写真代码、被 AI 纠错、被 AI 陪着想清楚下一步的编程学习平台。从读题到复盘，每一步都给你"在哪做、看什么、为什么"。
+        </p>
+
+        <div class="manual-page__hero-caps">
+          <button
+            v-for="cap in capabilities"
+            :key="cap.id"
+            type="button"
+            class="manual-hero-cap"
+            @click="jumpTo(cap.target)"
+          >
+            <span class="manual-hero-cap__label">{{ cap.label }}</span>
+            <span class="manual-hero-cap__desc">{{ cap.desc }}</span>
+            <span class="manual-hero-cap__chevron" aria-hidden="true">→</span>
+          </button>
+        </div>
+
         <div class="manual-page__hero-cta">
-          <button type="button" class="btn primary" @click="jumpTo('welcome')">立即开始</button>
-          <button type="button" class="btn ghost" @click="jumpTo('tour')">先看页面导览</button>
+          <button type="button" class="btn primary" @click="jumpTo('welcome')">立刻开始</button>
+          <button type="button" class="btn ghost" @click="jumpTo('ai')">了解 AI 导学助手</button>
         </div>
       </div>
 
-      <div class="manual-page__hero-right">
+      <div v-if="funMode" class="manual-page__hero-right">
         <img :src="heroSrc" alt="Alethicode 吉祥物" class="manual-page__hero-mascot">
       </div>
 
@@ -46,17 +70,18 @@
       </aside>
 
       <main class="manual-page__main" ref="mainRef">
-        <div class="manual-page__hero-stats">
+        <div v-if="funMode" class="manual-page__hero-stats">
           <ManualFlowingText />
           <ManualStatsCounter />
         </div>
         <SectionWelcome ref="sec_welcome" @jump="jumpTo" />
-        <SectionFlow ref="sec_flow" @jump="jumpTo" />
-        <SectionTour ref="sec_tour" @jump="jumpTo" />
-        <SectionCore ref="sec_core" @jump="jumpTo" />
         <SectionAI ref="sec_ai" @jump="jumpTo" />
-        <SectionFAQ ref="sec_faq" @jump="jumpTo" />
+        <SectionContext ref="sec_context" @jump="jumpTo" />
+        <SectionCoursewareQa ref="sec_qa" @jump="jumpTo" />
+        <SectionFlow ref="sec_flow" @jump="jumpTo" />
         <SectionTips ref="sec_tips" @jump="jumpTo" />
+        <SectionFAQ ref="sec_faq" @jump="jumpTo" />
+        <SectionTour ref="sec_tour" @jump="jumpTo" />
         <SectionGallery v-if="funMode" ref="sec_gallery" :fun-mode="funMode" @burst="onGalleryBurst" />
         <SectionFeedback ref="sec_feedback" @jump="jumpTo" />
       </main>
@@ -142,16 +167,23 @@ import ManualStatsCounter from './ManualStatsCounter.vue'
 import ManualRoughAnnotation from './ManualRoughAnnotation.vue'
 
 import SectionWelcome from './sections/SectionWelcome.vue'
-import SectionFlow from './sections/SectionFlow.vue'
-import SectionTour from './sections/SectionTour.vue'
-import SectionCore from './sections/SectionCore.vue'
 import SectionAI from './sections/SectionAI.vue'
-import SectionFAQ from './sections/SectionFAQ.vue'
+import SectionContext from './sections/SectionContext.vue'
+import SectionCoursewareQa from './sections/SectionCoursewareQa.vue'
+import SectionFlow from './sections/SectionFlow.vue'
 import SectionTips from './sections/SectionTips.vue'
+import SectionFAQ from './sections/SectionFAQ.vue'
+import SectionTour from './sections/SectionTour.vue'
 import SectionGallery from './sections/SectionGallery.vue'
 import SectionFeedback from './sections/SectionFeedback.vue'
 
-import { FUN_MODE_KEY, NAIWA_HERO, NAIWA_LAUGH_AUDIO, COMPLETED_KEY } from './manualContent.js'
+import {
+  FUN_MODE_KEY,
+  NAIWA_HERO,
+  NAIWA_LAUGH_AUDIO,
+  COMPLETED_KEY,
+  HERO_CAPABILITIES
+} from './manualContent.js'
 
 export default {
   name: 'ManualPage',
@@ -171,18 +203,19 @@ export default {
     ManualStatsCounter,
     ManualRoughAnnotation,
     SectionWelcome,
-    SectionFlow,
-    SectionTour,
-    SectionCore,
     SectionAI,
-    SectionFAQ,
+    SectionContext,
+    SectionCoursewareQa,
+    SectionFlow,
     SectionTips,
+    SectionFAQ,
+    SectionTour,
     SectionGallery,
     SectionFeedback
   },
   data () {
     return {
-      funMode: true,
+      funMode: false,
       widgetHidden: false,
       reduceMotion: false,
       activeId: 'welcome',
@@ -193,7 +226,8 @@ export default {
       previewObserver: null,
       visitStart: Date.now(),
       finaleShown: false,
-      heroSubtitle: '这里是写代码、被纠错、被陪着学的地方。花 3 分钟，带你走完一遍。'
+      capabilities: HERO_CAPABILITIES,
+      heroSubtitle: '从读题、思考、编码到复盘，完成一次完整学习闭环——AI 不替你写代码，是和你一起想清楚下一步。'
     }
   },
   computed: {
@@ -202,8 +236,8 @@ export default {
   },
   mounted () {
     const saved = window.localStorage.getItem(FUN_MODE_KEY)
-    if (saved === 'off') this.funMode = false
-    else this.funMode = true
+    if (saved === 'on') this.funMode = true
+    else this.funMode = false
     this.reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
     this.$nextTick(this.installObserver)
@@ -354,7 +388,7 @@ export default {
       this.playLaugh()
     },
     onFinaleShown () {
-      this.showToast('🎉 看完啦！')
+      this.showToast('看完啦～')
     },
     onFinaleLaugh () {
       this.playLaugh()
@@ -406,29 +440,45 @@ export default {
 <style lang="less" scoped>
 .manual-page {
   --manual-content-max: 920px;
-  background: linear-gradient(180deg, #f5f3ff 0%, var(--bg-base) 320px);
+  background: var(--bg-base);
   min-height: 100vh;
   padding: 88px 0 120px;
   font-family: var(--font-sans);
   color: var(--text-primary);
 }
 
+/* 趣味模式下恢复温暖渐变背景。 */
+.manual-page.is-fun {
+  background: linear-gradient(180deg, #f5f3ff 0%, var(--bg-base) 320px);
+}
+
 .manual-page__hero {
   max-width: 1200px;
-  margin: 0 auto 32px;
-  padding: 32px 28px 24px;
+  margin: 0 auto 40px;
+  padding: 40px 44px 28px;
   display: grid;
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    'left'
+    'tools';
+  gap: 24px;
+  align-items: stretch;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  position: relative;
+  overflow: hidden;
+}
+
+.manual-page.is-fun .manual-page__hero {
   grid-template-columns: 1fr auto;
   grid-template-areas:
     'left right'
     'tools tools';
-  gap: 24px;
   align-items: center;
   background: var(--warm-bg-hero);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border-warm);
-  position: relative;
-  overflow: hidden;
+  border-color: var(--border-warm);
+  padding: 32px 28px 24px;
 }
 
 .manual-page__hero-left { grid-area: left; }
@@ -440,7 +490,12 @@ export default {
   align-items: center;
   justify-content: flex-start;
   flex-wrap: wrap;
-  padding-top: 8px;
+  padding-top: 16px;
+  margin-top: 8px;
+  border-top: 1px solid var(--border-color);
+}
+
+.manual-page.is-fun .manual-page__hero-tools {
   border-top: 1px dashed var(--border-warm);
 }
 
@@ -448,20 +503,26 @@ export default {
   display: inline-block;
   font-family: var(--font-mono);
   font-size: 11px;
-  letter-spacing: 1.5px;
-  color: var(--warm-primary-strong);
+  letter-spacing: 1.6px;
+  color: var(--text-disabled);
   text-transform: uppercase;
+  font-weight: 600;
+}
+
+.manual-page.is-fun .manual-page__hero-kicker {
+  color: var(--warm-primary-strong);
   font-weight: 700;
 }
 
 .manual-page__hero-title {
-  margin: 8px 0 12px;
-  font-size: 38px;
+  margin: 10px 0 14px;
+  font-size: 40px;
   font-weight: 800;
   line-height: 1.15;
   text-wrap: balance;
-  color: var(--text-strong);
+  color: var(--text-strong, var(--text-primary));
   letter-spacing: -1px;
+  max-width: 18ch;
 }
 
 .hero-title-grad {
@@ -472,13 +533,75 @@ export default {
 }
 
 .manual-page__hero-sub {
-  margin: 0 0 18px;
-  font-size: 15px;
+  margin: 0 0 12px;
+  font-size: 16px;
   color: var(--text-secondary);
   line-height: 1.7;
   text-wrap: pretty;
-  max-width: 480px;
-  min-height: 3.4em;
+  max-width: 56ch;
+  min-height: 1.7em;
+}
+
+.manual-page__hero-tagline {
+  margin: 0 0 24px;
+  font-size: 13.5px;
+  color: var(--text-disabled);
+  line-height: 1.7;
+  max-width: 60ch;
+  text-wrap: pretty;
+}
+
+.manual-page__hero-caps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.manual-hero-cap {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.18s ease, transform 0.18s ease, background 0.18s ease;
+
+  &:hover, &:focus-visible {
+    border-color: var(--text-secondary);
+    transform: translateY(-1px);
+    outline: none;
+  }
+}
+
+.manual-hero-cap__label {
+  grid-column: 1;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.1px;
+}
+
+.manual-hero-cap__desc {
+  grid-column: 1;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+.manual-hero-cap__chevron {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--text-disabled);
 }
 
 .manual-page__hero-cta {
@@ -487,28 +610,43 @@ export default {
   gap: 10px;
 
   .btn {
-    border: 1px solid var(--border-default);
+    border: 1px solid var(--border-color);
     background: var(--bg-card);
-    color: var(--text-secondary);
-    border-radius: var(--radius-pill);
-    padding: 9px 22px;
+    color: var(--text-primary);
+    border-radius: var(--radius-md);
+    padding: 10px 22px;
     font-size: 14px;
     cursor: pointer;
-    font-weight: 500;
+    font-weight: 600;
     transition: all 0.18s ease;
 
     &:hover {
-      color: var(--primary-color);
-      border-color: var(--primary-color);
+      border-color: var(--text-disabled);
     }
 
     &.primary {
-      background: var(--warm-grad-primary);
-      color: #fff;
-      border-color: transparent;
-      box-shadow: var(--shadow-warm);
-      &:hover { transform: translateY(-1px); color: #fff; border-color: transparent; }
+      background: var(--text-primary);
+      color: var(--bg-card);
+      border-color: var(--text-primary);
+      &:hover { opacity: 0.85; }
     }
+  }
+}
+
+.manual-page.is-fun .manual-page__hero-cta .btn {
+  border-radius: var(--radius-pill);
+
+  &.primary {
+    background: var(--warm-grad-primary);
+    color: #fff;
+    border-color: transparent;
+    box-shadow: var(--shadow-warm);
+    &:hover { transform: translateY(-1px); color: #fff; border-color: transparent; opacity: 1; }
+  }
+
+  &:not(.primary):hover {
+    color: var(--primary-color);
+    border-color: var(--primary-color);
   }
 }
 
@@ -529,8 +667,8 @@ export default {
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
   background: var(--bg-card);
   color: var(--text-secondary);
   font-size: 13px;
@@ -539,15 +677,22 @@ export default {
   transition: all 0.18s ease;
 
   &:hover, &:focus-visible {
-    color: var(--primary-color);
-    border-color: var(--primary-color);
+    color: var(--text-primary);
+    border-color: var(--text-disabled);
     outline: none;
   }
 
   &.is-off {
     background: var(--bg-panel);
     color: var(--text-disabled);
-    text-decoration: line-through;
+  }
+}
+
+.manual-page.is-fun .manual-page__fun-toggle {
+  border-radius: var(--radius-pill);
+  &:hover, &:focus-visible {
+    color: var(--primary-color);
+    border-color: var(--primary-color);
   }
 }
 
@@ -575,7 +720,7 @@ export default {
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 64px;
+  gap: 56px;
 }
 
 .manual-page__hero-stats {
@@ -594,6 +739,15 @@ export default {
 
 :deep(img[data-manual-previewable='true']) {
   cursor: zoom-in;
+}
+
+/* 默认模式下隐藏所有 sticker；funMode 下恢复。 */
+:deep(.manual-section__head .manual-naiwa-sticker) {
+  display: none;
+}
+
+.manual-page.is-fun :deep(.manual-section__head .manual-naiwa-sticker) {
+  display: inline-flex;
 }
 
 .manual-toast {
@@ -679,7 +833,7 @@ export default {
 }
 
 @media (max-width: 768px) {
-  .manual-page__hero {
+  .manual-page.is-fun .manual-page__hero {
     grid-template-columns: 1fr;
     grid-template-areas:
       'left'
@@ -687,7 +841,9 @@ export default {
       'tools';
     padding: 24px 20px;
   }
+  .manual-page__hero { padding: 28px 22px; }
   .manual-page__hero-mascot { width: 160px; }
-  .manual-page__hero-title { font-size: 28px; }
+  .manual-page__hero-title { font-size: 30px; }
+  .manual-page__hero-sub { font-size: 14.5px; }
 }
 </style>

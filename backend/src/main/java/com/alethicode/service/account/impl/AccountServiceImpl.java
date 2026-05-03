@@ -8,6 +8,8 @@ import com.alethicode.dto.request.*;
 import com.alethicode.dto.response.ApiResponse;
 import com.alethicode.middleware.SessionAuthenticationFilter;
 import com.alethicode.service.account.AccountService;
+import com.alethicode.service.account.PasswordResetMailService;
+import com.alethicode.service.account.PasswordResetThrottle;
 import com.alethicode.util.TotpUtils;
 import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.Cookie;
@@ -66,12 +68,22 @@ public class AccountServiceImpl implements AccountService {
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
     private final AlethicodeProperties properties;
+    private final PasswordResetMailService passwordResetMailService;
+    private final PasswordResetThrottle passwordResetThrottle;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
-    public AccountServiceImpl(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper, AlethicodeProperties properties) {
+    public AccountServiceImpl(
+            JdbcTemplate jdbcTemplate,
+            ObjectMapper objectMapper,
+            AlethicodeProperties properties,
+            PasswordResetMailService passwordResetMailService,
+            PasswordResetThrottle passwordResetThrottle
+    ) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
         this.properties = properties;
+        this.passwordResetMailService = passwordResetMailService;
+        this.passwordResetThrottle = passwordResetThrottle;
     }
 
     @PostConstruct
@@ -450,22 +462,31 @@ public class AccountServiceImpl implements AccountService {
                                                   Authentication authentication,
                                                   HttpServletRequest httpServletRequest) {
         if (resolveAuthUser(authentication) != null) {
-            throw com.alethicode.exception.BusinessExceptions.fromLegacy("error", "You have already logged in, are you kidding me? ");
+            throw com.alethicode.exception.BusinessExceptions.fromLegacy(
+                    "error", "You have already logged in, are you kidding me? ");
         }
         if (!isCaptchaValid(request.captcha(), httpServletRequest)) {
             throw com.alethicode.exception.BusinessExceptions.fromLegacy("error", "Invalid captcha");
         }
         String email = lowerTrim(request.email());
         if (email == null) {
-            throw com.alethicode.exception.BusinessExceptions.fromLegacy("error", "User does not exist");
+            // 邮箱缺失等价于"用户不存在"——按"不泄露存在性"原则静默成功。
+            return ApiResponse.success("Succeeded");
+        }
+        if (!passwordResetThrottle.tryAcquire(email)) {
+            throw com.alethicode.exception.BusinessExceptions.fromLegacy(
+                    "error", "Reset email already sent recently, please try again later");
         }
 
         UserRow user = findUserByEmail(email);
-        if (user == null) {
-            throw com.alethicode.exception.BusinessExceptions.fromLegacy("error", "User does not exist");
+        if (user == null || user.disabled()) {
+            // 不存在/被禁用的账号：不发邮件、不写 token，但仍返回成功。
+            // 攻击者无法通过响应分辨用户是否存在；限流 key 已落在他们提交的 email 上，
+            // 后续 60 秒内对同一 email 的重复探测一律被拒。
+            return ApiResponse.success("Succeeded");
         }
 
-        Timestamp expire = Timestamp.from(Instant.now().plusSeconds(20 * 60));
+        Timestamp expire = Timestamp.from(Instant.now().plusSeconds(20L * 60L));
         String token = randomString(32);
         jdbcTemplate.update(
                 "update \"user\" set reset_password_token = ?, reset_password_token_expire_time = ? where id = ?",
@@ -473,6 +494,9 @@ public class AccountServiceImpl implements AccountService {
                 expire,
                 user.id()
         );
+        // 同步发送：失败让前端能感知并重试。SMTP 缺失走 BadRequestException，
+        // 链路与 admin testSmtp 一致；攻击者看到的是系统级错误而非用户存在性差异。
+        passwordResetMailService.sendResetEmail(user.username(), user.email(), token);
         return ApiResponse.success("Succeeded");
     }
 
@@ -1605,7 +1629,7 @@ public class AccountServiceImpl implements AccountService {
         return builder.toString();
     }
 
-    private record UserRow(
+    record UserRow(
             long id,
             String username,
             String email,

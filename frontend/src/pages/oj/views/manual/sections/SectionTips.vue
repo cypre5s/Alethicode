@@ -3,9 +3,9 @@
     <header class="manual-section__head">
       <ManualNaiwaSticker :index="6" size="md" :rotate="-5" />
       <div>
-        <span class="manual-section__kicker">07 · 建议</span>
-        <h2>使用建议</h2>
-        <p>不是必须照做，但你越坚持，越快找到适合自己的节奏。</p>
+        <span class="manual-section__kicker">06 · Tips</span>
+        <h2>学习建议</h2>
+        <p>5 条容易被忽略、但对学习节奏影响很大的最佳实践。不是必须照做，但你越坚持，越快找到适合自己的节奏。</p>
       </div>
     </header>
 

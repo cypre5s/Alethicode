@@ -63,6 +63,10 @@ function countObjectsInArray (key) {
   return count
 }
 
+const VALID_SECTION_TARGETS = new Set([
+  'welcome', 'ai', 'context', 'qa', 'flow', 'tips', 'faq', 'tour', 'gallery', 'feedback'
+])
+
 describe('manualContent.js · localStorage keys', () => {
   test('exposes the two required localStorage keys (fun_mode + completed_at)', () => {
     expect(SOURCE).toMatch(/export const FUN_MODE_KEY\s*=\s*['"]manual\.fun_mode['"]/)
@@ -75,12 +79,12 @@ describe('manualContent.js · localStorage keys', () => {
 })
 
 describe('manualContent.js · SECTIONS', () => {
-  test('declares exactly 9 sections in plan-defined order', () => {
-    expect(countObjectsInArray('SECTIONS')).toBe(9)
+  test('declares exactly 10 sections in plan-defined order', () => {
+    expect(countObjectsInArray('SECTIONS')).toBe(10)
     const block = extractObjectArray('SECTIONS')
     const idOrder = [...block.matchAll(/id:\s*['"]([a-z-]+)['"]/g)].map(m => m[1])
     expect(idOrder).toEqual([
-      'welcome', 'flow', 'tour', 'core', 'ai', 'faq', 'tips', 'gallery', 'feedback'
+      'welcome', 'ai', 'context', 'qa', 'flow', 'tips', 'faq', 'tour', 'gallery', 'feedback'
     ])
   })
 
@@ -88,16 +92,20 @@ describe('manualContent.js · SECTIONS', () => {
     const block = extractObjectArray('SECTIONS')
     const matches = block.match(/funOnly:\s*true/g) || []
     expect(matches).toHaveLength(1)
-    // 同步确认 funOnly 出现在 gallery 对象内
     const galleryBlock = block.match(/id:\s*['"]gallery['"][\s\S]*?\}/)
     expect(galleryBlock[0]).toMatch(/funOnly:\s*true/)
   })
 
   test('every section carries id / title / subtitle / sticker', () => {
     const block = extractObjectArray('SECTIONS')
-    expect((block.match(/title:\s*['"]/g) || []).length).toBeGreaterThanOrEqual(9)
-    expect((block.match(/subtitle:\s*['"]/g) || []).length).toBeGreaterThanOrEqual(9)
-    expect((block.match(/sticker:\s*\d+/g) || []).length).toBeGreaterThanOrEqual(9)
+    expect((block.match(/title:\s*['"]/g) || []).length).toBeGreaterThanOrEqual(10)
+    expect((block.match(/subtitle:\s*['"]/g) || []).length).toBeGreaterThanOrEqual(10)
+    expect((block.match(/sticker:\s*\d+/g) || []).length).toBeGreaterThanOrEqual(10)
+  })
+
+  test('legacy "core" section id is removed (replaced by ai/context/qa/flow split)', () => {
+    const block = extractObjectArray('SECTIONS')
+    expect(block).not.toMatch(/id:\s*['"]core['"]/)
   })
 })
 
@@ -109,8 +117,6 @@ describe('manualContent.js · naiwa asset paths', () => {
   })
 
   test('NAIWA_MOTION exposes 4 keys all pointing to .gif files', () => {
-    // 模板字符串里的 ${NAIWA_BASE} 会被非贪婪正则误判为对象闭合，故按
-    // brace-depth 手动切片定位 NAIWA_MOTION 的对象字面量。
     const start = SOURCE.indexOf('export const NAIWA_MOTION')
     expect(start).toBeGreaterThan(-1)
     const objStart = SOURCE.indexOf('{', start)
@@ -127,7 +133,6 @@ describe('manualContent.js · naiwa asset paths', () => {
     expect(objEnd).toBeGreaterThan(objStart)
     const block = SOURCE.slice(objStart, objEnd + 1)
     for (const key of ['laughLoop', 'bounce', 'spin', 'celebrate']) {
-      // key 后面到下一行末必有一个 .gif 引用
       const re = new RegExp(`${key}:[\\s\\S]*?\\.gif`)
       expect(block).toMatch(re)
     }
@@ -155,7 +160,6 @@ describe('manualContent.js · naiwa asset paths', () => {
   })
 
   test('total distinct naiwa asset paths satisfy the plan-required ≥20', () => {
-    // hero(1) + audio(1) + motion(4) + stickers(8) + faq(4) + gallery(≥12) = ≥30
     const stickersCount = countObjectsInArray('NAIWA_STICKERS')
     const faqCount = countObjectsInArray('NAIWA_FAQ_ICONS')
     const galleryCount = countObjectsInArray('NAIWA_GALLERY')
@@ -165,26 +169,33 @@ describe('manualContent.js · naiwa asset paths', () => {
 })
 
 describe('manualContent.js · QUICK_START_STEPS', () => {
-  test('exports exactly 3 quick-start steps', () => {
-    expect(countObjectsInArray('QUICK_START_STEPS')).toBe(3)
+  test('exports exactly 4 quick-start steps (重构后从 3 步扩到 4 步)', () => {
+    expect(countObjectsInArray('QUICK_START_STEPS')).toBe(4)
   })
 
-  test('steps are numbered 1, 2, 3', () => {
+  test('steps numbered 1-4', () => {
     const block = extractObjectArray('QUICK_START_STEPS')
-    expect(block).toMatch(/step:\s*1/)
-    expect(block).toMatch(/step:\s*2/)
-    expect(block).toMatch(/step:\s*3/)
+    for (let i = 1; i <= 4; i += 1) {
+      expect(block).toMatch(new RegExp(`step:\\s*${i}`))
+    }
+  })
+
+  test('每步都附带 where / look / why 三个上下文字段', () => {
+    const block = extractObjectArray('QUICK_START_STEPS')
+    expect((block.match(/where:/g) || []).length).toBe(4)
+    expect((block.match(/look:/g) || []).length).toBe(4)
+    expect((block.match(/why:/g) || []).length).toBe(4)
   })
 })
 
 describe('manualContent.js · FLOW_NODES', () => {
-  test('flow has exactly 8 nodes', () => {
+  test('flow has exactly 8 nodes (8 步学习闭环)', () => {
     expect(countObjectsInArray('FLOW_NODES')).toBe(8)
   })
 
-  test('contains the canonical novice waypoints', () => {
+  test('contains the canonical 8-step waypoints', () => {
     const block = extractObjectArray('FLOW_NODES')
-    for (const id of ['register', 'home', 'pack', 'problem', 'code', 'ai', 'submit', 'review']) {
+    for (const id of ['read', 'io', 'idea', 'code', 'submit', 'feedback', 'fix', 'review']) {
       expect(block).toMatch(new RegExp(`id:\\s*['"]${id}['"]`))
     }
   })
@@ -193,10 +204,22 @@ describe('manualContent.js · FLOW_NODES', () => {
     const block = extractObjectArray('FLOW_NODES')
     const targets = [...block.matchAll(/target:\s*['"]([a-z-]+)['"]/g)].map(m => m[1])
     expect(targets.length).toBe(8)
-    const validTargets = new Set(['welcome', 'flow', 'tour', 'core', 'ai', 'faq', 'tips', 'gallery', 'feedback'])
     for (const t of targets) {
-      expect(validTargets.has(t)).toBe(true)
+      expect(VALID_SECTION_TARGETS.has(t)).toBe(true)
     }
+  })
+})
+
+describe('manualContent.js · LEARNING_LOOP_STEPS', () => {
+  test('exports exactly 8 loop step descriptions matching FLOW_NODES count', () => {
+    expect(countObjectsInArray('LEARNING_LOOP_STEPS')).toBe(8)
+  })
+
+  test('每条 loop step 都有 step 序号、title、desc', () => {
+    const block = extractObjectArray('LEARNING_LOOP_STEPS')
+    expect((block.match(/step:\s*\d+/g) || []).length).toBe(8)
+    expect((block.match(/title:/g) || []).length).toBe(8)
+    expect((block.match(/desc:/g) || []).length).toBe(8)
   })
 })
 
@@ -233,16 +256,16 @@ describe('manualContent.js · TOUR_PAGES', () => {
   })
 })
 
-describe('manualContent.js · CORE_OPERATIONS', () => {
-  test('exports 5 core operations matching plan §4.3', () => {
-    expect(countObjectsInArray('CORE_OPERATIONS')).toBe(5)
-    const block = extractObjectArray('CORE_OPERATIONS')
-    for (const id of ['write-problem', 'use-ai-card', 'use-notebook', 'use-qa', 'join-classroom']) {
-      expect(block).toMatch(new RegExp(`id:\\s*['"]${id}['"]`))
-    }
+describe('manualContent.js · CORE_OPERATIONS / QA_GUIDE 已删除', () => {
+  test('CORE_OPERATIONS 不再被导出（内容拆到 ai / context / qa / flow / tour）', () => {
+    expect(SOURCE).not.toMatch(/export const CORE_OPERATIONS/)
   })
 
-  test('does not mention hidden collaborative coding features', () => {
+  test('QA_GUIDE 不再被导出（内容拆到 SectionCoursewareQa）', () => {
+    expect(SOURCE).not.toMatch(/export const QA_GUIDE/)
+  })
+
+  test('文案中不再出现已下线的「协作编程」相关概念', () => {
     expect(SOURCE).not.toMatch(/协作编程|协同编程|共享代码|collab|collaboration/i)
   })
 })
@@ -258,16 +281,11 @@ describe('manualContent.js · AI_CHARACTERS', () => {
 
   test('every character has avatar / duty / when / howTo / example fields', () => {
     const block = extractObjectArray('AI_CHARACTERS')
-    const avatarCount = (block.match(/avatar:/g) || []).length
-    const dutyCount = (block.match(/duty:/g) || []).length
-    const whenCount = (block.match(/when:/g) || []).length
-    const howToCount = (block.match(/howTo:/g) || []).length
-    const exampleCount = (block.match(/example:/g) || []).length
-    expect(avatarCount).toBe(5)
-    expect(dutyCount).toBe(5)
-    expect(whenCount).toBe(5)
-    expect(howToCount).toBe(5)
-    expect(exampleCount).toBe(5)
+    expect((block.match(/avatar:/g) || []).length).toBe(5)
+    expect((block.match(/duty:/g) || []).length).toBe(5)
+    expect((block.match(/when:/g) || []).length).toBe(5)
+    expect((block.match(/howTo:/g) || []).length).toBe(5)
+    expect((block.match(/example:/g) || []).length).toBe(5)
   })
 
   test('avatar paths under /assets/characters/', () => {
@@ -276,18 +294,113 @@ describe('manualContent.js · AI_CHARACTERS', () => {
   })
 })
 
+describe('manualContent.js · 新增 AI 教学数据 (ai 三段式)', () => {
+  test('AI_CAPABILITIES 8 项能力', () => {
+    expect(countObjectsInArray('AI_CAPABILITIES')).toBe(8)
+    const block = extractObjectArray('AI_CAPABILITIES')
+    for (const id of ['explain-problem', 'split-io', 'split-thought', 'locate-bug',
+      'translate-error', 'review-code', 'summarize-kc', 'recommend-similar']) {
+      expect(block).toMatch(new RegExp(`id:\\s*['"]${id}['"]`))
+    }
+  })
+
+  test('RECOMMENDED_PROMPTS 4 条推荐提问，每条带 when/prompt/why', () => {
+    expect(countObjectsInArray('RECOMMENDED_PROMPTS')).toBe(4)
+    const block = extractObjectArray('RECOMMENDED_PROMPTS')
+    expect((block.match(/when:/g) || []).length).toBe(4)
+    expect((block.match(/prompt:/g) || []).length).toBe(4)
+    expect((block.match(/why:/g) || []).length).toBe(4)
+  })
+
+  test('DISCOURAGED_PROMPTS 至少包含 2 条反例', () => {
+    expect(countObjectsInArray('DISCOURAGED_PROMPTS')).toBeGreaterThanOrEqual(2)
+    const block = extractObjectArray('DISCOURAGED_PROMPTS')
+    expect(block).toMatch(/直接给我答案|帮我把整段代码写完/)
+  })
+})
+
+describe('manualContent.js · 新增 @ 上下文引用数据', () => {
+  test('CONTEXT_TOKENS 列出 8 个 @ token (1 个 @card + 7 个 @last_*)', () => {
+    expect(countObjectsInArray('CONTEXT_TOKENS')).toBe(8)
+    const block = extractObjectArray('CONTEXT_TOKENS')
+    for (const tok of ['@card:', '@last_guide', '@last_ideate', '@last_error',
+      '@last_post_ac', '@last_transfer', '@last_review', '@last_visualize']) {
+      expect(block).toContain(tok)
+    }
+  })
+
+  test('CONTEXT_EXAMPLES 4 条示例提问，全部带 prompt 字段', () => {
+    expect(countObjectsInArray('CONTEXT_EXAMPLES')).toBe(4)
+    const block = extractObjectArray('CONTEXT_EXAMPLES')
+    expect((block.match(/prompt:/g) || []).length).toBe(4)
+    expect((block.match(/label:/g) || []).length).toBe(4)
+  })
+
+  test('CONTEXT_TIPS 4 条使用建议', () => {
+    const m = SOURCE.match(/export const CONTEXT_TIPS\s*=\s*\[([\s\S]*?)\]/)
+    expect(m).toBeTruthy()
+    const lines = m[1].split(',').map(s => s.trim()).filter(s => s.startsWith("'") || s.startsWith('"') || s.startsWith('`'))
+    expect(lines.length).toBeGreaterThanOrEqual(4)
+  })
+})
+
+describe('manualContent.js · 新增 课件问答数据', () => {
+  test('COURSEWARE_QA_SCOPE 7 条用法（字符串数组）', () => {
+    const m = SOURCE.match(/export const COURSEWARE_QA_SCOPE\s*=\s*\[([\s\S]*?)\]/)
+    expect(m).toBeTruthy()
+    const lines = m[1].split(',').map(s => s.trim()).filter(s => s.startsWith("'") || s.startsWith('"') || s.startsWith('`'))
+    expect(lines.length).toBe(7)
+  })
+
+  test('COURSEWARE_QA_PROMPTS 5 个提问模板', () => {
+    expect(countObjectsInArray('COURSEWARE_QA_PROMPTS')).toBe(5)
+    const block = extractObjectArray('COURSEWARE_QA_PROMPTS')
+    expect((block.match(/label:/g) || []).length).toBe(5)
+    expect((block.match(/prompt:/g) || []).length).toBe(5)
+  })
+
+  test('COURSEWARE_QA_NOTES 4 条注意事项', () => {
+    const m = SOURCE.match(/export const COURSEWARE_QA_NOTES\s*=\s*\[([\s\S]*?)\]/)
+    expect(m).toBeTruthy()
+    const lines = m[1].split(',').map(s => s.trim()).filter(s => s.startsWith("'") || s.startsWith('"') || s.startsWith('`'))
+    expect(lines.length).toBe(4)
+  })
+})
+
+describe('manualContent.js · HERO_CAPABILITIES (Hero 4 张能力卡)', () => {
+  test('exports 4 hero capability cards', () => {
+    expect(countObjectsInArray('HERO_CAPABILITIES')).toBe(4)
+  })
+
+  test('每张能力卡的 target 必须是合法的 SECTION id', () => {
+    const block = extractObjectArray('HERO_CAPABILITIES')
+    const targets = [...block.matchAll(/target:\s*['"]([a-z-]+)['"]/g)].map(m => m[1])
+    expect(targets.length).toBe(4)
+    for (const t of targets) {
+      expect(VALID_SECTION_TARGETS.has(t)).toBe(true)
+    }
+  })
+
+  test('包含 ai / context / qa / flow 4 个核心入口', () => {
+    const block = extractObjectArray('HERO_CAPABILITIES')
+    const targets = [...block.matchAll(/target:\s*['"]([a-z-]+)['"]/g)].map(m => m[1]).sort()
+    expect(targets).toEqual(['ai', 'context', 'flow', 'qa'])
+  })
+})
+
 describe('manualContent.js · FAQ_ITEMS', () => {
   test('contains 8 essential FAQ entries (after removing redundant ones)', () => {
     expect(countObjectsInArray('FAQ_ITEMS')).toBe(8)
   })
 
-  test('covers core FAQ topics (Pending / 报错 / AI 卡 / 课件问答 / 反思)', () => {
+  test('covers core FAQ topics (Pending / 报错 / AI / 课件问答 / 反思 / @ 引用)', () => {
     const block = extractObjectArray('FAQ_ITEMS')
     expect(block).toMatch(/Pending/)
     expect(block).toMatch(/报错|错误信息/)
-    expect(block).toMatch(/AI 卡/)
+    expect(block).toMatch(/AI/)
     expect(block).toMatch(/课件问答/)
     expect(block).toMatch(/反思|错题本/)
+    expect(block).toMatch(/@ 引用|@ 引/)
   })
 
   test('does NOT include the 4 deprecated questions (forgot pwd / mute / animation / dark)', () => {

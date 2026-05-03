@@ -1,32 +1,45 @@
 <template>
-  <section id="welcome" class="manual-section manual-section--welcome">
+  <section id="welcome" class="manual-section">
     <header class="manual-section__head">
       <ManualNaiwaSticker :index="0" size="md" :rotate="-6" />
       <div>
-        <span class="manual-section__kicker">01 · 起步</span>
-        <h2>欢迎与快速开始</h2>
-        <p>Alethicode 是一个能让你写真代码、被纠错、被陪着学的地方。先认识一下你最常打开的几扇门。</p>
+        <span class="manual-section__kicker">01 · Quick start</span>
+        <h2>快速开始</h2>
+        <p>第一次用 Alethicode，按这 4 步走一遍。每一步会告诉你「在哪做、看什么、为什么」。</p>
       </div>
     </header>
 
-    <div class="quick-start-grid">
-      <article
-        v-for="step in steps"
-        :key="step.step"
-        class="quick-start-card"
-      >
-        <span class="quick-start-card__num">{{ step.step }}</span>
-        <h3>{{ step.title }}</h3>
-        <p>{{ step.desc }}</p>
-      </article>
-    </div>
+    <ol class="quick-start-list">
+      <li v-for="step in steps" :key="step.step" class="quick-start-item">
+        <div class="quick-start-item__num">
+          <span class="quick-start-item__num-digit">{{ String(step.step).padStart(2, '0') }}</span>
+        </div>
+        <div class="quick-start-item__body">
+          <h3>{{ step.title }}</h3>
+          <dl class="quick-start-item__meta">
+            <div>
+              <dt>在哪做</dt>
+              <dd>{{ step.where }}</dd>
+            </div>
+            <div>
+              <dt>看什么</dt>
+              <dd>{{ step.look }}</dd>
+            </div>
+            <div>
+              <dt>为什么</dt>
+              <dd>{{ step.why }}</dd>
+            </div>
+          </dl>
+        </div>
+      </li>
+    </ol>
 
     <div class="welcome-cta">
       <button type="button" class="btn primary" @click="$emit('jump', 'flow')">
-        立刻看完整路径 →
+        跟着 8 步走完整流程 →
       </button>
-      <button type="button" class="btn ghost" @click="$emit('jump', 'tour')">
-        想先看页面截图
+      <button type="button" class="btn ghost" @click="$emit('jump', 'ai')">
+        先读 AI 导学助手说明
       </button>
     </div>
   </section>
@@ -50,97 +63,124 @@ export default {
 <style lang="less" scoped>
 @import './shared.less';
 
-.quick-start-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 16px;
-  margin: 24px 0 8px;
+.quick-start-list {
+  list-style: none;
+  margin: 0 0 24px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  counter-reset: quick-start;
 }
 
-.quick-start-card {
+.quick-start-item {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 16px;
+  padding: 18px 20px;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  padding: 22px 20px 20px;
-  position: relative;
-  overflow: hidden;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  border-radius: var(--radius-md);
+  transition: border-color 0.18s ease;
 
-  &::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.06) 0%, rgba(236, 72, 153, 0.04) 100%);
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.2s ease;
-  }
+  &:hover { border-color: var(--text-disabled); }
+}
 
-  &:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
-    border-color: var(--warm-primary);
-    &::before { opacity: 1; }
-  }
+.quick-start-item__num {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 2px;
+}
+
+.quick-start-item__num-digit {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-disabled);
+  letter-spacing: -0.5px;
+  line-height: 1;
+}
+
+.quick-start-item__body {
+  min-width: 0;
 
   h3 {
+    margin: 0 0 12px;
     font-size: 16px;
+    font-weight: 700;
     color: var(--text-primary);
-    margin: 8px 0 6px;
-  }
-
-  p {
-    color: var(--text-secondary);
-    font-size: 13px;
-    line-height: 1.6;
-    margin: 0;
-    text-wrap: pretty;
+    text-wrap: balance;
+    letter-spacing: -0.2px;
   }
 }
 
-.quick-start-card__num {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  background: var(--warm-grad-primary);
-  color: #fff;
-  font-family: var(--font-mono);
-  font-weight: 700;
-  font-size: 14px;
+.quick-start-item__meta {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px 18px;
+
+  div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  dt {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-disabled);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+
+  dd {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    line-height: 1.55;
+    text-wrap: pretty;
+  }
 }
 
 .welcome-cta {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 16px;
+  gap: 10px;
+  margin-top: 8px;
 
   .btn {
-    border: 1px solid var(--border-default);
+    border: 1px solid var(--border-color);
     background: var(--bg-card);
-    color: var(--text-secondary);
-    border-radius: var(--radius-pill);
-    padding: 9px 22px;
-    font-size: 14px;
+    color: var(--text-primary);
+    border-radius: var(--radius-md);
+    padding: 9px 18px;
+    font-size: 13.5px;
     cursor: pointer;
-    font-weight: 500;
+    font-weight: 600;
     transition: all 0.18s ease;
 
     &:hover {
-      color: var(--primary-color);
-      border-color: var(--primary-color);
+      border-color: var(--text-disabled);
     }
 
     &.primary {
-      background: var(--warm-grad-primary);
-      color: #fff;
-      border-color: transparent;
-      box-shadow: var(--shadow-warm);
-      &:hover { transform: translateY(-1px); color: #fff; border-color: transparent; }
+      background: var(--text-primary);
+      color: var(--bg-card);
+      border-color: var(--text-primary);
+      &:hover { opacity: 0.85; }
     }
   }
+}
+
+@media (max-width: 640px) {
+  .quick-start-item {
+    grid-template-columns: 40px 1fr;
+    padding: 14px 14px;
+  }
+
+  .quick-start-item__num-digit { font-size: 18px; }
 }
 </style>

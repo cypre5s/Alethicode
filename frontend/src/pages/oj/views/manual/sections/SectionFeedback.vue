@@ -3,9 +3,9 @@
     <header class="manual-section__head">
       <ManualNaiwaSticker :index="0" size="md" :rotate="0" />
       <div>
-        <span class="manual-section__kicker">08 · 反馈</span>
+        <span class="manual-section__kicker">10 · Feedback</span>
         <h2>反馈与帮助</h2>
-        <p>看到 bug、想关掉某个动效、或者只是想吐槽，都从这里走。</p>
+        <p>看到 bug、想关掉某个动效、或者只是想吐槽，都从这里走。键盘快捷键也都在这里。</p>
       </div>
     </header>
 

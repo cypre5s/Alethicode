@@ -3,7 +3,7 @@
     <header class="manual-section__head">
       <ManualNaiwaSticker :index="5" size="md" :rotate="2" />
       <div>
-        <span class="manual-section__kicker">06 · FAQ</span>
+        <span class="manual-section__kicker">07 · FAQ</span>
         <h2>常见问题</h2>
         <p>{{ items.length }} 条最常被问的问题，按"做题流程"排序，看到对应的就点开。</p>
       </div>

@@ -3,70 +3,87 @@
     <header class="manual-section__head">
       <ManualNaiwaSticker :index="4" size="md" :rotate="-4" />
       <div>
-        <span class="manual-section__kicker">05 · AI</span>
-        <h2>智能辅助说明</h2>
-        <p>5 位角色背后是不同分工的 AI 助手。它们的目标是让你看懂自己的题，不是替你写。</p>
+        <span class="manual-section__kicker">02 · AI Tutor</span>
+        <h2>AI 导学助手</h2>
+        <p>AI 不是替你写代码，是和你一起想清楚下一步。下面分四段说清它能做什么、5 位角色各管什么、怎么问最有效、哪些问法会反过来害自己。</p>
       </div>
     </header>
 
-    <div class="ai-grid">
-      <article
-        v-for="ch in characters"
-        :key="ch.id"
-        class="ai-card"
-        :class="{ 'is-expanded': expandedId === ch.id }"
-        @click="toggleExpand(ch.id)"
-      >
-        <div class="ai-card__header">
-          <figure class="ai-card__avatar" :style="{ '--ch-color': ch.color }">
-            <img :src="ch.avatar" :alt="ch.name" loading="lazy" @error="onAvatarError($event, ch)">
-            <span v-if="ch._avatarFailed" class="ai-card__initial">{{ ch.initial }}</span>
-          </figure>
-          <div class="ai-card__summary">
-            <h3>{{ ch.name }}</h3>
-            <p class="ai-card__duty">{{ ch.duty }}</p>
-            <p class="ai-card__when"><strong>什么时候用：</strong>{{ ch.when }}</p>
-          </div>
-          <span class="ai-card__expand-icon">{{ expandedId === ch.id ? '▲' : '▼' }}</span>
-        </div>
-
-        <transition name="ai-detail">
-          <div v-if="expandedId === ch.id" class="ai-card__detail">
-            <div class="ai-card__howto">
-              <h4>使用步骤</h4>
-              <ol>
-                <li v-for="(step, i) in ch.howTo" :key="i">{{ step }}</li>
-              </ol>
-            </div>
-            <div v-if="ch.example" class="ai-card__example">
-              <h4>示例场景</h4>
-              <p>{{ ch.example }}</p>
-            </div>
-          </div>
-        </transition>
-      </article>
+    <div class="ai-block">
+      <h3 class="ai-block__title">能帮你做什么</h3>
+      <ul class="ai-cap-grid">
+        <li v-for="cap in capabilities" :key="cap.id" class="ai-cap-card">
+          <span class="ai-cap-card__dot" aria-hidden="true">·</span>
+          <strong>{{ cap.title }}</strong>
+          <p>{{ cap.desc }}</p>
+        </li>
+      </ul>
     </div>
 
-    <div class="ai-qa-guide" id="qa-guide">
-      <h3 class="ai-qa-guide__title">{{ qaGuide.title }}</h3>
-      <p class="ai-qa-guide__intro">{{ qaGuide.intro }}</p>
-
-      <div class="ai-qa-guide__steps">
-        <div v-for="s in qaGuide.steps" :key="s.step" class="ai-qa-step">
-          <span class="ai-qa-step__num">{{ s.step }}</span>
-          <div>
-            <strong>{{ s.title }}</strong>
-            <p>{{ s.desc }}</p>
+    <div class="ai-block">
+      <h3 class="ai-block__title">5 位角色 · 各管一段学习节奏</h3>
+      <p class="ai-block__lead">点开角色卡查看适用场景与使用步骤；任何角色都不会直接给答案，而是把你的下一步说清楚。</p>
+      <div class="ai-grid">
+        <article
+          v-for="ch in characters"
+          :key="ch.id"
+          class="ai-card"
+          :class="{ 'is-expanded': expandedId === ch.id }"
+          @click="toggleExpand(ch.id)"
+        >
+          <div class="ai-card__header">
+            <figure class="ai-card__avatar" :style="{ '--ch-color': ch.color }">
+              <img :src="ch.avatar" :alt="ch.name" loading="lazy" @error="onAvatarError($event, ch)">
+              <span v-if="ch._avatarFailed" class="ai-card__initial">{{ ch.initial }}</span>
+            </figure>
+            <div class="ai-card__summary">
+              <h4>{{ ch.name }}</h4>
+              <p class="ai-card__duty">{{ ch.duty }}</p>
+              <p class="ai-card__when"><strong>什么时候用：</strong>{{ ch.when }}</p>
+            </div>
+            <span class="ai-card__expand-icon" aria-hidden="true">{{ expandedId === ch.id ? '−' : '+' }}</span>
           </div>
-        </div>
-      </div>
 
-      <div class="ai-qa-guide__tips">
-        <h4>使用技巧</h4>
-        <ul>
-          <li v-for="(tip, i) in qaGuide.tips" :key="i">{{ tip }}</li>
-        </ul>
+          <transition name="ai-detail">
+            <div v-if="expandedId === ch.id" class="ai-card__detail">
+              <div class="ai-card__howto">
+                <h5>使用步骤</h5>
+                <ol>
+                  <li v-for="(step, i) in ch.howTo" :key="i">{{ step }}</li>
+                </ol>
+              </div>
+              <div v-if="ch.example" class="ai-card__example">
+                <h5>示例场景</h5>
+                <p>{{ ch.example }}</p>
+              </div>
+            </div>
+          </transition>
+        </article>
       </div>
+    </div>
+
+    <div class="ai-block">
+      <h3 class="ai-block__title">推荐这样问 AI</h3>
+      <p class="ai-block__lead">直接复制下面的提问模板，按需要把关键词替换成你正在做的题或正在看的报错。</p>
+      <div class="ai-prompt-grid">
+        <ManualPromptCard
+          v-for="item in recommendedPrompts"
+          :key="item.id"
+          :label="`${item.label} · ${item.when}`"
+          :prompt="item.prompt"
+          :note="`为什么这样问：${item.why}`"
+        />
+      </div>
+    </div>
+
+    <div class="ai-block">
+      <h3 class="ai-block__title">不推荐这样问</h3>
+      <ul class="ai-discouraged">
+        <li v-for="item in discouragedPrompts" :key="item.id">
+          <code>{{ item.label }}</code>
+          <p>{{ item.why }}</p>
+        </li>
+      </ul>
     </div>
 
     <div class="ai-warning">
@@ -77,26 +94,25 @@
 
 <script>
 import ManualNaiwaSticker from '../ManualNaiwaSticker.vue'
-import { AI_CHARACTERS, QA_GUIDE } from '../manualContent.js'
-import Atropos from 'atropos'
-import 'atropos/css'
+import ManualPromptCard from '../ManualPromptCard.vue'
+import {
+  AI_CHARACTERS,
+  AI_CAPABILITIES,
+  RECOMMENDED_PROMPTS,
+  DISCOURAGED_PROMPTS
+} from '../manualContent.js'
 
 export default {
   name: 'SectionAI',
-  components: { ManualNaiwaSticker },
+  components: { ManualNaiwaSticker, ManualPromptCard },
   data () {
     return {
       characters: AI_CHARACTERS.map(ch => ({ ...ch, _avatarFailed: false })),
-      qaGuide: QA_GUIDE,
-      expandedId: null,
-      atroposInstances: []
+      capabilities: AI_CAPABILITIES,
+      recommendedPrompts: RECOMMENDED_PROMPTS,
+      discouragedPrompts: DISCOURAGED_PROMPTS,
+      expandedId: null
     }
-  },
-  mounted () {
-    this.$nextTick(() => this.initAtropos())
-  },
-  beforeUnmount () {
-    this.atroposInstances.forEach(a => { try { a.destroy() } catch (e) { /* noop */ } })
   },
   methods: {
     onAvatarError (event, ch) {
@@ -105,38 +121,6 @@ export default {
     },
     toggleExpand (id) {
       this.expandedId = this.expandedId === id ? null : id
-    },
-    initAtropos () {
-      const cards = this.$el.querySelectorAll('.ai-card__header')
-      cards.forEach(card => {
-        const wrapper = document.createElement('div')
-        wrapper.className = 'atropos'
-        wrapper.innerHTML = '<div class="atropos-scale"><div class="atropos-rotate"><div class="atropos-inner"></div></div></div>'
-        const inner = wrapper.querySelector('.atropos-inner')
-        const parent = card.parentElement
-        if (!parent) return
-
-        const avatarFig = card.querySelector('.ai-card__avatar')
-        if (avatarFig) {
-          avatarFig.setAttribute('data-atropos-offset', '5')
-        }
-
-        try {
-          const instance = Atropos({
-            el: parent,
-            activeOffset: 30,
-            shadowScale: 0.92,
-            rotateXMax: 8,
-            rotateYMax: 8,
-            duration: 400,
-            shadow: false,
-            highlight: false
-          })
-          if (instance) this.atroposInstances.push(instance)
-        } catch (e) {
-          // Atropos requires specific DOM structure; silently skip if not compatible
-        }
-      })
     }
   }
 }
@@ -145,42 +129,103 @@ export default {
 <style lang="less" scoped>
 @import './shared.less';
 
+.ai-block {
+  margin-top: 32px;
+
+  &:first-of-type { margin-top: 4px; }
+}
+
+.ai-block__title {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.2px;
+}
+
+.ai-block__lead {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+  max-width: 62ch;
+  text-wrap: pretty;
+}
+
+.ai-cap-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.ai-cap-card {
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  gap: 8px 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  transition: border-color 0.18s ease;
+
+  &:hover { border-color: var(--text-disabled); }
+
+  strong {
+    grid-column: 2;
+    font-size: 14px;
+    color: var(--text-primary);
+  }
+
+  p {
+    grid-column: 2;
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    text-wrap: pretty;
+  }
+}
+
+.ai-cap-card__dot {
+  grid-row: 1 / span 2;
+  font-family: var(--font-mono);
+  font-size: 18px;
+  color: var(--text-disabled);
+  line-height: 1;
+}
+
 .ai-grid {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 
 .ai-card {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  padding: 0;
   cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  transition: border-color 0.18s ease;
 
-  &:hover {
-    box-shadow: var(--shadow-sm);
-    border-color: var(--warm-primary);
-  }
+  &:hover { border-color: var(--text-disabled); }
 
-  &.is-expanded {
-    border-color: var(--warm-primary);
-    box-shadow: var(--shadow-md);
-  }
+  &.is-expanded { border-color: var(--text-secondary); }
 }
 
 .ai-card__header {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 16px;
+  padding: 14px 16px;
 }
 
 .ai-card__avatar {
   margin: 0;
-  width: 72px;
-  height: 72px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   overflow: hidden;
   flex-shrink: 0;
@@ -199,10 +244,10 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
-  font-weight: 800;
+  font-size: 16px;
+  font-weight: 700;
   color: #fff;
-  background: var(--ch-color, var(--warm-primary));
+  background: var(--ch-color, var(--text-secondary));
   border-radius: 50%;
 }
 
@@ -210,9 +255,9 @@ export default {
   flex: 1;
   min-width: 0;
 
-  h3 {
+  h4 {
     margin: 0 0 4px;
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 700;
     color: var(--text-primary);
   }
@@ -220,14 +265,16 @@ export default {
 
 .ai-card__expand-icon {
   flex-shrink: 0;
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: 18px;
   color: var(--text-disabled);
-  transition: transform 0.2s ease;
+  width: 18px;
+  text-align: center;
 }
 
 .ai-card__duty {
   margin: 0 0 4px;
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--text-secondary);
   line-height: 1.55;
   text-wrap: pretty;
@@ -243,51 +290,51 @@ export default {
 }
 
 .ai-card__detail {
-  padding: 0 16px 16px;
   border-top: 1px dashed var(--border-color);
-  margin: 0 16px;
-  padding-top: 14px;
+  padding: 12px 16px 16px;
 }
 
 .ai-card__howto {
   margin-bottom: 12px;
 
-  h4 {
-    margin: 0 0 8px;
-    font-size: 13px;
+  h5 {
+    margin: 0 0 6px;
+    font-size: 12px;
     font-weight: 700;
     color: var(--text-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
   }
 
   ol {
     margin: 0;
-    padding-left: 20px;
+    padding-left: 18px;
     font-size: 13px;
     color: var(--text-secondary);
     line-height: 1.7;
 
-    li { margin-bottom: 4px; }
+    li { margin-bottom: 2px; }
   }
 }
 
 .ai-card__example {
-  background: var(--warm-bg-subtle);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
-  padding: 12px 14px;
-  border: 1px dashed var(--border-warm);
+  padding: 10px 12px;
 
-  h4 {
-    margin: 0 0 6px;
-    font-size: 12px;
+  h5 {
+    margin: 0 0 4px;
+    font-size: 11px;
     font-weight: 700;
-    color: var(--warm-primary-strong);
+    color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
 
   p {
     margin: 0;
-    font-size: 13px;
+    font-size: 12.5px;
     color: var(--text-secondary);
     line-height: 1.6;
   }
@@ -305,110 +352,60 @@ export default {
 }
 .ai-detail-enter-to,
 .ai-detail-leave-from {
-  max-height: 500px;
+  max-height: 600px;
   opacity: 1;
 }
 
-.ai-qa-guide {
-  margin-top: 32px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  padding: 24px;
+.ai-prompt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
 }
 
-.ai-qa-guide__title {
-  margin: 0 0 8px;
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.ai-qa-guide__intro {
-  margin: 0 0 20px;
-  font-size: 14px;
-  color: var(--text-secondary);
-  line-height: 1.7;
-  text-wrap: pretty;
-}
-
-.ai-qa-guide__steps {
+.ai-discouraged {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  margin-bottom: 20px;
-}
+  gap: 10px;
 
-.ai-qa-step {
-  display: flex;
-  gap: 14px;
-  align-items: flex-start;
+  li {
+    border-left: 3px solid var(--color-warning, #f59e0b);
+    background: rgba(245, 158, 11, 0.05);
+    border-radius: var(--radius-sm);
+    padding: 12px 16px;
 
-  strong {
-    display: block;
-    font-size: 14px;
-    color: var(--text-primary);
-    margin-bottom: 4px;
-  }
+    code {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      background: transparent;
+      padding: 0;
+    }
 
-  p {
-    margin: 0;
-    font-size: 13px;
-    color: var(--text-secondary);
-    line-height: 1.6;
-  }
-}
-
-.ai-qa-step__num {
-  flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--warm-grad-primary);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.ai-qa-guide__tips {
-  background: var(--warm-bg-subtle);
-  border-radius: var(--radius-md);
-  padding: 16px 18px;
-  border: 1px dashed var(--border-warm);
-
-  h4 {
-    margin: 0 0 8px;
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--text-primary);
-  }
-
-  ul {
-    margin: 0;
-    padding-left: 18px;
-    font-size: 13px;
-    color: var(--text-secondary);
-    line-height: 1.7;
-
-    li { margin-bottom: 4px; }
+    p {
+      margin: 4px 0 0;
+      font-size: 12.5px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      text-wrap: pretty;
+    }
   }
 }
 
 .ai-warning {
-  margin-top: 18px;
+  margin-top: 28px;
   padding: 14px 18px;
   background: rgba(245, 158, 11, 0.08);
-  border-left: 3px solid var(--color-warning);
+  border-left: 3px solid var(--color-warning, #f59e0b);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-size: 13px;
   line-height: 1.6;
   text-wrap: pretty;
 
-  strong { color: var(--color-warning); margin-right: 4px; }
+  strong { color: var(--color-warning, #f59e0b); margin-right: 4px; }
 }
 </style>
