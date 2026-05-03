@@ -477,6 +477,8 @@ public class AITutorController {
                 ? list.stream().map(String::valueOf).toList()
                 : java.util.List.of();
         try {
+            // IDOR 防御：必须先校验 sessionId 归属当前 user，防止学生用别人的 sessionId 越权提交。
+            parsonsCapabilityService.assertSessionOwnedBy(sessionId, userId);
             ParsonsCapabilityService.GradeResult result = parsonsCapabilityService.grade(
                     new ParsonsCapabilityService.GradeRequest(sessionId, ordered));
             Map<String, Object> body = new LinkedHashMap<>();
@@ -513,6 +515,8 @@ public class AITutorController {
         }
         String text = trimToEmpty(request.get("text"));
         try {
+            // IDOR 防御：必须先校验 sessionId 归属当前 user，防止学生用别人的 sessionId 越权写 walkthrough。
+            parsonsCapabilityService.assertSessionOwnedBy(sessionId, userId);
             ParsonsCapabilityService.WalkthroughResult result = parsonsCapabilityService.submitWalkthrough(
                     new ParsonsCapabilityService.WalkthroughRequest(sessionId, text));
             Map<String, Object> body = new LinkedHashMap<>();
@@ -539,6 +543,8 @@ public class AITutorController {
                     .body(ApiResponse.error("permission-denied", "请先登录"));
         }
         try {
+            // IDOR 防御：必须先校验 sessionId 归属当前 user，防止学生用别人的 sessionId 越权读卡。
+            parsonsCapabilityService.assertSessionOwnedBy(sessionId, userId);
             Map<String, Object> payload = parsonsCapabilityService.loadCard(sessionId);
             return ResponseEntity.ok(ApiResponse.success(payload));
         } catch (IllegalArgumentException e) {

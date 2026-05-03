@@ -4,6 +4,15 @@
 
 ## [Unreleased] - 2026-05-03
 
+### Parsons IDOR 越权漏洞修复（HIGH 安全 bug）
+
+> **背景**：5/3 部署后端到端模拟测试发现：`AITutorController` 的三个 user-facing parsons 端点（`GET /api/ai/tutor/parsons/{sessionId}` / `POST /api/ai/tutor/parsons/submit` / `POST /api/ai/tutor/parsons/walkthrough`）虽然校验了"已登录"但**没有校验 sessionId 是否属于当前 user**，等于 IDOR (Insecure Direct Object Reference) 越权 — 任何登录学生只要拿到/猜中别人的 sessionId 就能：(a) **越权读** 看到别人的拼装挑战卡（含 blocks 顺序提示 + distractors）；(b) **越权写** 给别人的 session 提交、污染 ai_parsons_session.submission_count、可能触发别人的 cascade 失败降级；(c) **越权写 walkthrough** 给别人的 walkthrough 写文本、污染 breakthrough notebook + 影响 FSRS rating。实测证据：stu_1 (user 17) 直接 GET user 14 的 session 返回 200。
+
+- 2026-05-03 **[安全/parsons]** `ParsonsCapabilityService.assertSessionOwnedBy(sessionId, userId)` 新增校验方法：先 `select user_id from ai_parsons_session where id = ?`，session 不存在 / user 不匹配 / null 参数都抛 `IllegalArgumentException("Parsons 会话不存在: " + sessionId)`，**错误信息一致**（避免 timing 攻击通过响应区分"不存在"与"无权限"做枚举）。failfast 风格，不写防御性兜底。
+- 2026-05-03 **[安全/parsons]** `AITutorController.parsonsLoad` / `parsonsSubmit` / `parsonsWalkthrough` 三个端点在调 service 主方法前先调用 `parsonsCapabilityService.assertSessionOwnedBy(sessionId, userId)`，越权立即抛异常 → controller catch 返回 404 / 422，不暴露任何 session 内容。internal 路径（`/internal/ai-tutor/parsons/*`，tutor-graph trusted source）保持不变，不调 assertSessionOwnedBy。
+- 2026-05-03 **[安全/测试]** `ParsonsCapabilityServiceTest` 新增 4 个 IDOR 防御用例：(a) 拥有者 sessionId 通过；(b) 跨 user sessionId 抛 IllegalArgumentException 含一致错误信息；(c) sessionId 不存在抛同样异常；(d) null sessionId / null userId / 空字符串都立即抛错且不查 DB。共 17/17 通过（13 旧 + 4 新）。
+- 2026-05-03 **[验证/E2E 模拟]** 模拟登录 lbx (Teacher) + stu_1 (Regular User) 走完整 RBAC 矩阵：匿名 7 端点全 401；stu_1 admin 端点 403；stu_1 看自己 welcome 拿到 3 starter_actions（含「拼装挑战」）；stu_1 GET 别人的 parsons sessionId（修复前 200 漏数据）→ 修复后 404；profile API 不泄露 password_hash / auth_token。功能多测 8 组（user × problem 矩阵）全部 dispatch 成功，fading_level / blocks / distractor 来源符合预期。
+
 ### 工程成熟度补强：错误追踪、依赖审计、覆盖率与 TypeScript 渐进
 
 > **背景**：在死代码清理后复核成熟度差距时，重新核实项目现状：OpenAPI（springdoc）、OpenTelemetry（Micrometer Tracing + OTLP）、Resilience4j 已经存在；按用户要求不改第 9 项 Resilience4j。此次只补齐不会影响主链路的工程能力：GlitchTip/Sentry 协议错误追踪、Dependabot 依赖审计、JaCoCo 覆盖率报告、前端 TypeScript 渐进入口。

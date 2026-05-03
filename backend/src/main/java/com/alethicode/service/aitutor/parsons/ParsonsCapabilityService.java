@@ -395,6 +395,32 @@ public class ParsonsCapabilityService {
                 evalResult.passed(), canRewrite, breakthroughNotebookId);
     }
 
+    /**
+     * IDOR 防御：调用任意 user-facing parsons 端点（{@code loadCard} / {@code grade} /
+     * {@code submitWalkthrough}）前必须先调本方法校验 sessionId 归属，避免学生 A 用学生 B 的
+     * sessionId 越权读写。internal 路径（tutor-graph 调 {@code /internal/ai-tutor/parsons/*}）
+     * 是 trusted source，不需要也不应该调本方法。
+     *
+     * <p>session 不存在 / 不属于该 user 都抛 {@link IllegalArgumentException} 且消息一致，
+     * 防止攻击者通过响应区分"不存在"与"无权限"做枚举攻击。</p>
+     */
+    public void assertSessionOwnedBy(String sessionId, Long userId) {
+        if (sessionId == null || sessionId.isBlank() || userId == null) {
+            throw new IllegalArgumentException("Parsons 会话不存在: " + sessionId);
+        }
+        Long ownerId;
+        try {
+            ownerId = jdbcTemplate.queryForObject(
+                    "select user_id from ai_parsons_session where id = ?",
+                    Long.class, sessionId);
+        } catch (EmptyResultDataAccessException e) {
+            throw new IllegalArgumentException("Parsons 会话不存在: " + sessionId);
+        }
+        if (!java.util.Objects.equals(ownerId, userId)) {
+            throw new IllegalArgumentException("Parsons 会话不存在: " + sessionId);
+        }
+    }
+
     public Map<String, Object> loadCard(String sessionId) {
         SessionRow row = loadSession(sessionId);
         Map<String, Object> payload = new LinkedHashMap<>();

@@ -323,6 +323,51 @@ class ParsonsCapabilityServiceTest {
     }
 
     @Test
+    void assertSessionOwnedBy_passesWhenSessionExistsAndBelongsToCaller() {
+        when(jdbcTemplate.queryForObject(
+                argThat((String sql) -> sql != null && sql.contains("select user_id from ai_parsons_session")),
+                eq(Long.class), eq("ps-owned")))
+                .thenReturn(7L);
+
+        service.assertSessionOwnedBy("ps-owned", 7L);
+    }
+
+    @Test
+    void assertSessionOwnedBy_throwsWhenSessionBelongsToAnotherUser() {
+        when(jdbcTemplate.queryForObject(
+                argThat((String sql) -> sql != null && sql.contains("select user_id from ai_parsons_session")),
+                eq(Long.class), eq("ps-other")))
+                .thenReturn(99L);
+
+        assertThatThrownBy(() -> service.assertSessionOwnedBy("ps-other", 7L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Parsons 会话不存在: ps-other");
+    }
+
+    @Test
+    void assertSessionOwnedBy_throwsWhenSessionDoesNotExist() {
+        when(jdbcTemplate.queryForObject(
+                argThat((String sql) -> sql != null && sql.contains("select user_id from ai_parsons_session")),
+                eq(Long.class), eq("ps-missing")))
+                .thenThrow(new EmptyResultDataAccessException("not found", 1));
+
+        assertThatThrownBy(() -> service.assertSessionOwnedBy("ps-missing", 7L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Parsons 会话不存在: ps-missing");
+    }
+
+    @Test
+    void assertSessionOwnedBy_throwsOnNullArgsWithoutQueryingDatabase() {
+        assertThatThrownBy(() -> service.assertSessionOwnedBy(null, 7L))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.assertSessionOwnedBy("", 7L))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.assertSessionOwnedBy("ps-x", null))
+                .isInstanceOf(IllegalArgumentException.class);
+        verify(jdbcTemplate, never()).queryForObject(anyString(), eq(Long.class), any(Object.class));
+    }
+
+    @Test
     void cascadeFailfastWithFsrsOriginAdvancesReviewPackageAgain() {
         stubSessionRow("ps-9", 7L, 101L, "[" +
                 "{\"id\":\"B0\",\"code\":\"a=1\",\"indent\":0}," +
