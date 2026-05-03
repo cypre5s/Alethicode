@@ -37,5 +37,35 @@ export default {
   },
   getTwinHealth() {
     return ajax('twin/health', 'get')
+  },
+  submitMetacogPrediction(data) {
+    return ajax('twin/metacog/predict', 'post', { data })
+  },
+  getMetacogMap() {
+    return ajax('twin/metacog/map', 'get')
+  },
+  askTwin(data) {
+    return ajax('twin/chat', 'post', { data })
+  },
+  getTwinQuickQuestions() {
+    return ajax('twin/chat/quick-questions', 'get')
+  },
+  overrideMastery(data) {
+    return ajax('twin/edit/mastery-override', 'post', { data })
+  },
+  getMasteryOverrides() {
+    return ajax('twin/edit/mastery-overrides', 'get')
+  },
+  getCodeReplayEvents(params) {
+    return ajax('twin/replay/events', 'get', { params })
+  },
+  getWhatIfBranch(data) {
+    return ajax('twin/what-if', 'post', { data })
+  },
+  getTwinWeekly() {
+    return ajax('twin/weekly', 'get')
+  },
+  submitSundayReflection(data) {
+    return ajax('twin/weekly/reflection', 'post', { data })
   }
 }
