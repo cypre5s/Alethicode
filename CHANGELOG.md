@@ -4,6 +4,15 @@
 
 ## [Unreleased] - 2026-05-03
 
+### `/guide` 真实性修复 + Hero 收紧（review 后追加）
+
+> **背景**：之前 `/guide` 重构 PR 上线后 review 发现两个问题——(1) `RECOMMENDED_PROMPTS` 与 `CONTEXT_EXAMPLES` 里写了 `@当前题目` / `@我的代码` / `@课件` 这样的"友好汉字别名"，但 backend `ReferenceResolver` 实际只识别 `@card:<id>` + 7 个 `@last_<kind>`，写文档时为了可读性自造的 token 会误导学生照抄到对话框却被 AI 当普通文字忽略。(2) funMode=on 状态下 hero 高度过高（4 张大块能力卡 + tagline + sub + 双 CTA + mascot 全部排在一起），不美观。本次修两块。
+
+- 2026-05-03 **[内容/manual]** `RECOMMENDED_PROMPTS` 4 条全部改用真 token：(1) `@last_guide` 让寧寧的审题继续展开；(2) `@last_error` 让芳乃接着诊断报错；(3) `@last_ideate` 让 AI 复盘思路；(4) `@last_review` 让 AI 把知识点回顾再讲深一点。`CONTEXT_EXAMPLES` 同样：`@last_error` / `@last_guide` / `@last_ideate` / `@card:<id>`。每条都带 `note` 解释为什么这个 token 适合这个场景。
+- 2026-05-03 **[内容/manual]** `SectionCoursewareQa` 在「是什么」段落里明确："进入页面后选定一份课件，之后所有提问都自动以该课件为唯一检索源——无需在对话里输入 `@课件` token"；并新增「规划中」灰底说明：在 AI 导学助手对话里支持 `@课件:<id>` 引用某份具体课件作为对话 context 是后续规划，目前还没上线，先用「课件问答」入口处理课件相关问题。避免学生误以为现在就能 `@课件`。
+- 2026-05-03 **[视觉/manual]** `ManualPage.vue` Hero 重构布局：(1) 删除与 sub 内容重复的 tagline；(2) 4 张能力卡从大块卡片改成 inline pill 列表（`label · desc` 单行胶囊），高度从 ~90px×2 行降到 ~32px 1 行；(3) 双 CTA 上提到 sub 之后、能力卡之前，让上半部分先看到行动入口；(4) 能力卡 list 用顶部虚线分隔，作为辅助导航；(5) hero padding 默认 40→28px、funMode 32→24px；(6) hero 标题 默认 40→32px、funMode 保持 36px；(7) mascot funMode 220→140px；(8) 移动端断点对应缩到 26-28px。整体 hero 在 funMode=on 状态下垂直高度估算下降 ~35%。
+- 2026-05-03 **[验证/manual]** `jest manual-*` 6 套件 296/296 仍全过；`eslint manual` 0 errors（剩 1 个与本次重构无关的 pre-existing warning）；`npm run build` 46.44s 成功。
+
 ### 重置密码邮件链接 baseUrl 自适应（消除生产 127.0.0.1 死链 bug）
 
 > **背景**：今天上线"重置密码邮件链路"后，发现 ECS 实际发出的链接是 `http://127.0.0.1/reset-password/<token>`——QQ 邮箱里点根本打不开，因为 `PasswordResetMailServiceImpl` 用的是 `sys_options.website_config.website_base_url`，而 ECS admin 默认还保留着出厂值 `http://127.0.0.1`。需要 admin 每次切公网 IP / 绑域名时手动改一次太脆，要让邮件链接的 host 自适应当前请求实际访问的 host。

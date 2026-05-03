@@ -22,28 +22,21 @@
           <ManualTypewriter v-if="funMode" :text="heroSubtitle" :speed="42" :start-delay="320" />
           <span v-else>{{ heroSubtitle }}</span>
         </p>
-        <p class="manual-page__hero-tagline">
-          Alethicode 是一个让你写真代码、被 AI 纠错、被 AI 陪着想清楚下一步的编程学习平台。从读题到复盘，每一步都给你"在哪做、看什么、为什么"。
-        </p>
-
-        <div class="manual-page__hero-caps">
-          <button
-            v-for="cap in capabilities"
-            :key="cap.id"
-            type="button"
-            class="manual-hero-cap"
-            @click="jumpTo(cap.target)"
-          >
-            <span class="manual-hero-cap__label">{{ cap.label }}</span>
-            <span class="manual-hero-cap__desc">{{ cap.desc }}</span>
-            <span class="manual-hero-cap__chevron" aria-hidden="true">→</span>
-          </button>
-        </div>
 
         <div class="manual-page__hero-cta">
           <button type="button" class="btn primary" @click="jumpTo('welcome')">立刻开始</button>
           <button type="button" class="btn ghost" @click="jumpTo('ai')">了解 AI 导学助手</button>
         </div>
+
+        <ul class="manual-page__hero-caps">
+          <li v-for="cap in capabilities" :key="cap.id">
+            <button type="button" class="manual-hero-cap" @click="jumpTo(cap.target)">
+              <span class="manual-hero-cap__label">{{ cap.label }}</span>
+              <span class="manual-hero-cap__sep" aria-hidden="true">·</span>
+              <span class="manual-hero-cap__desc">{{ cap.desc }}</span>
+            </button>
+          </li>
+        </ul>
       </div>
 
       <div v-if="funMode" class="manual-page__hero-right">
@@ -455,13 +448,13 @@ export default {
 .manual-page__hero {
   max-width: 1200px;
   margin: 0 auto 40px;
-  padding: 40px 44px 28px;
+  padding: 28px 36px 22px;
   display: grid;
   grid-template-columns: 1fr;
   grid-template-areas:
     'left'
     'tools';
-  gap: 24px;
+  gap: 16px;
   align-items: stretch;
   background: var(--bg-card);
   border-radius: var(--radius-lg);
@@ -478,7 +471,7 @@ export default {
   align-items: center;
   background: var(--warm-bg-hero);
   border-color: var(--border-warm);
-  padding: 32px 28px 24px;
+  padding: 24px 24px 20px;
 }
 
 .manual-page__hero-left { grid-area: left; }
@@ -490,8 +483,7 @@ export default {
   align-items: center;
   justify-content: flex-start;
   flex-wrap: wrap;
-  padding-top: 16px;
-  margin-top: 8px;
+  padding-top: 12px;
   border-top: 1px solid var(--border-color);
 }
 
@@ -515,12 +507,18 @@ export default {
 }
 
 .manual-page__hero-title {
-  margin: 10px 0 14px;
-  font-size: 40px;
+  margin: 6px 0 8px;
+  font-size: 32px;
   font-weight: 800;
-  line-height: 1.15;
+  line-height: 1.2;
   text-wrap: balance;
   color: var(--text-strong, var(--text-primary));
+  letter-spacing: -0.6px;
+  max-width: 22ch;
+}
+
+.manual-page.is-fun .manual-page__hero-title {
+  font-size: 36px;
   letter-spacing: -1px;
   max-width: 18ch;
 }
@@ -533,75 +531,61 @@ export default {
 }
 
 .manual-page__hero-sub {
-  margin: 0 0 12px;
-  font-size: 16px;
+  margin: 0 0 16px;
+  font-size: 15px;
   color: var(--text-secondary);
-  line-height: 1.7;
+  line-height: 1.65;
   text-wrap: pretty;
-  max-width: 56ch;
-  min-height: 1.7em;
-}
-
-.manual-page__hero-tagline {
-  margin: 0 0 24px;
-  font-size: 13.5px;
-  color: var(--text-disabled);
-  line-height: 1.7;
   max-width: 60ch;
-  text-wrap: pretty;
+  min-height: 1.65em;
 }
 
 .manual-page__hero-caps {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 10px;
-  margin-bottom: 24px;
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 12px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  border-top: 1px dashed var(--border-color);
+
+  li { margin: 0; padding: 0; }
 }
 
 .manual-hero-cap {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 8px;
-  padding: 14px 16px;
-  background: var(--bg-panel);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 10px;
+  background: transparent;
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-pill);
   cursor: pointer;
-  text-align: left;
-  transition: border-color 0.18s ease, transform 0.18s ease, background 0.18s ease;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
 
   &:hover, &:focus-visible {
-    border-color: var(--text-secondary);
-    transform: translateY(-1px);
+    border-color: var(--text-primary);
+    color: var(--text-primary);
+    background: var(--bg-panel);
     outline: none;
   }
 }
 
 .manual-hero-cap__label {
-  grid-column: 1;
-  font-size: 13.5px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text-primary);
-  letter-spacing: -0.1px;
+}
+
+.manual-hero-cap__sep {
+  color: var(--text-disabled);
+  font-family: var(--font-mono);
 }
 
 .manual-hero-cap__desc {
-  grid-column: 1;
-  margin-top: 2px;
-  font-size: 12px;
   color: var(--text-secondary);
-  line-height: 1.55;
-  text-wrap: pretty;
-}
-
-.manual-hero-cap__chevron {
-  grid-column: 2;
-  grid-row: 1 / span 2;
-  align-self: center;
-  font-family: var(--font-mono);
-  font-size: 14px;
-  color: var(--text-disabled);
 }
 
 .manual-page__hero-cta {
@@ -614,8 +598,8 @@ export default {
     background: var(--bg-card);
     color: var(--text-primary);
     border-radius: var(--radius-md);
-    padding: 10px 22px;
-    font-size: 14px;
+    padding: 8px 18px;
+    font-size: 13.5px;
     cursor: pointer;
     font-weight: 600;
     transition: all 0.18s ease;
@@ -651,9 +635,9 @@ export default {
 }
 
 .manual-page__hero-mascot {
-  width: 220px;
+  width: 140px;
   height: auto;
-  filter: drop-shadow(0 12px 30px rgba(99, 102, 241, 0.18));
+  filter: drop-shadow(0 10px 24px rgba(99, 102, 241, 0.18));
   animation: hero-float 4.5s ease-in-out infinite;
 }
 
@@ -839,11 +823,13 @@ export default {
       'left'
       'right'
       'tools';
-    padding: 24px 20px;
+    padding: 22px 18px 18px;
   }
-  .manual-page__hero { padding: 28px 22px; }
-  .manual-page__hero-mascot { width: 160px; }
-  .manual-page__hero-title { font-size: 30px; }
-  .manual-page__hero-sub { font-size: 14.5px; }
+  .manual-page__hero { padding: 22px 18px 18px; }
+  .manual-page__hero-mascot { width: 120px; }
+  .manual-page__hero-title { font-size: 26px; }
+  .manual-page.is-fun .manual-page__hero-title { font-size: 28px; }
+  .manual-page__hero-sub { font-size: 14px; }
+  .manual-page__hero-caps { gap: 6px; }
 }
 </style>

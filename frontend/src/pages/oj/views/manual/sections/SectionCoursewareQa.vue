@@ -13,20 +13,25 @@
       <h3 class="qa-block__title">是什么</h3>
       <p class="qa-lead">
         课件问答是基于你选择的某份课件 PDF，由 AI 在课件原文里检索并给出答案的工具。
-        它不是通用搜索引擎，<strong>只能回答课件里有的内容</strong>；优势是回答会附原文页码，可以一键打开 PDF 对照原文。
+        进入页面后选定一份课件，<strong>之后所有的提问都自动以该课件为唯一检索源</strong>——
+        无需在对话里输入 <code class="inline-code">@课件</code> 之类的 token，AI 已经知道你要问哪份课件了。
+        优势是回答会附原文页码，可以一键打开 PDF 对照原文。
       </p>
       <aside class="qa-vs">
         <h4>和「AI 导学助手」的区别</h4>
         <dl>
           <div>
             <dt>AI 导学助手</dt>
-            <dd>解决具体的"题"——审题、纠错、总结、推荐相似题。</dd>
+            <dd>解决具体的"题"——审题、纠错、总结、推荐相似题；@ 引用支持 7 种 <code class="inline-code">@last_*</code> 卡片。</dd>
           </div>
           <div>
             <dt>课件问答</dt>
-            <dd>解决"概念" / "知识点"——查定义、比较术语、定位原文。</dd>
+            <dd>解决"概念" / "知识点"——查定义、比较术语、定位原文页码；上下文 = 进入页面时选定的那份课件。</dd>
           </div>
         </dl>
+        <p class="qa-vs__note">
+          <strong>规划中</strong>：让 AI 导学助手对话里也能 <code class="inline-code">@课件:&lt;id&gt;</code> 引用某份具体课件，把课件检索结果作为对话 context 塞进 AI 导学助手——目前还没上线，先用「课件问答」入口处理课件相关问题。
+        </p>
       </aside>
     </div>
 
@@ -157,6 +162,35 @@ export default {
     line-height: 1.6;
     text-wrap: pretty;
   }
+}
+
+.qa-vs__note {
+  grid-column: 1 / -1;
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.65;
+  background: var(--bg-card);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-sm);
+  text-wrap: pretty;
+
+  strong {
+    color: var(--text-primary);
+    font-weight: 700;
+    margin-right: 4px;
+  }
+}
+
+.inline-code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  color: var(--text-primary);
+  background: var(--bg-panel);
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
 }
 
 .qa-scope-list {

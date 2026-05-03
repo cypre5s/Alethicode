@@ -476,32 +476,32 @@ export const AI_CAPABILITIES = [
 
 export const RECOMMENDED_PROMPTS = [
   {
-    id: 'understand-problem',
-    label: '让 AI 帮你理解题目',
-    when: '题目读两遍还不懂；不知道要输入输出什么。',
-    prompt: '@当前题目 这道题在问什么？输入和输出分别是什么？有哪些容易看漏的边界条件？',
-    why: '直接让 AI 把题面"翻译"成你能听懂的中文，比直接抓代码更稳。'
+    id: 'expand-guide',
+    label: '让寧寧的审题继续展开',
+    when: '题目导读卡看完仍有不懂；想让 AI 把某个边界条件再细讲。',
+    prompt: '@last_guide 这一题的输入边界还有什么我没注意到的？特别是 n=0、空输入、负数的情况。',
+    why: '把寧寧刚生成的题目导读卡塞回对话，让她接着自己上一轮的内容讲细节，比从头再问一次精准。'
   },
   {
     id: 'analyze-error',
-    label: '让 AI 解释报错',
-    when: '提交后报错信息看不懂；自己 review 代码看不出问题。',
-    prompt: '@last_error 这个报错是什么意思？我应该先检查哪里？',
-    why: '把"错误诊断卡"塞回对话，AI 就能针对你这次的错给具体方向，而不是泛泛而谈。'
+    label: '让芳乃接着诊断报错',
+    when: '提交错答 / 编译错误 / 输出不对，自己 review 看不出问题。',
+    prompt: '@last_error 这个报错是什么意思？我应该先检查哪一行？最小修改是什么？',
+    why: '把芳乃刚出的错误诊断卡作为上下文，回答只会针对你这次的错而不是泛泛而谈。'
   },
   {
-    id: 'check-code',
-    label: '让 AI 检查思路',
-    when: '已经写完代码但不确定对不对；AC 后想看看有没有更优解。',
-    prompt: '@我的代码 这段代码的思路有什么问题？有没有更简洁的写法？',
-    why: '强调"思路"和"更简洁"，引导 AI 给方向而不是替你重写。'
+    id: 'check-thought',
+    label: '让 AI 复盘你的思路',
+    when: '已经写出思路想确认对不对；或者想知道思路有没有更优替代。',
+    prompt: '@last_ideate 这个思路有什么风险？哪一步可能会卡住？有没有更简洁的实现方式？',
+    why: '强调"风险 / 卡点 / 简洁"，引导 AI 给方向反馈而不是替你重写整段代码。'
   },
   {
-    id: 'explain-concept',
-    label: '让 AI 解释概念',
-    when: '碰到不会的语法 / 数据结构 / 算法术语。',
-    prompt: '@课件 第 X 节提到的「递归」是什么意思？能用一个简单例子讲讲吗？',
-    why: '把课件塞给 AI 做语境，回答会引用课件原文页码，比直接搜更靠谱。'
+    id: 'extend-review',
+    label: '让 AI 把知识点回顾再讲深一点',
+    when: '看完知识点回顾卡仍有疑问；想让 AI 把同知识点的常见陷阱列出来。',
+    prompt: '@last_review 这个知识点最常见的 3 个错误用法是什么？我应该重点避开哪一个？',
+    why: '把刚生成的知识点回顾作为上下文，AI 会基于你正在学的具体 KC 给针对性提醒。'
   }
 ]
 
@@ -563,28 +563,28 @@ export const CONTEXT_TOKENS = [
 
 export const CONTEXT_EXAMPLES = [
   {
-    id: 'ctx-current-problem',
-    label: '@当前题目',
-    prompt: '@当前题目 这道题在考什么知识点？我应该先学什么再来做？',
-    note: '把题面塞给 AI，让它结合题目本身回答而不是凭空猜。'
-  },
-  {
-    id: 'ctx-my-code',
-    label: '@我的代码',
-    prompt: '@我的代码 这段代码的思路对吗？有没有更简洁的写法？',
-    note: '用「思路 / 简洁」这种关键词引导方向，避免被改写整段。'
-  },
-  {
-    id: 'ctx-courseware',
-    label: '@课件',
-    prompt: '@课件 第 3 节提到的「列表推导式」是什么意思？给个例子。',
-    note: '让回答带原文引用页码，可以一键打开 PDF 对照。'
-  },
-  {
     id: 'ctx-error',
     label: '@last_error',
-    prompt: '@last_error 这个报错是什么意思？我应该先检查哪里？',
-    note: '把错误诊断卡作为对话上下文，回答才会针对你的具体错误。'
+    prompt: '@last_error 这个报错是什么意思？我应该先检查哪一行？',
+    note: '把芳乃刚出的「错误诊断卡」作为对话上下文，AI 才会针对你这次的具体错给方向，而不是泛泛而谈。'
+  },
+  {
+    id: 'ctx-guide',
+    label: '@last_guide',
+    prompt: '@last_guide 这道题的输入边界条件还有哪些我容易看漏？',
+    note: '把寧寧刚生成的「题目导读卡」塞回对话，让她接着上一轮内容讲细节。'
+  },
+  {
+    id: 'ctx-ideate',
+    label: '@last_ideate',
+    prompt: '@last_ideate 这个思路实现起来最容易卡在哪一步？',
+    note: '把刚生成的「思路分析卡」展开，问反例 / 卡点 / 优化方向。'
+  },
+  {
+    id: 'ctx-card',
+    label: '@card:&lt;id&gt;',
+    prompt: '@card:C-V-001 这张教学可视化的过程能再讲清楚一点吗？为什么第 3 步要这么走？',
+    note: '复盘时把之前任意一张已生成的卡片（按 card_id）拿出来继续讨论，避免重新生成同类卡片。'
   }
 ]
 
