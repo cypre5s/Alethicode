@@ -134,15 +134,23 @@ class AITutorWelcomeServiceTest {
     }
 
     @Test
-    void starterActionsOmitKnowledgeReviewWhenNoWeakKcs() {
+    void starterActionsAlwaysIncludeKnowledgeReviewEvenWithoutWeakKcs() {
+        // 知识点回顾按钮是教学闭环的元认知入口，不依赖"弱 KC"数据状态：
+        // 即便学生在当前题目相关 KC 上掌握度都 >= 0.4，按钮仍要显示，
+        // 由学生主动决定是否复习；后端 knowledge_review 节点会 fallback 到
+        // 当前题目的 current_kcs（见 services/tutor-graph/app/nodes/knowledge_review.py）。
         mockQueries(List.of(), List.of(), List.of());
 
         Map<String, Object> welcome = service.getWelcome(42L, 100L);
 
         assertThat((String) welcome.get("greeting")).isEqualTo("准备好了吗？有任何疑问随时可以问我～");
         List<Map<String, Object>> starterActions = extractStarterActions(welcome);
-        assertThat(starterActions).hasSize(1);
+        assertThat(starterActions).hasSize(2);
         assertThat(starterActions.get(0))
+                .containsEntry("key", "knowledge_review")
+                .containsEntry("label", "帮我回顾相关知识点")
+                .containsEntry("event", "KNOWLEDGE_REVIEW");
+        assertThat(starterActions.get(1))
                 .containsEntry("key", "problem_guide")
                 .containsEntry("label", "分析这道题的思路")
                 .containsEntry("event", "READING");
@@ -152,6 +160,8 @@ class AITutorWelcomeServiceTest {
     void starterActionsOmitErrorChainEvenWhenRecentFailedSubmissionExists() {
         // 起手页已下线"我遇到了错误"按钮 — 即便存在最近失败提交也不应出现，
         // 避免学生绕过题目直接跳到错误诊断。
+        // 此用例同时覆盖"无 weak_kc + 有失败提交"场景：knowledge_review 仍展示，
+        // error_chain 始终不展示。
         mockQueries(
                 List.of(),
                 List.of(),
@@ -161,11 +171,10 @@ class AITutorWelcomeServiceTest {
         Map<String, Object> welcome = service.getWelcome(42L, 100L);
 
         List<Map<String, Object>> starterActions = extractStarterActions(welcome);
-        assertThat(starterActions).hasSize(1);
-        assertThat(starterActions.get(0))
-                .containsEntry("key", "problem_guide")
-                .containsEntry("label", "分析这道题的思路")
-                .containsEntry("event", "READING");
+        assertThat(starterActions).hasSize(2);
+        assertThat(starterActions)
+                .extracting(a -> a.get("event"))
+                .containsExactly("KNOWLEDGE_REVIEW", "READING");
         assertThat(starterActions)
                 .extracting(a -> a.get("key"))
                 .doesNotContain("error_chain");

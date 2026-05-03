@@ -4,6 +4,13 @@
 
 ## [Unreleased] - 2026-05-03
 
+### AI 学习助手起手页：知识点回顾按钮恒展示
+
+> **背景**：ECS（commit `1bda9f5`）AI 学习助手起手页只显示一个「分析这道题的思路」按钮，本地版本显示两个按钮（多一个「帮我回顾相关知识点」）。差异根因不是代码不一致，是数据：`AITutorWelcomeService.buildStarterActions` 用 `weakKcs.notEmpty()` 决定是否展示知识点回顾按钮，ECS 上当前题目对该用户在 `ai_problem_kc_mapping × learner_kc_mastery` 联表查询里没有 mastery < 0.4 的 KC，按钮就被隐藏。但「主动请求复习」是元认知教学闭环的核心动作，应由学生自己决定是否点击，不应被掌握度数据状态隐藏。
+
+- 2026-05-03 **[业务/ai-tutor]** `AITutorWelcomeService.buildStarterActions` 去掉 `if (weakKcs != null && !weakKcs.isEmpty())` 判断，无条件追加 `knowledge_review` action。后端 `services/tutor-graph/app/nodes/knowledge_review.py:41` 已在 `weak_kcs` 为空时 fallback 到当前题目的 `current_kcs`，因此点按钮后链路仍然闭合，不会因为没有"弱 KC"而 500。
+- 2026-05-03 **[测试/ai-tutor]** `AITutorWelcomeServiceTest` 重命名 `starterActionsOmitKnowledgeReviewWhenNoWeakKcs → starterActionsAlwaysIncludeKnowledgeReviewEvenWithoutWeakKcs`，断言改为 `hasSize(2)` + 两个按钮的 key/label/event 全检查；`starterActionsOmitErrorChainEvenWhenRecentFailedSubmissionExists` 同步改成 2 个按钮断言。10 个用例全过。
+
 ### 本地 start.sh 启动链路修复
 
 > **背景**：在干净的 WSL2 (linux 6.6.87.2) 环境上首次执行 `bash start.sh`，全链路出现两处阻断：(1) PostgreSQL `max_connections=40` 在 Temporal `auto-setup` 启动后被单服务打满，导致 backend Flyway 无法获取数据库连接，启动直接 `FATAL: sorry, too many clients already`；(2) `deploy/.env` 中 `DB_PASSWORD` 与历史 PGDATA 中 `onlinejudge` 角色实际密码不一致，`backend/.env` 的密码反而是真实值，导致 `start.sh` `resolve_postgres_credentials` 从容器 env 读出的密码与 PG 内部存储不匹配，backend 启动报 `password authentication failed for user "onlinejudge"`。

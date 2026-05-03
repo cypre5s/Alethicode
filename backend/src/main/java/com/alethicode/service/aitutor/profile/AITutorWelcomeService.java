@@ -191,18 +191,17 @@ public class AITutorWelcomeService {
         return "准备好了吗？有任何疑问随时可以问我～";
     }
 
-    @SuppressWarnings("unchecked")
     private List<Map<String, Object>> buildStarterActions(Map<String, Object> ctx) {
-        // 起手页只保留两个按钮：知识点回顾 + 思路分析。
-        // 错误诊断（"我遇到了错误，帮我看看"）已下线 — 学生看到错误诊断入口
-        // 容易绕过题目直接跳到答案，且做题页内的提交记录区已有"复盘错题"入口，
-        // 起手页保留容易混淆。如果未来想恢复，把 ERROR_FEEDBACK action 加回即可。
+        // 起手页固定两个按钮：知识点回顾 + 思路分析。
+        // - 知识点回顾即使当前题目没有「弱 KC」也展示——主动请求复习是元认知教学
+        //   的核心动作，不应被掌握度数据状态隐藏。后端 knowledge_review 节点已在
+        //   weak_kcs 为空时 fallback 到当前题目的 current_kcs
+        //   （services/tutor-graph/app/nodes/knowledge_review.py 第 41 行）。
+        // - 错误诊断（"我遇到了错误，帮我看看"）已下线 — 学生看到错误诊断入口
+        //   容易绕过题目直接跳到答案，且做题页内的提交记录区已有"复盘错题"入口，
+        //   起手页保留容易混淆。如果未来想恢复，把 ERROR_FEEDBACK action 加回即可。
         List<Map<String, Object>> actions = new ArrayList<>();
-        List<Map<String, Object>> weakKcs = (List<Map<String, Object>>) ctx.get("weak_kcs");
-
-        if (weakKcs != null && !weakKcs.isEmpty()) {
-            actions.add(action("knowledge_review", "帮我回顾相关知识点", "KNOWLEDGE_REVIEW"));
-        }
+        actions.add(action("knowledge_review", "帮我回顾相关知识点", "KNOWLEDGE_REVIEW"));
         actions.add(action("problem_guide", "分析这道题的思路", "READING"));
         return actions;
     }
