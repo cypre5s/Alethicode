@@ -13,6 +13,7 @@ import com.alethicode.dto.response.ApiResponse;
 import com.alethicode.service.account.AccountService;
 import com.alethicode.service.account.AccountAuthDomainService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 
@@ -31,8 +32,8 @@ public class AccountAuthDomainServiceImpl implements AccountAuthDomainService {
     }
 
     @Override
-    public ApiResponse<Object> logout(HttpServletRequest httpServletRequest) {
-        return accountService.logout(httpServletRequest);
+    public ApiResponse<Object> logout(HttpServletRequest httpServletRequest, HttpServletResponse httpServletResponse) {
+        return accountService.logout(httpServletRequest, httpServletResponse);
     }
 
     @Override

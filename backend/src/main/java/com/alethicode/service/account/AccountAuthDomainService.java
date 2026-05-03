@@ -11,13 +11,14 @@ import com.alethicode.dto.request.UserRegisterRequest;
 import com.alethicode.dto.request.UsernameOrEmailCheckRequest;
 import com.alethicode.dto.response.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.core.Authentication;
 
 public interface AccountAuthDomainService {
 
     ApiResponse<Object> login(UserLoginRequest request, HttpServletRequest httpServletRequest);
 
-    ApiResponse<Object> logout(HttpServletRequest httpServletRequest);
+    ApiResponse<Object> logout(HttpServletRequest httpServletRequest, HttpServletResponse httpServletResponse);
 
     ApiResponse<Object> register(UserRegisterRequest request, HttpServletRequest httpServletRequest);
 

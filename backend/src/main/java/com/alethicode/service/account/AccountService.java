@@ -3,6 +3,7 @@ package com.alethicode.service.account;
 import com.alethicode.dto.request.*;
 import com.alethicode.dto.response.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -12,7 +13,7 @@ public interface AccountService {
 
     ApiResponse<Object> login(UserLoginRequest request, HttpServletRequest httpServletRequest);
 
-    ApiResponse<Object> logout(HttpServletRequest httpServletRequest);
+    ApiResponse<Object> logout(HttpServletRequest httpServletRequest, HttpServletResponse httpServletResponse);
 
     ApiResponse<Object> register(UserRegisterRequest request, HttpServletRequest httpServletRequest);
 

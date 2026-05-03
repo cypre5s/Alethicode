@@ -14,6 +14,7 @@ import com.alethicode.dto.response.ApiResponse;
 import com.alethicode.service.account.AccountAuthDomainService;
 import com.alethicode.service.account.AccountProfileDomainService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -44,8 +45,9 @@ public class AccountController {
     }
 
     @GetMapping({"/api/logout", "/api/logout/"})
-    public ApiResponse<Object> logout(HttpServletRequest httpServletRequest) {
-        return accountAuthDomainService.logout(httpServletRequest);
+    public ApiResponse<Object> logout(HttpServletRequest httpServletRequest,
+                                      HttpServletResponse httpServletResponse) {
+        return accountAuthDomainService.logout(httpServletRequest, httpServletResponse);
     }
 
     @PostMapping({"/api/register", "/api/register/"})

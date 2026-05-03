@@ -10,7 +10,9 @@ import com.alethicode.middleware.SessionAuthenticationFilter;
 import com.alethicode.service.account.AccountService;
 import com.alethicode.util.TotpUtils;
 import jakarta.annotation.PostConstruct;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,6 +20,7 @@ import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -139,7 +142,15 @@ public class AccountServiceImpl implements AccountService {
     }
 
     @Override
-    public ApiResponse<Object> logout(HttpServletRequest httpServletRequest) {
+    public ApiResponse<Object> logout(HttpServletRequest httpServletRequest,
+                                      HttpServletResponse httpServletResponse) {
+        // NEW-1 (2026-05-02 渗透报告 v2): 仅 session.invalidate() 不够——
+        // (1) Spring Security 的 SecurityContext 仍残留在 ThreadLocal，本请求后续 filter
+        //     仍会把当前用户当成已登录；
+        // (2) 浏览器/curl 仍持有旧 SESSION cookie，logout 后立刻请求 /api/profile，
+        //     SessionAuthenticationFilter 会用旧 cookie 命中 Tomcat 的新 session 并重建
+        //     Authentication（permitAll 路径下，profile 接口因此返回登录用户的数据）。
+        // 修复：清 SecurityContext + 强制让浏览器丢弃 SESSION/csrftoken cookie。
         HttpSession session = httpServletRequest.getSession(false);
         if (session != null) {
             session.removeAttribute(SessionAuthenticationFilter.AUTH_USERNAME_KEY);
@@ -147,7 +158,19 @@ public class AccountServiceImpl implements AccountService {
             session.removeAttribute(SessionAuthenticationFilter.AUTH_ROLES_KEY);
             session.invalidate();
         }
+        SecurityContextHolder.clearContext();
+        expireCookie(httpServletResponse, "SESSION");
+        expireCookie(httpServletResponse, "csrftoken");
         return ApiResponse.success(null);
+    }
+
+    private void expireCookie(HttpServletResponse response, String name) {
+        Cookie cookie = new Cookie(name, "");
+        cookie.setPath("/");
+        cookie.setMaxAge(0);
+        cookie.setHttpOnly("SESSION".equals(name));
+        cookie.setSecure(properties.getSystem().isCookieSecure());
+        response.addCookie(cookie);
     }
 
     @Override

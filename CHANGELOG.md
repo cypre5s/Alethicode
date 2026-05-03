@@ -4,6 +4,14 @@
 
 ## [Unreleased] - 2026-05-03
 
+### NEW-1 修复：logout 必须真正切断会话（HIGH）
+
+> **背景**：v2 渗透报告 §3.1 A1 复现：用户 `POST /api/logout` 后用同一个 SESSION cookie `GET /api/profile` 仍能拿到自己的 profile。根因有两层——(1) Spring Security 的 `SecurityContext` 还残留在当前请求的 ThreadLocal，本请求剩余的 filter 链仍把当前用户视为已登录；(2) 旧的 SESSION/csrftoken cookie 没被告知浏览器丢弃，下次访问 `permitAll` 路径（如 `/api/profile`）时 `SessionAuthenticationFilter` 会用旧 cookie 命中 servlet 容器新建的 session 并重建 `Authentication`。
+
+- 2026-05-03 **[安全/account]** `AccountServiceImpl.logout` 在原有 `session.invalidate()` 基础上追加 `SecurityContextHolder.clearContext()` + `Set-Cookie: SESSION=; Max-Age=0` + `Set-Cookie: csrftoken=; Max-Age=0`。SESSION cookie 保持 `HttpOnly`，csrftoken 不设 `HttpOnly`（与 `SecurityConfig.csrfTokenRepository` 一致，前端需要 JS 读）。两个 cookie 的 `Secure` 标记跟随 `alethicode.system.cookie-secure` 配置（HTTP 部署默认 false，HTTPS 部署 env `ALETHICODE_SYSTEM_COOKIE_SECURE=true` 开启）。
+- 2026-05-03 **[契约/account]** `AccountService.logout` / `AccountAuthDomainService.logout` 接口签名增加 `HttpServletResponse` 参数；`AccountController` 同步注入 `HttpServletResponse`。这是 service 边界变更，无内部别名兼容路径。
+- 2026-05-03 **[测试/account]** 新增 `AccountServiceImplLogoutTest` 3 用例：(1) 已登录用户 logout 后 `SecurityContextHolder` 必须清空，且 SESSION/csrftoken cookie `Max-Age=0`；(2) 无 session 直接 logout 仍要回写 expire cookie；(3) HTTPS 模式（`cookie-secure=true`）的 cookie 必须带 `Secure` 标记。
+
 ### AI 学习助手起手页：知识点回顾按钮恒展示
 
 > **背景**：ECS（commit `1bda9f5`）AI 学习助手起手页只显示一个「分析这道题的思路」按钮，本地版本显示两个按钮（多一个「帮我回顾相关知识点」）。差异根因不是代码不一致，是数据：`AITutorWelcomeService.buildStarterActions` 用 `weakKcs.notEmpty()` 决定是否展示知识点回顾按钮，ECS 上当前题目对该用户在 `ai_problem_kc_mapping × learner_kc_mastery` 联表查询里没有 mastery < 0.4 的 KC，按钮就被隐藏。但「主动请求复习」是元认知教学闭环的核心动作，应由学生自己决定是否点击，不应被掌握度数据状态隐藏。
