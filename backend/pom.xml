@@ -101,6 +101,21 @@
             <artifactId>logstash-logback-encoder</artifactId>
             <version>8.0</version>
         </dependency>
+        <!--
+            Sentry SDK：DSN 默认空 → SDK no-op，启用时把异常上报到 self-hosted
+            GlitchTip / Sentry。生产用 sentry.dsn=${SENTRY_DSN} 配置；ADR-0004 禁用
+            Sentry 云版，所以 dsn 必须指向境内 self-hosted 实例。
+        -->
+        <dependency>
+            <groupId>io.sentry</groupId>
+            <artifactId>sentry-spring-boot-starter-jakarta</artifactId>
+            <version>7.18.0</version>
+        </dependency>
+        <dependency>
+            <groupId>io.sentry</groupId>
+            <artifactId>sentry-logback</artifactId>
+            <version>7.18.0</version>
+        </dependency>
         <!-- Resilience4j Spring Boot 3 starter: RateLimiter / Retry / Bulkhead annotations -->
         <dependency>
             <groupId>io.github.resilience4j</groupId>
@@ -302,6 +317,33 @@
                         </configuration>
                     </execution>
                 </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.13</version>
+                <executions>
+                    <execution>
+                        <id>jacoco-prepare</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>jacoco-report</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <excludes>
+                        <exclude>com/alethicode/dto/**</exclude>
+                        <exclude>com/alethicode/entity/**</exclude>
+                        <exclude>com/alethicode/AlethicodeApplication.class</exclude>
+                    </excludes>
+                </configuration>
             </plugin>
         </plugins>
     </build>

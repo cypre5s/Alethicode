@@ -37,6 +37,8 @@ GRAFANA_ADMIN_USER="${GRAFANA_ADMIN_USER:-admin@localhost}"
 GRAFANA_ADMIN_PASSWORD="${GRAFANA_ADMIN_PASSWORD:-admin}"
 GRAFANA_VERSION="${GRAFANA_VERSION:-11.1.0}"
 GRAFANA_DIST_URL="${GRAFANA_DIST_URL:-https://dl.grafana.com/oss/release/grafana-${GRAFANA_VERSION}.linux-amd64.tar.gz}"
+GRAFANA_OFFLINE="${GRAFANA_OFFLINE:-0}"
+GRAFANA_SHA256_LINUX_AMD64="${GRAFANA_SHA256_LINUX_AMD64:-}"
 GRAFANA_RUNTIME_DIR="$ROOT_DIR/.runtime/grafana/runtime-v${GRAFANA_VERSION}"
 GRAFANA_DATA_DIR="${GRAFANA_DATA_DIR:-$ROOT_DIR/deploy/data/grafana}"
 GRAFANA_LOG_DIR="${GRAFANA_LOG_DIR:-$ROOT_DIR/deploy/data/grafana/log}"
@@ -582,6 +584,24 @@ start_grafana_docker() {
   return 0
 }
 
+verify_grafana_archive() {
+  local archive_path="$1"
+  [[ -s "$archive_path" ]] || return 1
+  if [[ -n "$GRAFANA_SHA256_LINUX_AMD64" ]]; then
+    if ! command -v sha256sum >/dev/null 2>&1; then
+      echo "[ERROR] GRAFANA_SHA256_LINUX_AMD64 set but sha256sum not found in PATH" >&2
+      return 1
+    fi
+    local actual
+    actual="$(sha256sum "$archive_path" | awk '{print $1}')"
+    if [[ "$actual" != "$GRAFANA_SHA256_LINUX_AMD64" ]]; then
+      echo "[ERROR] grafana archive sha256 mismatch: expected $GRAFANA_SHA256_LINUX_AMD64, got $actual" >&2
+      return 1
+    fi
+  fi
+  tar -tzf "$archive_path" >/dev/null 2>&1
+}
+
 ensure_grafana_binary() {
   local archive_path extract_dir unpacked_dir
   archive_path="$ROOT_DIR/.runtime/grafana/grafana-v${GRAFANA_VERSION}.tar.gz"
@@ -593,9 +613,23 @@ ensure_grafana_binary() {
     return 0
   fi
 
-  echo "[INFO] downloading grafana binary: $GRAFANA_DIST_URL"
-  curl -fL --retry 3 --retry-all-errors --connect-timeout 10 --max-time 600 \
-    -o "$archive_path" "$GRAFANA_DIST_URL"
+  if verify_grafana_archive "$archive_path"; then
+    echo "[INFO] reusing cached grafana archive: $archive_path"
+  elif [[ "$GRAFANA_OFFLINE" == "1" ]]; then
+    echo "[ERROR] GRAFANA_OFFLINE=1 but archive missing or invalid at: $archive_path" >&2
+    echo "[ERROR] place a valid grafana-${GRAFANA_VERSION} linux-amd64 tar.gz there and retry" >&2
+    return 1
+  else
+    [[ -e "$archive_path" ]] && rm -f "$archive_path"
+    echo "[INFO] downloading grafana binary: $GRAFANA_DIST_URL"
+    curl -fL --retry 3 --retry-all-errors --connect-timeout 10 --max-time 600 \
+      -o "$archive_path" "$GRAFANA_DIST_URL"
+    if ! verify_grafana_archive "$archive_path"; then
+      echo "[ERROR] downloaded grafana archive failed verification" >&2
+      return 1
+    fi
+  fi
+
   rm -rf "$unpacked_dir"
   rm -rf "$GRAFANA_RUNTIME_DIR"
   tar -xzf "$archive_path" -C "$extract_dir"

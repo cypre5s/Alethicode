@@ -4,6 +4,82 @@
 
 ## [Unreleased] - 2026-05-03
 
+### Parsons 入口可见性 + 全栈改名「拼装挑战」
+
+> **背景**：用户反馈做题页打开后**只有"分析这道题的思路"走完进入 IDEATING phase 才能看到 Parsons 入口**，而起手页 starter_actions 完全没有；同时 quick action 文案「试试拼装版」与卡片自身标题「拼装挑战」不一致 — 双轨命名违反 `AGENTS.md` 的「禁止同一语义出现多种拼写」原则。诊断真因：`AITutorWelcomeService.buildStarterActions` 历史上为避免起手页按钮过多保守只放了 2 个（知识点回顾 + 思路分析），从未追加 Parsons；这条策略对 mastery 高的"学霸"是合理的（避免脚手架按钮干扰），对 mastery 低的学生反而错过了"理解 → 产出"之间的拼装台阶（Faded Parsons 设计的核心价值场景）。
+
+- 2026-05-03 **[后端/aitutor]** `AITutorWelcomeService.buildStarterActions` 加 weak_kcs 门槛：当且仅当当前题目存在 mastery < `WEAK_THRESHOLD`（0.4）的 KC 时，starter_actions 追加第 3 个按钮 `{key:"parsons", label:"拼装挑战", event:"PARSONS"}`。学霸场景（无 weak KC）保持 2 按钮不变，避免脚手架按钮干扰；初学者场景（有 weak KC）一进题就能看到拼装入口，符合 Faded Parsons 设计的"理解 → 产出"台阶价值。failfast 风格，没用 feature flag 可关也没引入额外配置项。
+- 2026-05-03 **[后端/测试]** `AITutorWelcomeServiceTest` 新增 1 用例 `starterActionsOmitParsonsWhenNoWeakKcsToAvoidDistractingMasterStudents`，修改 2 用例的期望（`starterActionsIncludeKnowledgeReviewAndParsonsWhenWeakKcsExist` + `starterActionsIncludeKnowledgeReviewProblemGuideAndParsonsWhenWeakKcsExist`）：weak_kcs 非空时 starter_actions 必须含 PARSONS 项；空时不含。共 11 用例 0 失败 0 错误。
+- 2026-05-03 **[tutor-graph/actions]** `services/tutor-graph/app/nodes/actions.py` 6 个 phase（READING/IDEATING/CODING/ERROR_FEEDBACK/AC_REVIEW/TRANSFER）quick action label 全栈改名「试试拼装版」→「拼装挑战」，与 `ParsonsProblemCard.vue` 卡片自身标题完全统一。
+- 2026-05-03 **[前端/UI]** `frontend/src/pages/oj/views/review/components/ReviewProblemCard.vue` 错题包卡片按钮文案「试试拼装版」→「拼装挑战」；`workflowStateMachine.js` `quickActions` computed 的 `ICON_MAP` 补齐 `parsons: 'Grid'` / `knowledge_review: 'Collection'` / `skeleton: 'Document'` 三个之前缺失的图标映射，避免 quick action fallback 到通用 `Lightning` 图标导致学生在按钮列表里识别困难。
+- 2026-05-03 **[前端/测试]** 同步改名：`frontend/tests/unit/error-review-package-rating-card.spec.js` 断言改成 `'拼装挑战'`；`workflow-state-machine-restore-cache.spec.js` mock 数据与最终 quick actions label 数组改成 `'拼装挑战'`。3 个 spec 共 30 用例全部通过。
+- 2026-05-03 **[验证/parsons-入口]** 后端重启加载新 starter_actions 逻辑（pid 675233，26s ready），起手页 GET `/api/ai/tutor/welcome?problem_id=X` 在该题该用户存在 weak_kc 时返回的 `starter_actions` 含第 3 项 `{key:"parsons", label:"拼装挑战"}`。
+
+### Parsons distractor JDBC 占位符冲突修复 + 测试补齐
+
+> **背景**：5/3 第一次本地真实触发 Parsons dispatch 报 500 — `org.springframework.dao.DataIntegrityViolationException: ...; No value specified for parameter 3`。诊断真因：`ParsonsDistractorGenerator.pickFromNotebook` SQL 用了 PostgreSQL JSONB 操作符 `kc_ids ?| ARRAY[...]`，但 pgjdbc 把 `?|` 中的 `?` 误识别为参数占位符，于是 SQL 在驱动看来有 3 个 `?`（user_id, ?|, ANY(?)），但 `buildArgs` 只 bind 了 2 个，运行时 fail。该 bug 在 4/28 模块上线时**就存在**，但未被发现 — 因为 4/28 落地时漏写了 `ParsonsDistractorGenerator` 单测，整个 service 类零测试覆盖，加之上层 `ParsonsCapabilityServiceTest` 对 distractorGenerator 用 Mockito mock，单测路径完全绕过了真实 SQL。
+
+- 2026-05-03 **[后端/parsons-distractor]** `ParsonsDistractorGenerator.pickFromNotebook` SQL 改用 PostgreSQL 内置函数 `jsonb_exists_any(kc_ids, ARRAY['100','200']::text[])` 替代 `kc_ids ?| ARRAY[...]` 操作符。两者语义完全等价（PostgreSQL 9.4+ 支持），但函数形式没有任何字面 `?` 与 JDBC 占位符冲突。failfast 风格，不引入驱动级 `??|` 转义 hack（不依赖 pgjdbc 私有特性 + 代码可读性更好）。
+- 2026-05-03 **[后端/测试]** 新增 `backend/src/test/java/com/alethicode/service/aitutor/parsons/ParsonsDistractorGeneratorTest.java`（8 用例，全部基于 mock JdbcTemplate）：(1) notebook 充足覆盖 targetCount 不调 LLM；(2) notebook 不足触发 LLM fallback；(3) LLM 持续失败按 maxLlmRetries 重试上限不阻塞；(4) 与 reference block LCS ≥ 0.85 的 distractor 被丢弃；(5) 多 KC 在 SQL `ARRAY['k1','k2']::text[]` 编码与 buildArgs 长度对齐；(6) targetCount 上限不被超过；(7) 空 kcIds 短路 SQL 不发（LLM fallback 路径独立于 kcIds 是否空）；(8) **SQL 形态合约**：守住 SQL 必须用 `jsonb_exists_any` 函数形式而非 `?|` 操作符 + `?` 字面数量必须等于 buildArgs 长度，防止本次修复被未来改动悄悄回退。
+- 2026-05-03 **[后端/测试]** 新增 `ParsonsDistractorGeneratorSqlSmokeTest`（1 用例）：直连本地 dev PostgreSQL（5436/alethicode），用 `user_id=-1` read-only 路径触发 pgjdbc 真正 PREPARE + EXECUTE 内部 SQL，从 SQL 编译期捕获占位符 / 列缺失 / 函数缺失 / type mismatch 等 bug。本地无 PG 时通过 `Assumptions.assumeTrue` 自动 skip 不阻塞 `mvn test` 全量。这条用例就是 5/3 修复的回归卫兵 — 任何未来误触 pgjdbc 占位符坑或破坏 SQL 表/函数依赖都会在这里立刻红灯。
+- 2026-05-03 **[验证/parsons-distractor]** `mvn test -Dtest='ParsonsDistractorGeneratorTest,ParsonsDistractorGeneratorSqlSmokeTest'` 共 9 用例 0 失败 0 错误（unit 8/8 + smoke 1/1），smoke 测试在本机 5436 PG 上 SQL prepare + execute 通过；backend 已热重启加载新 SQL 代码，`/internal/ai-tutor/parsons/dispatch` 不再抛 `No value specified for parameter 3`。
+- 2026-05-03 **[文档/test 边界]** 设计稿 ALETH-PLAN-2026-0427-FP01 附录 B.1 列出 7 个 distractor 用例其中包含"脱敏"，但当前 Generator 层并未实现脱敏 — 设计稿 §10.3 所述的 RBAC 在上游 `LanguagePackQaService` 强制（仅当前用户自己的 notebook 才会被抽取）。本次测试套不抢"脱敏"职责并已在测试类 javadoc 显式说明，待未来跨学生 misconception 聚合扩展时再补对应单测。
+
+### 死代码全量清理（仓库瘦身）
+
+> **背景**：全仓静态扫描发现多处仅在仓库自承死代码、ReAct/Multi‑Agent 整套未接入主线的孤岛、`scripts/` 重组遗漏的旧副本、`frontend/` → `frontend_new` 迁移完成后未清的报告与套娃目录、状态文件中引用已不存在 Python 路径的残留等。本次按"已确认 0 业务引用 + 编译通过"原则做安全删除，工程全量 `mvn clean test-compile` 通过。
+
+#### 仓库结构残留
+- 2026-05-03 **[仓库/清理]** 删除 `frontend/frontend/` 套娃目录（含 0 字节空 `.java` + 与 `frontend/src/.../notebook` 全部 DIFF 的 10 个旧副本），属脚本误操作残留。
+- 2026-05-03 **[仓库/清理]** 删除 git tracked 的 `.alethicode_status_baseline.txt`、`.alethicode_status_current.txt`：内容指向 `backend/ai_tutor/services/`、`backend/oj/urls.py` 等已不存在的 Python/Django 路径，是项目迁 Java 前的状态残留。
+- 2026-05-03 **[仓库/清理]** 删除 git tracked 的 `rag_quality_regression_report.json`：一次性脚本输出产物，由 `scripts/ops/rag_quality_regression.py` 按需重新生成。
+- 2026-05-03 **[仓库/清理]** 删除 `frontend/src/assets/Cup.png`：0 引用静态资源。
+
+#### 测试目录瘦身
+- 2026-05-03 **[测试/清理]** 删除 `frontend/tests/e2e/legacy/` 目录（`test_with_firefox.py` / `test_profile_page.py` / `test_page_simple.js`）：早期试探脚本，0 外部引用。
+- 2026-05-03 **[测试/清理]** 删除 `frontend/tests/e2e/visual/old/` 全套旧 visual diff 基线（24 套 `.html`+`.png`）：当前基线已迁至 `new/` 子目录。
+- 2026-05-03 **[测试/清理]** 删除一次性脚本 `frontend/tests/e2e/_guide_screenshots.js`、`_reset_flow.js`：注释自承"不进 jest/playwright test 套件"。
+
+#### scripts 重组后的旧副本（refactor 完成、原扁平结构被 README 标注废弃）
+- 2026-05-03 **[运维/清理]** 删除 `scripts/_refactor_scripts_layout.py`：脚本注释自承"执行后可删除"。
+- 2026-05-03 **[运维/清理]** 删除 `scripts/seed_ai_showcase.sh`、`scripts/seed_lab_demo_problems.sh`、`scripts/cleanup_orphan_language_pack_dirs.sh`、`scripts/generate_sbom.sh`、`scripts/rag_backfill.py`、`scripts/rag_quality_regression.py`：与 `scripts/{seed,ops}/` 中真版 DIFF（重构改了路径计算），旧版功能已坏。
+
+#### frontend → frontend_new 迁移完成残留
+- 2026-05-03 **[前端/清理]** 删除 `frontend/MIGRATION_REPORT.md`、`frontend/REPLACEMENT_ACCEPTANCE_MATRIX.md`：Vue3 纯化迁移已完成、`frontend_new` 已转正为 `frontend`。
+- 2026-05-03 **[前端/清理]** 删除 `frontend/scripts/viewui-audit.sh`：ViewUI → Element-Plus 迁移期审计脚本，0 引用。
+
+#### 后端单点死代码
+- 2026-05-03 **[领域/aitutor]** 删除 `service/aitutor/contract/FeedbackLabel.java` enum：实际 `LanguagePackQaServiceImpl#submitFeedback` 与 `ai_feedback_label` 表均使用 `String feedbackLabel`，未走 enum，0 引用。
+- 2026-05-03 **[领域/aitutor]** 删除 `service/aitutor/contract/RecoveryReason.java` enum：仅 `docs/todos/todo-agent-harness/` 有 markdown 提及，代码侧 0 消费。
+- 2026-05-03 **[领域/ai]** 删除 `service/ai/FailoverAiModelGateway.java`：JavaDoc 写"Wire this bean explicitly"但**从未 wire**，生产 + 测试 0 引用。
+- 2026-05-03 **[领域/aitutor]** 删除 `service/aitutor/agent/AgentTaskTracker.java` + `AgentTaskStatus.java`：CHANGELOG 第 1459 行原话"经确认为死代码"，生产 + 测试均 0 引用。
+
+#### ReAct / Multi-Agent 整包下线
+> **决策**：`AGENTS.md` 写明"ReAct 默认是关闭的"，`BetaFeatureRegistry` 把开关默认设为 false，主线一年内未接入 `OrchestratorAgent`/`DiagnosticsAgent`/`GuideAgent`/`MetacognitiveAgent`/`TransferAgent`/`ChatAgent` 任意一个；同时 `LayeredPromptBuilder` + `CoursewareContextProvider` + `SimilarErrorRetrievalService` + `LearnerProfileProjector` 等"前置 retrieval + 单次 LLM + 后置 validation"管线已能覆盖目标用户（非计算机专业 PY 初学者）的诊断需求。本次按"已彻底放弃，未来若需要 ReAct 范式重新依据当时 LLM SDK 重写"路线整包下线。
+
+- 2026-05-03 **[领域/aitutor]** 删除 `service/aitutor/agent/` 整包：`OrchestratorAgent` / `ChatAgent` / `GuideAgent` / `MetacognitiveAgent` / `TransferAgent` / `DiagnosticsAgent` / `AgentInteractionDataCollector` / `TutorAgent` 接口 / `AgentCapability` / `AgentContext` 共 10 个文件全部下线。删除前严格核实生产 0 引用、测试侧仅 `DiagnosticsAgentSpanTest` 单点覆盖。
+- 2026-05-03 **[领域/aitutor]** 删除 `service/aitutor/context/LayeredPromptBuilder.java` + `ContextCompressor.java`：仅被即将下线的 ReAct Agent 使用，外部 0 引用。
+- 2026-05-03 **[配置/Beta]** `BetaFeatureRegistry` 同步删除 `REACT_ENABLED`、`TUTOR_REACT_ENABLED` 两条 BetaFeatureDefinition：开关后无消费方。
+- 2026-05-03 **[领域/aitutor]** `AITutorWorkflowAdminServiceImpl` 删除 `private boolean isReactEnabled()` 方法：内部 0 调用方。
+- 2026-05-03 **[领域/aitutor]** `AgentTraceRecorder.java` / `AgentTraceContext.java` JavaDoc 同步去除对已删 `AgentTaskTracker` / `AgentContext` 的 `@link` 引用，改写示例代码姿势避免悬空引用；`AgentTraceRecorder` 链路本身（admin observability 驾驶舱）保持完整。
+- 2026-05-03 **[测试/同步]** 删除 `DiagnosticsAgentSpanTest.java` 整个文件；`AdminAiObservabilityControllerContractTest` / `AgentTraceRecorderTest` / `AgentObservabilityServiceTest` 中作为 trace fixture 的 `"DiagnosticsAgent"` 字符串字面量改为中性的 `"diagnostics_v1"`，保持原有 trace 链路覆盖语义不变。
+- 2026-05-03 **[测试/同步]** `BetaFeatureRegistryTest` 改写：去掉对已删除的 `TUTOR_REACT_ENABLED` / `REACT_ENABLED` 两条断言；用仍存活的 `LLM_TOOL_USE_PROMPT_FALLBACK` 重写 `adminOverrideBeatsDefault` / `listAllExposesDefaultEnabledAndSourceTags` 两个测试，保留"override 优先级 + listAll source 标签"原意。
+
+#### 前端死组件清理
+- 2026-05-03 **[前端/清理]** 删除 `pages/oj/views/user/notebook/NotebookMilestoneBadges.vue` / `NotebookGrowthChart.vue` / `NotebookKcView.vue` / `NotebookBreakthroughView.vue` / `NotebookReflectionDialog.vue` 共 5 个 0 引用 notebook 子组件。
+- 2026-05-03 **[前端/清理]** 间接死组件随主组件下线：`NotebookKcCard.vue` / `NotebookKcExpandModal.vue`（仅 `NotebookKcView` 用）；`BreakthroughReviewModal.vue`（仅 `NotebookBreakthroughView` 用）。
+- 2026-05-03 **[前端/清理]** 删除 `pages/oj/views/problem/CharacterAvatar.vue`：原顶栏 character strip header，contract test 自承"已不再渲染"。同步删除 `tests/unit/problem-runtime-ui-contract.spec.js` 第 88-91 行 `does not render the top character strip header anymore` 测试块（`<CharacterAvatar` / `char-avatar-strip` 字符串将永远不再出现，断言失去回归意义）。
+- 2026-05-03 **[前端/清理]** 删除 `pages/oj/views/problem/LearningPathMap.vue`：215 行的"学习路线"组件，0 引用。
+- 2026-05-03 **[前端/清理]** 删除 `pages/oj/views/user/learnerNotebookState.js` + `tests/unit/learner-notebook-state.spec.js`：测试覆盖了 0 生产引用的 `toggleExpandedGroup` / `forceExpandGroup` 两个 helper。
+
+#### 验证
+- 2026-05-03 **[验收]** `mvn clean test-compile` `BUILD SUCCESS`（17.679 s），主代码 + 测试代码全量编译通过；前端 `ReadLints` 0 错误；全文 `rg` 验证所有已删类名 / `REACT_ENABLED` / `TUTOR_REACT_ENABLED` / `isReactEnabled` 0 残留。
+
+#### 未处理（需用户操作）
+- `tutor_graph/` 顶层空套娃目录与 `backend/data/test_case/` 空目录：均为 root 拥有，需 `sudo rm -rf` 单独执行。
+- `PROJECT.md` 第 86-559、970-975 行的 ReAct / Agent 架构图与环境变量列表：仍保留为历史架构描述，待后续单独 PR 重写或归档。
+- 本地未追踪占盘资产：`.git.backup-20260502/` (6.0 GB) / `release/` (6.7 GB) / `.runtime/` (589 MB) / `wsl.pem`（凭据，需用户先确认有效性）等，本轮不动。
+
 ### `@courseware:<lpId>` AI 导学对话课件引用（新功能上线）
 
 > **背景**：之前的 `/guide` review 中提到「@课件 是个好功能、需要在课件问答里实现」。这次按 `docs/plans/2026-05-03-courseware-reference-token-design.md` 把 AI 导学助手对话框扩展到支持 `@courseware:<lpId>` token——选某份用户可见的已发布课件后，把基于当前提问的 RAG top-k 检索结果作为 context 塞给 LLM，让学生在做题中插入式问课件概念，无需切到「课件问答」页面。

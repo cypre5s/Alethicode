@@ -23,8 +23,10 @@ import { installLegacyIconBridge } from './legacyIconBridge'
 import { FRONTEND_ENV } from '@/utils/runtimeEnv'
 import { installDevRuntimeErrorFilter } from '@/utils/runtimeErrorFilter'
 import { initNotifications } from '@/utils/notifications'
+import { initSentry } from '@/utils/sentry'
 
 const app = createApp(App)
+initSentry({ app, router })
 
 if (FRONTEND_ENV.isDevelopment) {
   installDevRuntimeErrorFilter()

@@ -19,19 +19,7 @@ class BetaFeatureRegistryTest {
     private final JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    @Test
-    void definitionsExposeDefaultTrueForTutorReact() {
-        when(jdbcTemplate.queryForObject(anyString(), any(Class.class), any(Object[].class)))
-                .thenThrow(new EmptyResultDataAccessException(1));
-
-        BetaFeatureRegistry registry = new BetaFeatureRegistry(jdbcTemplate, objectMapper);
-        registry.loadFromDb();
-
-        assertThat(registry.definitions())
-                .filteredOn(definition -> "TUTOR_REACT_ENABLED".equals(definition.key()))
-                .singleElement()
-                .satisfies(definition -> assertThat(definition.defaultEnabled()).isTrue());
-    }
+    private static final String FEATURE_KEY = "LLM_TOOL_USE_PROMPT_FALLBACK";
 
     @Test
     void isEnabledReturnsFalseForFeaturesWithoutExplicitDefault() {
@@ -41,9 +29,8 @@ class BetaFeatureRegistryTest {
         BetaFeatureRegistry registry = new BetaFeatureRegistry(jdbcTemplate, objectMapper);
         registry.loadFromDb();
 
-        assertThat(registry.isEnabled("REACT_ENABLED")).isFalse();
         assertThat(registry.isEnabled("QA_GROUNDING_CRITIC_ENABLED")).isFalse();
-        assertThat(registry.isEnabled("LLM_TOOL_USE_PROMPT_FALLBACK")).isFalse();
+        assertThat(registry.isEnabled(FEATURE_KEY)).isFalse();
     }
 
     @Test
@@ -54,11 +41,11 @@ class BetaFeatureRegistryTest {
         BetaFeatureRegistry registry = new BetaFeatureRegistry(jdbcTemplate, objectMapper);
         registry.loadFromDb();
 
-        registry.setOverride("TUTOR_REACT_ENABLED", false);
-        assertThat(registry.isEnabled("TUTOR_REACT_ENABLED")).isFalse();
+        registry.setOverride(FEATURE_KEY, true);
+        assertThat(registry.isEnabled(FEATURE_KEY)).isTrue();
 
-        registry.clearOverride("TUTOR_REACT_ENABLED");
-        assertThat(registry.isEnabled("TUTOR_REACT_ENABLED")).isEqualTo(envOrDefault("TUTOR_REACT_ENABLED", true));
+        registry.clearOverride(FEATURE_KEY);
+        assertThat(registry.isEnabled(FEATURE_KEY)).isEqualTo(envOrDefault(FEATURE_KEY, false));
     }
 
     @Test
@@ -70,14 +57,14 @@ class BetaFeatureRegistryTest {
         registry.loadFromDb();
 
         List<Map<String, Object>> features = registry.listAll();
-        Map<String, Object> tutorReact = features.stream()
-                .filter(f -> "TUTOR_REACT_ENABLED".equals(f.get("key")))
+        Map<String, Object> entry = features.stream()
+                .filter(f -> FEATURE_KEY.equals(f.get("key")))
                 .findFirst()
                 .orElseThrow();
 
-        assertThat(tutorReact.get("default_enabled")).isEqualTo(true);
-        assertThat(tutorReact.get("enabled")).isEqualTo(envOrDefault("TUTOR_REACT_ENABLED", true));
-        assertThat(tutorReact.get("source")).isEqualTo(envPresent("TUTOR_REACT_ENABLED") ? "env" : "default");
+        assertThat(entry.get("default_enabled")).isEqualTo(false);
+        assertThat(entry.get("enabled")).isEqualTo(envOrDefault(FEATURE_KEY, false));
+        assertThat(entry.get("source")).isEqualTo(envPresent(FEATURE_KEY) ? "env" : "default");
     }
 
     private static boolean envOrDefault(String key, boolean defaultValue) {

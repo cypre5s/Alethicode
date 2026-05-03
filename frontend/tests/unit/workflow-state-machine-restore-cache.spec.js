@@ -585,14 +585,14 @@ describe('workflow state machine session restore cache contract', () => {
         { key: 'ideate', label: '继续思路分析', event: 'IDEATING', agent_id: 2 },
         { key: 'coding', label: '开始编码', event: 'CODING', agent_id: 0 },
         { key: 'coding_mode', label: '编码', event: 'CODING', agent_id: 0 },
-        { key: 'parsons', label: '试试拼装版', event: 'PARSONS', agent_id: 2 },
+        { key: 'parsons', label: '拼装挑战', event: 'PARSONS', agent_id: 2 },
         { key: 'visualize', label: '画一下', event: 'VISUALIZE', agent_id: 7 }
       ]
     })
 
     const quickActions = workflowStateMachine.computed.quickActions.call(vm)
 
-    expect(quickActions.map(action => action.label)).toEqual(['继续思路分析', '试试拼装版', '画一下'])
+    expect(quickActions.map(action => action.label)).toEqual(['继续思路分析', '拼装挑战', '画一下'])
     expect(quickActions.map(action => action.event)).not.toContain('CODING')
     expect(quickActions.map(action => action.event)).toContain('PARSONS')
   })

@@ -579,7 +579,93 @@ services:
     depends_on:
       - backend
 
+  # ----- 错误追踪：GlitchTip（Sentry 协议兼容、self-hosted、ADR-0004 合规）
+  # 默认随主链路一起拉起；若资源紧张，可在 .env 设 GLITCHTIP_PROFILE=disabled 关闭，
+  # backend / frontend 的 Sentry SDK DSN 留空时 SDK 自动 no-op，零业务影响。
+  glitchtip-postgres:
+    image: postgres:16-alpine
+    container_name: java-oj-glitchtip-postgres
+    restart: unless-stopped
+    profiles: ["${GLITCHTIP_PROFILE:-glitchtip}"]
+    environment:
+      POSTGRES_DB: glitchtip
+      POSTGRES_USER: glitchtip
+      POSTGRES_PASSWORD: ${GLITCHTIP_DB_PASSWORD:-glitchtip}
+    deploy:
+      resources:
+        limits:
+          memory: ${GLITCHTIP_PG_MEMORY_LIMIT:-192m}
+    volumes:
+      - java-oj-glitchtip-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U glitchtip -d glitchtip"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  glitchtip-redis:
+    image: redis:7-alpine
+    container_name: java-oj-glitchtip-redis
+    restart: unless-stopped
+    profiles: ["${GLITCHTIP_PROFILE:-glitchtip}"]
+    deploy:
+      resources:
+        limits:
+          memory: ${GLITCHTIP_REDIS_MEMORY_LIMIT:-32m}
+    command: redis-server --maxmemory 24mb --maxmemory-policy allkeys-lru --save "" --appendonly no
+
+  glitchtip-web:
+    image: glitchtip/glitchtip:v4.1
+    container_name: java-oj-glitchtip-web
+    restart: unless-stopped
+    profiles: ["${GLITCHTIP_PROFILE:-glitchtip}"]
+    depends_on:
+      glitchtip-postgres:
+        condition: service_healthy
+      glitchtip-redis:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: ${GLITCHTIP_WEB_MEMORY_LIMIT:-256m}
+    environment:
+      DATABASE_URL: postgres://glitchtip:${GLITCHTIP_DB_PASSWORD:-glitchtip}@glitchtip-postgres:5432/glitchtip
+      REDIS_URL: redis://glitchtip-redis:6379/0
+      SECRET_KEY: ${GLITCHTIP_SECRET_KEY}
+      PORT: 8000
+      EMAIL_URL: ${GLITCHTIP_EMAIL_URL:-consolemail://}
+      GLITCHTIP_DOMAIN: ${GLITCHTIP_DOMAIN:-http://localhost:18000}
+      DEFAULT_FROM_EMAIL: ${GLITCHTIP_FROM_EMAIL:-noreply@localhost}
+      ENABLE_OPEN_USER_REGISTRATION: "false"
+      CELERY_WORKER_AUTOSCALE: "1,2"
+    ports:
+      - "${GLITCHTIP_BIND:-127.0.0.1}:${GLITCHTIP_HOST_PORT:-18000}:8000"
+
+  glitchtip-worker:
+    image: glitchtip/glitchtip:v4.1
+    container_name: java-oj-glitchtip-worker
+    restart: unless-stopped
+    profiles: ["${GLITCHTIP_PROFILE:-glitchtip}"]
+    depends_on:
+      glitchtip-postgres:
+        condition: service_healthy
+      glitchtip-redis:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: ${GLITCHTIP_WORKER_MEMORY_LIMIT:-192m}
+    environment:
+      DATABASE_URL: postgres://glitchtip:${GLITCHTIP_DB_PASSWORD:-glitchtip}@glitchtip-postgres:5432/glitchtip
+      REDIS_URL: redis://glitchtip-redis:6379/0
+      SECRET_KEY: ${GLITCHTIP_SECRET_KEY}
+      EMAIL_URL: ${GLITCHTIP_EMAIL_URL:-consolemail://}
+      GLITCHTIP_DOMAIN: ${GLITCHTIP_DOMAIN:-http://localhost:18000}
+      DEFAULT_FROM_EMAIL: ${GLITCHTIP_FROM_EMAIL:-noreply@localhost}
+    command: celery -A glitchtip worker -B -l warning --concurrency=2
+
 volumes:
   java-oj-prometheus-data:
   java-oj-grafana-data:
   java-oj-memgraph-data:
+  java-oj-glitchtip-postgres-data:

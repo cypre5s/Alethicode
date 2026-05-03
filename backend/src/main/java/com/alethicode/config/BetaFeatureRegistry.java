@@ -53,21 +53,6 @@ public class BetaFeatureRegistry {
                     "使用提示词拼接方式进行工具调用，替代模型原生 function calling 接口",
                     "兼容性依赖模型提供商实现，可能降低工具调用可靠性；仅在原生接口不可用时考虑开启",
                     "LLM 兼容"
-            ),
-            new BetaFeatureDefinition(
-                    "REACT_ENABLED",
-                    "ReAct 工具调用模式",
-                    "错误诊断和元认知引导使用 ReAct 循环，Agent 可调用工具检索学生历史、相似错误和课件",
-                    "每次诊断可能产生 2-3 次额外 LLM 调用和数据库查询，延迟约增加 3-5 秒",
-                    "AI 推理"
-            ),
-            new BetaFeatureDefinition(
-                    "TUTOR_REACT_ENABLED",
-                    "AI 导学 ReAct 全局开关",
-                    "所有支持 ReAct 的 Agent（DiagnosticsAgent / GuideAgent / MetacognitiveAgent）均使用 ReAct 工具循环",
-                    "每次调用可能产生 2-3 次额外 LLM 调用",
-                    "AI 推理",
-                    true
             )
     );
 

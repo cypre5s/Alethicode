@@ -48,7 +48,7 @@ class AgentObservabilityServiceTest {
         when(jdbcTemplate.queryForList(ArgumentMatchers.contains("GROUP BY agent"),
                 ArgumentMatchers.any(Timestamp.class)))
                 .thenReturn(List.of(
-                        Map.of("agent", "DiagnosticsAgent", "calls", 2L, "total_duration_ms", 110L, "failure_count", 1L),
+                        Map.of("agent", "diagnostics_v1", "calls", 2L, "total_duration_ms", 110L, "failure_count", 1L),
                         Map.of("agent", "Dispatcher", "calls", 1L, "total_duration_ms", 120L, "failure_count", 0L),
                         Map.of("agent", "LearnerMemoryService", "calls", 1L, "total_duration_ms", 15L, "failure_count", 0L)
                 ));
@@ -61,8 +61,8 @@ class AgentObservabilityServiceTest {
         when(jdbcTemplate.queryForList(ArgumentMatchers.contains("event_data::text AS payload")))
                 .thenReturn(List.of(
                         row("{\"span_type\":\"DISPATCH\",\"status\":\"OK\",\"duration_ms\":120,\"metadata\":{\"agent\":\"Dispatcher\"}}"),
-                        row("{\"span_type\":\"LLM_CALL\",\"status\":\"OK\",\"duration_ms\":80,\"metadata\":{\"agent\":\"DiagnosticsAgent\"}}"),
-                        row("{\"span_type\":\"GUARDRAIL\",\"status\":\"FAILED\",\"duration_ms\":30,\"metadata\":{\"agent\":\"DiagnosticsAgent\"}}"),
+                        row("{\"span_type\":\"LLM_CALL\",\"status\":\"OK\",\"duration_ms\":80,\"metadata\":{\"agent\":\"diagnostics_v1\"}}"),
+                        row("{\"span_type\":\"GUARDRAIL\",\"status\":\"FAILED\",\"duration_ms\":30,\"metadata\":{\"agent\":\"diagnostics_v1\"}}"),
                         row("{\"span_type\":\"MEMORY_RECALL\",\"status\":\"OK\",\"duration_ms\":15,\"metadata\":{\"agent\":\"LearnerMemoryService\"}}")
                 ));
 
@@ -79,7 +79,7 @@ class AgentObservabilityServiceTest {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> byAgent = (List<Map<String, Object>>) overview.get("by_agent");
         assertThat(byAgent).hasSize(3);
-        assertThat(byAgent.get(0).get("agent")).isEqualTo("DiagnosticsAgent");
+        assertThat(byAgent.get(0).get("agent")).isEqualTo("diagnostics_v1");
         assertThat(byAgent.get(0).get("calls")).isEqualTo(2L);
         assertThat(byAgent.get(0).get("failure_count")).isEqualTo(1L);
         assertThat(byAgent.get(0).get("failure_rate")).isEqualTo(0.5);

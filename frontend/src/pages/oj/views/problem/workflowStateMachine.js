@@ -163,7 +163,10 @@ export default {
         error_chain: 'Warning',
         ac_review: 'StarFilled',
         transfer: 'Sort',
-        visualize: 'DArrowRight'
+        visualize: 'DArrowRight',
+        parsons: 'Grid',
+        knowledge_review: 'Collection',
+        skeleton: 'Document'
       }
 
       const hasPostAcCard = this.agentMessages.some(m => m.type === 'post_ac')

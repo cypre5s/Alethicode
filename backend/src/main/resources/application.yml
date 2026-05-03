@@ -75,6 +75,20 @@ management:
       compression: gzip
       timeout: 10s
 
+# Sentry / GlitchTip 错误追踪
+# - dsn 默认空 → SDK 全面 no-op，无任何性能开销
+# - 启用时指向境内 self-hosted GlitchTip / Sentry 实例（ADR-0004 禁用 Sentry 云版）
+# - 生产采样率建议 0.2（全量异常 + 20% performance trace）
+sentry:
+  dsn: ${SENTRY_DSN:}
+  environment: ${SENTRY_ENVIRONMENT:dev}
+  release: ${APP_VERSION:dev}
+  send-default-pii: false
+  traces-sample-rate: ${SENTRY_TRACES_SAMPLE_RATE:0.0}
+  exception-resolver-order: -2147483647
+  in-app-includes:
+    - com.alethicode
+
 # Resilience4j：tutor workflow / admin 两类 API 的速率限制。
 # limitForPeriod / refreshPeriod 是"令牌桶"的配置；生产可根据 k8s HPA 调整。
 resilience4j:

@@ -3395,10 +3395,6 @@ public class AITutorWorkflowAdminServiceImpl {
         }
     }
 
-    private boolean isReactEnabled() {
-        return betaFeatureRegistry != null && betaFeatureRegistry.isEnabled("REACT_ENABLED");
-    }
-
     private Map<String, Object> enrichAgentDiagnosis(Map<String, Object> agentOutput,
                                                       EvidencePack evidencePack,
                                                       LearnerState learnerState,

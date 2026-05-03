@@ -109,7 +109,7 @@ class AITutorWelcomeServiceTest {
     }
 
     @Test
-    void starterActionsIncludeKnowledgeReviewWhenWeakKcsExist() {
+    void starterActionsIncludeKnowledgeReviewAndParsonsWhenWeakKcsExist() {
         mockQueries(
                 List.of(),
                 List.of(Map.of("name", "循环结构", "mastery", 0.2)),
@@ -121,8 +121,9 @@ class AITutorWelcomeServiceTest {
         assertThat(welcome.get("memory_tags")).isNull();
         assertThat((String) welcome.get("greeting")).contains("循环结构").contains("20%");
 
+        // weak_kcs 非空 → 起手页追加「拼装挑战」入口（Faded Parsons 自适应渐退）
         List<Map<String, Object>> starterActions = extractStarterActions(welcome);
-        assertThat(starterActions).hasSize(2);
+        assertThat(starterActions).hasSize(3);
         assertThat(starterActions.get(0))
                 .containsEntry("key", "knowledge_review")
                 .containsEntry("label", "帮我回顾相关知识点")
@@ -131,6 +132,25 @@ class AITutorWelcomeServiceTest {
                 .containsEntry("key", "problem_guide")
                 .containsEntry("label", "分析这道题的思路")
                 .containsEntry("event", "READING");
+        assertThat(starterActions.get(2))
+                .containsEntry("key", "parsons")
+                .containsEntry("label", "拼装挑战")
+                .containsEntry("event", "PARSONS");
+    }
+
+    @Test
+    void starterActionsOmitParsonsWhenNoWeakKcsToAvoidDistractingMasterStudents() {
+        // 学霸场景：当前题目相关 KC 上 mastery 都 >= 0.4 → 不追加「拼装挑战」入口
+        // 避免脚手架按钮干扰已经能直写的学生。设计依据见 AITutorWelcomeService.buildStarterActions。
+        mockQueries(List.of(), List.of(), List.of());
+
+        Map<String, Object> welcome = service.getWelcome(42L, 100L);
+
+        List<Map<String, Object>> starterActions = extractStarterActions(welcome);
+        assertThat(starterActions).hasSize(2);
+        assertThat(starterActions)
+                .extracting(a -> a.get("key"))
+                .doesNotContain("parsons");
     }
 
     @Test
@@ -181,8 +201,8 @@ class AITutorWelcomeServiceTest {
     }
 
     @Test
-    void starterActionsIncludeKnowledgeReviewAndProblemGuideWhenWeakKcsExist() {
-        // 起手页保留 2 个按钮：知识点回顾（条件触发）+ 思路分析（恒在）。
+    void starterActionsIncludeKnowledgeReviewProblemGuideAndParsonsWhenWeakKcsExist() {
+        // weak_kcs 非空时起手页 3 个按钮：知识点回顾（恒在）+ 思路分析（恒在）+ 拼装挑战（条件追加）
         mockQueries(
                 List.of(),
                 List.of(Map.of("name", "循环结构", "mastery", 0.2)),
@@ -192,10 +212,10 @@ class AITutorWelcomeServiceTest {
         Map<String, Object> welcome = service.getWelcome(42L, 100L);
 
         List<Map<String, Object>> starterActions = extractStarterActions(welcome);
-        assertThat(starterActions).hasSize(2);
+        assertThat(starterActions).hasSize(3);
         assertThat(starterActions)
                 .extracting(a -> a.get("event"))
-                .containsExactly("KNOWLEDGE_REVIEW", "READING");
+                .containsExactly("KNOWLEDGE_REVIEW", "READING", "PARSONS");
     }
 
     @SuppressWarnings("unchecked")

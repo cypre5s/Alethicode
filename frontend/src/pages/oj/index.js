@@ -25,8 +25,10 @@ import { initNotifications } from '@/utils/notifications'
 import { showSettingsToast } from '@/utils/settingsToast'
 import api from '@oj/api'
 import { initBetaTelemetry } from '@/utils/betaTelemetry'
+import { initSentry } from '@/utils/sentry'
 
 const app = createApp(App)
+initSentry({ app, router })
 const ECharts = defineAsyncComponent(() => import('@oj/components/ECharts.vue'))
 
 if (FRONTEND_ENV.isDevelopment) {

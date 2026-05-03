@@ -41,7 +41,7 @@
           <ElIcon><RefreshRight /></ElIcon>
           <span>再练一题</span>
         </ElButton>
-        <ElButton size="small" plain @click="$emit('open-parsons', problem)">试试拼装版</ElButton>
+        <ElButton size="small" plain @click="$emit('open-parsons', problem)">拼装挑战</ElButton>
       </template>
       <ElButton v-else size="small" plain @click="$emit('open-problem', problem)">查看</ElButton>
     </div>

@@ -19,8 +19,7 @@ import java.util.UUID;
  * 1. 粒度：span_type 必须是 {@link SpanType} 枚举之一（DISPATCH / EVIDENCE_ASSEMBLY /
  *    MEMORY_RECALL / LLM_CALL / TOOL_CALL / GUARDRAIL / OUTPUT），不允许自由字符串；
  * 2. 不污染 agent 状态机：只写 {@code ai_workflow_event} 的 {@code event_type='trace_span'}，
- *    不触碰 {@code agent_status / runtime_state} 等 {@link com.alethicode.service.aitutor.agent.AgentTaskTracker}
- *    管理的字段；
+ *    不触碰 {@code agent_status / runtime_state} 字段；
  * 3. 失败不阻断主链路：写库异常只打 warn 日志，{@link SpanHandle} 仍正常关闭；
  * 4. 每个 span 记录 {@code trace_id / span_id / parent_span_id / duration_ms}，方便前端甘特图回放。
  */

@@ -69,7 +69,7 @@ class AdminAiObservabilityControllerContractTest {
         overview.put("failure_rate", 0.0238);
         overview.put("memory_hit_rate", 0.8);
         overview.put("by_agent", List.of(Map.of(
-                "agent", "DiagnosticsAgent",
+                "agent", "diagnostics_v1",
                 "calls", 5L,
                 "avg_latency_ms", 90L,
                 "failure_count", 0L,
@@ -84,7 +84,7 @@ class AdminAiObservabilityControllerContractTest {
                 .andExpect(jsonPath("$.error").isEmpty())
                 .andExpect(jsonPath("$.data.range").value("7d"))
                 .andExpect(jsonPath("$.data.total_calls").value(42))
-                .andExpect(jsonPath("$.data.by_agent[0].agent").value("DiagnosticsAgent"))
+                .andExpect(jsonPath("$.data.by_agent[0].agent").value("diagnostics_v1"))
                 .andExpect(jsonPath("$.data.hourly_trend").isArray());
     }
 

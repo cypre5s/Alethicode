@@ -34,7 +34,7 @@ describe('error review package rating card contract (Phase 3)', () => {
   test('ReviewProblemCard exposes the Parsons quick entry alongside rating buttons', () => {
     const source = readSource('../../src/pages/oj/views/review/components/ReviewProblemCard.vue')
 
-    expect(source).toContain('试试拼装版')
+    expect(source).toContain('拼装挑战')
     expect(source).toContain("$emit('open-parsons', problem)")
     expect(source).toContain("'open-parsons'")
   })

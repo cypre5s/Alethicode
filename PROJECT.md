@@ -84,15 +84,15 @@ Alethicode 是一个面向 **非计算机专业 Python 初学者** 的智能在�
 │   ┌──────────────────────────┼───────────────────────────────────┐     │
 │   │                    Service Layer                              │     │
 │   │  ┌──────────┐ ┌────────┐ ┌──────────┐ ┌──────────────────┐  │     │
-│   │  │ Account  │ │Problem │ │Submission│ │  AI Tutor (4000+  │  │     │
-│   │  │ Service  │ │ Query  │ │ Service  │ │  lines, FSM +     │  │     │
-│   │  └──────────┘ └────────┘ └──────────┘ │  Agent + ReAct)   │  │     │
+│   │  │ Account  │ │Problem │ │Submission│ │  AI Tutor         │  │     │
+│   │  │ Service  │ │ Query  │ │ Service  │ │ (FSM + Memory +   │  │     │
+│   │  └──────────┘ └────────┘ └──────────┘ │  Layered Prompt)  │  │     │
 │   │  ┌──────────┐ ┌────────────────────┐  └──────────────────┘  │     │
 │   │  │Classroom │ │LanguagePack Service│  ┌──────────────────┐  │     │
-│   │  │ Service  │ │(Init/QA/Publish/   │  │  LlmClient       │  │     │
-│   │  │          │ │ Video/Storage)     │  │ (callForJson +   │  │     │
-│   │  └──────────┘ └────────────────────┘  │  callWithTools)  │  │     │
-│   │                                        └──────────────────┘  │     │
+│   │  │ Service  │ │(Init/QA/Publish/   │  │  AiModelGateway  │  │     │
+│   │  │          │ │ Video/Storage)     │  │  (Spring AI)     │  │     │
+│   │  └──────────┘ └────────────────────┘  └──────────────────┘  │     │
+│   │                                                              │     │
 │   └──────────────────────────────────────────────────────────────┘     │
 │                              │                                         │
 │   ┌──────────────────────────┼───────────────────────────────────┐     │
@@ -199,12 +199,14 @@ Client Request
 ┌─────────────────────────────────────────────────────────────┐
 │                     AI / LLM Stack                           │
 ├─────────────────┬───────────────────────────────────────────┤
-│ LLM             │ MiniMax-M2.7 (OpenAI-compatible)           │
+│ LLM             │ DeepSeek（生产）/ MiniMax-M2.7（备选）     │
 │ Embedding       │ 阿里通义 text-embedding-v4                  │
-│ ReAct           │ 自研 callWithTools (Tool-use 循环)           │
+│ Prompt Layers   │ LayeredPromptBuilder（已下线）→ 现已收敛到   │
+│                 │ EvidencePack + LearnerProfile + Courseware  │
 │ Reflection      │ 自研 Producer-Critic (CardType 分维度)       │
-│ Agent Framework │ 自研 TutorAgent 接口 + OrchestratorAgent     │
-│ Evaluation      │ LLM-as-Judge (8 维度 rubric)                │
+│ Workflow Engine │ Java FSM (Phase/Event) + tutor-graph        │
+│                 │ (LangGraph) 双轨；ReAct/Multi-Agent 已下线   │
+│ Evaluation      │ LLM-as-Judge (8 维度 rubric) + Red Team CI  │
 │ A/B Testing     │ 自研 RolloutPolicyService                   │
 │ Video Gen       │ LLM 分镜 + 外部 TTS/Render (可插拔)          │
 └─────────────────┴───────────────────────────────────────────┘
@@ -239,27 +241,16 @@ com.pytutor/
 │   └── classroom/                   # 课堂子控制器 (6 个)
 │
 ├── service/
-│   ├── LlmClient                    # LLM HTTP 客户端
-│   │                                  callForJson + callWithTools
+│   ├── ai/                          # LLM gateway（多 provider 装配）
+│   │   ├── AiModelGateway           #   核心接口（Spring AI 封装）
+│   │   ├── SpringAiModelGateway     #   生产实现
+│   │   └── CachingAiModelGateway    #   缓存装饰器
+│   │
 │   ├── aitutor/                     # AI 导学助手子系统
-│   │   ├── agent/                   # Agent 化架构
-│   │   │   ├── TutorAgent           #   接口
-│   │   │   ├── AgentCapability      #   自描述 (A2A AgentCard)
-│   │   │   ├── AgentContext         #   执行上下文
-│   │   │   ├── OrchestratorAgent    #   路由分发
-│   │   │   ├── DiagnosticsAgent     #   ERROR_FEEDBACK
-│   │   │   ├── ScaffoldingAgent     #   SCAFFOLDING
-│   │   │   ├── GuideAgent           #   READING/IDEATING
-│   │   │   ├── TransferAgent        #   TRANSFER/AC_REVIEW
-│   │   │   ├── ChatAgent            #   CHAT
-│   │   │   ├── AgentTaskTracker     #   Task 生命周期
-│   │   │   └── AgentTaskStatus      #   submitted/working/completed/failed
-│   │   │
-│   │   ├── react/                   # ReAct 基础设施
-│   │   │   ├── ToolDefinition       #   工具定义
-│   │   │   ├── ToolExecutor         #   工具执行接口
-│   │   │   ├── ReactResult          #   循环结果
-│   │   │   └── TutorToolRegistry    #   4 个内部工具注册
+│   │   ├── observability/           # 观测链路
+│   │   │   ├── AgentTraceRecorder   #   span 持久化
+│   │   │   ├── AgentTraceContext    #   span 上下文
+│   │   │   └── AgentObservabilityService # admin 驾驶舱
 │   │   │
 │   │   ├── reflection/              # Reflection 框架
 │   │   │   ├── ReflectionService    #   接口
@@ -434,52 +425,7 @@ com.pytutor/
                                  └────────────────┘
 ```
 
-### 6.2 ReAct 循环
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│                    callWithTools 循环                         │
-├──────────────────────────────────────────────────────────────┤
-│                                                              │
-│  iteration 1:                                                │
-│  ┌──────────┐     ┌──────────┐     ┌──────────────────┐     │
-│  │ System + │────►│ LLM API  │────►│ finish_reason =  │     │
-│  │ User msg │     │ (MiniMax)│     │ "tool_calls"     │     │
-│  └──────────┘     └──────────┘     └────────┬─────────┘     │
-│                                              │               │
-│  ┌───────────────────────────────────────────┘               │
-│  │                                                           │
-│  ▼  tool_calls: [{name: "search_similar_errors", args: {}}] │
-│  ┌──────────────────┐                                        │
-│  │ ToolExecutor     │◄── TutorToolRegistry                   │
-│  │ .execute(args)   │    ┌─ search_courseware                │
-│  └────────┬─────────┘    ├─ search_similar_errors            │
-│           │              ├─ search_language_pack_pages        │
-│           ▼              └─ get_learner_history               │
-│  observation (JSON)                                          │
-│           │                                                  │
-│  iteration 2:                                                │
-│  ┌──────────────────────────────────────────────────┐        │
-│  │ transcript += assistant(tool_calls) + tool(obs)  │        │
-│  └──────────┬───────────────────────────────────────┘        │
-│             │                                                │
-│             ▼                                                │
-│  ┌──────────┐     ┌──────────┐     ┌──────────────────┐     │
-│  │ Updated  │────►│ LLM API  │────►│ finish_reason =  │     │
-│  │ messages │     │          │     │ "stop"           │     │
-│  └──────────┘     └──────────┘     └────────┬─────────┘     │
-│                                              │               │
-│                                              ▼               │
-│                                     ┌──────────────┐        │
-│                                     │ Final JSON   │        │
-│                                     │ (诊断结果)    │        │
-│                                     └──────────────┘        │
-│                                                              │
-│  maxIterations 可配 (默认 4)                                  │
-└──────────────────────────────────────────────────────────────┘
-```
-
-### 6.3 Reflection (Producer-Critic)
+### 6.2 Reflection (Producer-Critic)
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -513,49 +459,37 @@ com.pytutor/
 └──────────────────────────────────────────────────────────┘
 ```
 
-### 6.4 Agent 化架构
+### 6.3 AI 导学事件分发（FSM 主线）
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                    OrchestratorAgent                          │
-│                   (phase, event) 路由                         │
+│           AITutorWorkflowAdminServiceImpl.processEvent       │
+│                   (phase, event) 直接派发                     │
 ├──────────────────────────────────────────────────────────────┤
 │                                                              │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │ DiagnosticsAgent                                       │  │
-│  │ canHandle: ERROR_FEEDBACK                              │  │
-│  │ 特性: 内置 ReAct 循环 + 强制 Reflection                 │  │
-│  │ 工具: search_courseware, search_similar_errors,         │  │
-│  │       get_learner_history                              │  │
-│  └────────────────────────────────────────────────────────┘  │
+│  ERROR_FEEDBACK  → buildErrorDiagnosisPayload                │
+│                   + EvidencePack + LearnerProfile + RAG      │
+│                   + ReflectionService（强制 critic）         │
 │                                                              │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │ ScaffoldingAgent                                       │  │
-│  │ canHandle: SCAFFOLDING                                 │  │
-│  │ 特性: mastery 驱动策略选择 + 强制 Reflection             │  │
-│  │ 策略: mastery<0.3→worked, 0.3-0.7→faded, >0.7→hint    │  │
-│  └────────────────────────────────────────────────────────┘  │
+│  SCAFFOLDING     → buildScaffoldPayload                      │
+│                   + mastery<0.3→worked, 0.3-0.7→faded,        │
+│                     >0.7→hint + Reflection                   │
 │                                                              │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │ GuideAgent                                             │  │
-│  │ canHandle: READING, IDEATING                           │  │
-│  │ 特性: 轻量单轮生成，无 Reflection                       │  │
-│  └────────────────────────────────────────────────────────┘  │
+│  READING/IDEATING → buildGuidePayload                        │
+│                   + 单次 LLM call，无 Reflection              │
 │                                                              │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │ TransferAgent                                          │  │
-│  │ canHandle: TRANSFER, AC_REVIEW                         │  │
-│  │ 特性: AC_REVIEW 时启用 Reflection                       │  │
-│  └────────────────────────────────────────────────────────┘  │
+│  TRANSFER/AC_REVIEW → buildTransferPayload                   │
+│                   + AC_REVIEW 时启用 Reflection              │
 │                                                              │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │ ChatAgent                                              │  │
-│  │ canHandle: CHAT                                        │  │
-│  │ 特性: 最轻量，无 Reflection（延迟敏感）                   │  │
-│  └────────────────────────────────────────────────────────┘  │
+│  CHAT            → buildChatPayload                          │
+│                   + 最轻量，延迟敏感无 Reflection             │
 │                                                              │
-│  每个 Agent 执行后 → AgentTaskTracker 记录状态               │
-│  submitted → working → completed / failed                   │
+│  每次派发 → AgentTraceRecorder 写 ai_workflow_event 的 span   │
+│  (DISPATCH / EVIDENCE_ASSEMBLY / LLM_CALL / GUARDRAIL ...)   │
+│                                                              │
+│  备注：早期设计有 Multi-Agent + ReAct（OrchestratorAgent /    │
+│  DiagnosticsAgent 等），评估后于 2026-05-03 整包下线，         │
+│  收敛回单次 LLM + RAG + Reflection 的稳定管线。              │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -637,12 +571,8 @@ com.pytutor/
 ┌────────────────────────────────────────────────────────┐
 │            AnswerSynthesisService                       │
 │                                                        │
-│  ┌─ QA_REACT_ENABLED? ────────────────────────┐       │
-│  │ false: callForJson (单轮)                   │       │
-│  │ true:  callWithTools                       │       │
-│  │        └ search_language_pack_pages (补检索) │       │
-│  └─────────────────────────────────────────────┘       │
-│                         │                              │
+│  callForJson (单轮 LLM + 已检索的 page hits)            │
+│                                                        │
 │  ┌─ QA_GROUNDING_CRITIC_ENABLED? ─────────────┐       │
 │  │ true:  Critic LLM 验证 grounding            │       │
 │  │        └ grounded=false → 降级拒答           │       │
@@ -966,11 +896,7 @@ JUDGE_SERVER_TOKEN=...          # Judge Server 认证令牌
 ### 13.2 功能开关
 
 ```
-# Agent Architecture Optimization
-TUTOR_REACT_ENABLED=false           # ERROR_FEEDBACK 启用 ReAct
-TUTOR_REACT_MAX_ITERATIONS=4        # ReAct 最大迭代数
-QA_REACT_ENABLED=false              # QA 启用自适应检索
-QA_REACT_MAX_ITERATIONS=3           # QA ReAct 最大迭代数
+# AI 推理 / LLM 兼容（Beta）
 QA_GROUNDING_CRITIC_ENABLED=false   # QA 启用 grounding critic
 LLM_TOOL_USE_PROMPT_FALLBACK=false  # tool-use 回退为 prompt-based
 
@@ -1104,14 +1030,14 @@ API:
 | COMPREHENSIBILITY | 可理解性 | 语言清晰初学者能懂 |
 | ENCOURAGEMENT | 鼓励性 | 包含合适情感支持 |
 
-### C. 内部工具 (TutorToolRegistry)
+### C. RAG 检索（前置 retrieval，已替代旧 ReAct 工具调用循环）
 
-| 工具名 | 作用 | 适用场景 |
-|--------|------|---------|
-| search_courseware | 按 KC/章节/关键词检索课件 | ERROR_FEEDBACK |
-| search_similar_errors | 向量检索相似错误 | ERROR_FEEDBACK |
-| search_language_pack_pages | 检索语言包页面 | QA |
-| get_learner_history | 获取学习者最近 N 次提交 | ERROR_FEEDBACK |
+| 服务 | 作用 | 适用场景 |
+|------|------|---------|
+| `CoursewareContextProvider` | 按 `@courseware:<lpId>` token 拉取 RAG top-k chunks | AI 导学对话 + 错误诊断 |
+| `SimilarErrorRetrievalService` | pgvector 相似错例检索 | ERROR_FEEDBACK |
+| `LanguagePackQaService.PageRetrieval` | 语言包页面混合检索 | QA |
+| `LearnerProfileProjector` + `MasteryService` | 学生历史提交画像 | ERROR_FEEDBACK / SCAFFOLDING |
 
 ---
 

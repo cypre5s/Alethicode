@@ -11,20 +11,18 @@ import java.util.Map;
  *   <li>null {@link #recorder} 表示当前调用链不要求 span 追踪，agent 应当原样跳过；</li>
  *   <li>{@link #parentSpanId()} 可空；顶层 DISPATCH span 的 parent 为 null；</li>
  *   <li>由 dispatcher（当前为 {@code AITutorWorkflowAdminServiceImpl.processWorkflowEvent}）在 session 级别创建一次，
- *       然后通过 {@code AgentContext.traceContext()} 传进各 agent。</li>
+ *       然后通过调用方持有传递。</li>
  * </ul>
  *
  * <p>子 span 的典型创建姿势：
  * <pre>{@code
- * AgentTraceContext tc = context.traceContext();
- * AgentTraceRecorder.SpanHandle handle = tc == null ? null : tc.recorder().startSpan(
- *     tc.traceId(), AgentTraceRecorder.SpanType.LLM_CALL,
- *     tc.sessionId(), tc.parentSpanId(), meta);
+ * AgentTraceRecorder.SpanHandle handle = traceContext == null ? null
+ *         : traceContext.startSpan(AgentTraceRecorder.SpanType.LLM_CALL, meta);
  * try {
  *     // ... LLM 调用 ...
- *     if (tc != null) tc.recorder().endSpanOk(handle, "llm ok");
+ *     if (traceContext != null) traceContext.endSpanOk(handle, "llm ok");
  * } catch (Exception e) {
- *     if (tc != null) tc.recorder().endSpanFailed(handle, "llm failed", Map.of("err", e.getMessage()));
+ *     if (traceContext != null) traceContext.endSpanFailed(handle, "llm failed", Map.of("err", e.getMessage()));
  *     throw e;
  * }
  * }</pre>

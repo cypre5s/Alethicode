@@ -191,6 +191,7 @@ public class AITutorWelcomeService {
         return "准备好了吗？有任何疑问随时可以问我～";
     }
 
+    @SuppressWarnings("unchecked")
     private List<Map<String, Object>> buildStarterActions(Map<String, Object> ctx) {
         // 起手页固定两个按钮：知识点回顾 + 思路分析。
         // - 知识点回顾即使当前题目没有「弱 KC」也展示——主动请求复习是元认知教学
@@ -200,9 +201,16 @@ public class AITutorWelcomeService {
         // - 错误诊断（"我遇到了错误，帮我看看"）已下线 — 学生看到错误诊断入口
         //   容易绕过题目直接跳到答案，且做题页内的提交记录区已有"复盘错题"入口，
         //   起手页保留容易混淆。如果未来想恢复，把 ERROR_FEEDBACK action 加回即可。
+        // - 拼装挑战（Faded Parsons）按 weak_kcs 门槛追加：当且仅当当前题目存在
+        //   mastery < WEAK_THRESHOLD 的 KC 时才出现，避免学霸进题就被脚手架按钮干扰；
+        //   weak_kcs 弱时学生最需要"理解→产出"之间的拼装台阶。
         List<Map<String, Object>> actions = new ArrayList<>();
         actions.add(action("knowledge_review", "帮我回顾相关知识点", "KNOWLEDGE_REVIEW"));
         actions.add(action("problem_guide", "分析这道题的思路", "READING"));
+        List<Map<String, Object>> weakKcs = (List<Map<String, Object>>) ctx.get("weak_kcs");
+        if (weakKcs != null && !weakKcs.isEmpty()) {
+            actions.add(action("parsons", "拼装挑战", "PARSONS"));
+        }
         return actions;
     }
 

@@ -86,13 +86,16 @@ public class ParsonsDistractorGenerator {
         }
         kcArr.append("]");
 
+        // 注意：jsonb 操作符 `?|` 与 JDBC 的 `?` 占位符冲突，pgjdbc 会把
+        // `kc_ids ?| ARRAY[...]` 中的 `?` 误识别为参数占位符。改用等价的
+        // PostgreSQL 内置函数 jsonb_exists_any 规避，不引入驱动级 hack。
         List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
                 SELECT id, root_cause, misconception_distribution, evidence_ptr
                 FROM ai_learner_notebook
                 WHERE user_id = ?
                   AND is_deleted = false
                   AND update_time > now() - interval '90 day'
-                  AND (kc_ids ?| ARRAY[%s]
+                  AND (jsonb_exists_any(kc_ids, ARRAY[%s]::text[])
                        OR (problem_id IS NOT NULL AND problem_id IN (
                            SELECT problem_id FROM ai_problem_kc_mapping WHERE kc_id = ANY(?)
                        )))

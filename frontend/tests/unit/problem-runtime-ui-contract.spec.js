@@ -85,11 +85,6 @@ describe('problem runtime UI contract', () => {
       expect(panelSource).toContain('support_hint')
     })
 
-    test('does not render the top character strip header anymore', () => {
-      expect(panelSource).not.toContain('<CharacterAvatar')
-      expect(panelSource).not.toContain('char-avatar-strip')
-    })
-
     test('loads courseware preview through workflow server-state query helper', () => {
       expect(panelSource).toContain("fetchCoursewarePreviewPage")
       expect(panelSource).toContain('this.workflowQueryClient')

@@ -60,7 +60,7 @@ class AgentTraceRecorderTest {
     @Test
     void endSpanWritesExpectedEventDataFields() throws Exception {
         Map<String, Object> metadata = new LinkedHashMap<>();
-        metadata.put("agent", "DiagnosticsAgent");
+        metadata.put("agent", "diagnostics_v1");
         AgentTraceRecorder.SpanHandle handle = recorder.startSpan(
                 "trace-abc", AgentTraceRecorder.SpanType.LLM_CALL, "sess-42", "parent-span-1", metadata);
 
@@ -86,7 +86,7 @@ class AgentTraceRecorderTest {
         assertThat(recorded.get("span_id")).isNotNull();
         assertThat(recorded.get("duration_ms")).isNotNull();
         Map<String, Object> meta = (Map<String, Object>) recorded.get("metadata");
-        assertThat(meta).containsEntry("agent", "DiagnosticsAgent");
+        assertThat(meta).containsEntry("agent", "diagnostics_v1");
         Map<String, Object> pl = (Map<String, Object>) recorded.get("payload");
         assertThat(pl).containsEntry("tokens", 420);
     }

@@ -1,81 +1,134 @@
+# Dependabot 配置：每周扫描依赖，CVE / 主版本升级自动开 PR。
+# 国内访问 GitHub 偶发受限，labels 用中文便于运维分流；reviewers 留空让维护者按 PR 自分流。
+#
+# 参考：https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
 version: 2
-# 依赖自动更新。国内访问 GitHub 稳定性一般，所以 PR 频率定低一些，避开上班高峰。
+
 updates:
-  - package-ecosystem: maven
-    directory: /backend
+  - package-ecosystem: "maven"
+    directory: "/backend"
     schedule:
-      interval: weekly
-      day: saturday
-      time: "02:00"
-      timezone: Asia/Shanghai
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+      timezone: "Asia/Shanghai"
     open-pull-requests-limit: 5
     labels:
-      - dependencies
-      - backend
+      - "dependencies"
+      - "backend"
+    commit-message:
+      prefix: "deps(backend)"
     groups:
       spring-boot:
         patterns:
           - "org.springframework.boot:*"
-          - "org.springframework.security:*"
-          - "org.springframework.ai:*"
-      resilience:
+          - "org.springframework:*"
+      spring-ai:
         patterns:
-          - "io.github.resilience4j:*"
+          - "org.springframework.ai:*"
       observability:
         patterns:
           - "io.micrometer:*"
           - "io.opentelemetry:*"
-          - "net.logstash.logback:*"
+          - "io.sentry:*"
+      resilience:
+        patterns:
+          - "io.github.resilience4j:*"
     ignore:
-      # Pin spring-ai at the curated BOM version; auto-bump within 1.x only.
-      - dependency-name: "org.springframework.ai:spring-ai-bom"
-        update-types: ["version-update:semver-major"]
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
 
-  - package-ecosystem: pip
-    directory: /tutor_graph
+  - package-ecosystem: "npm"
+    directory: "/frontend"
     schedule:
-      interval: weekly
-      day: saturday
-      time: "02:30"
-      timezone: Asia/Shanghai
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+      timezone: "Asia/Shanghai"
     open-pull-requests-limit: 5
     labels:
-      - dependencies
-      - tutor-graph
+      - "dependencies"
+      - "frontend"
+    commit-message:
+      prefix: "deps(frontend)"
     groups:
-      langgraph:
+      vue-stack:
         patterns:
-          - "langgraph*"
-          - "langchain*"
-      opentelemetry:
-        patterns:
-          - "opentelemetry-*"
-
-  - package-ecosystem: npm
-    directory: /frontend
-    schedule:
-      interval: weekly
-      day: sunday
-      time: "02:00"
-      timezone: Asia/Shanghai
-    open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - frontend
-    groups:
+          - "vue"
+          - "vue-router"
+          - "vuex"
+          - "vue-i18n"
+          - "@vitejs/*"
+          - "vite"
+          - "vite-plugin-*"
       element-plus:
         patterns:
           - "element-plus"
-      vue-ecosystem:
+          - "@element-plus/*"
+      codemirror:
         patterns:
-          - "vue"
-          - "vue-*"
-          - "@vue/*"
+          - "codemirror"
+          - "@codemirror/*"
+          - "@lezer/*"
+      sentry:
+        patterns:
+          - "@sentry/*"
+      eslint:
+        patterns:
+          - "eslint"
+          - "eslint-*"
+          - "@eslint/*"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
 
-  - package-ecosystem: github-actions
-    directory: /
+  - package-ecosystem: "pip"
+    directory: "/services/tutor-graph"
     schedule:
-      interval: monthly
+      interval: "weekly"
+      day: "monday"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 3
     labels:
-      - dependencies
-      - ci
+      - "dependencies"
+      - "tutor-graph"
+    commit-message:
+      prefix: "deps(tutor-graph)"
+
+  - package-ecosystem: "pip"
+    directory: "/services/alethicode-rag"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "alethicode-rag"
+    commit-message:
+      prefix: "deps(alethicode-rag)"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      timezone: "Asia/Shanghai"
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "deps(ci)"
+
+  - package-ecosystem: "docker"
+    directory: "/deploy"
+    schedule:
+      interval: "monthly"
+      timezone: "Asia/Shanghai"
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "deps(docker)"
