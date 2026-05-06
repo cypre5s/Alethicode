@@ -20,17 +20,6 @@
 - 2026-05-03 **[前端/集成]** `NotebookHeader.vue` TABS 数组追加 `{ value: 'timeline', label: '学习时间线' }`；`notebookConstants.js` VIEW_MODES 追加 `TIMELINE`；`LearnerNotebook.vue` 注册 `LearningTimeline` 组件并在 `viewMode === 'timeline'` 时渲染。
 - 2026-05-03 **[前端/测试]** 新建 `learning-timeline-contract.spec.js`，14 个 contract 测试覆盖：组件存在性、API 调用参数、4 类过滤、3 态处理、hover 卡片、事件标签映射、API 模块注册、tab 集成、token 引用、响应式断点。14/14 通过。
 
-### L99 Phase B 深度实现 — VHS 重放 + What-If 分叉 + 全面单测
-
-> **背景**：Phase B 的 Sprint 10/11 深度实现 + 全面后端单测补全。
-
-- 2026-05-03 **[Sprint 10/后端]** 新建 `CodeReplayService`：从 `ai_code_snapshot` 表按 (user, problem) 加载编码帧（最多 500 帧），计算统计数据（总耗时 / 总字符增删 / 最大行数）+ `listReplayableProblems`（≥ 3 帧的题目列表）。新建 `CodeReplayController`（GET /api/twin/replay/events + /replay/problems）。
-- 2026-05-03 **[Sprint 10/前端]** 新建 `CodeReplayPlayer.vue`：完整播放器组件（题目选择器 + 代码预览区 mono 字体 + 播放/暂停/上帧/下帧/滑块 scrub + 帧计数器 + 耗时/字符/行数统计），`beforeUnmount` 清理定时器。
-- 2026-05-03 **[Sprint 11/后端]** 新建 `WhatIfBranchController`：`POST /api/twin/what-if` 接受 `(problem_id, scenario=ac|wa)`，通过 `ai_problem_kc_mapping` 查关联 KC，模拟做对/做错后 mastery 变化（只读推算，不修改真实数据），返回每个 KC 的 current/simulated/delta。
-- 2026-05-03 **[Sprint 11/前端]** 新建 `WhatIfBranchView.vue`：输入题目 ID → AC/WA 按钮 → KC delta 列表（绿色上升/红色下降箭头 + 百分比变化量）。
-- 2026-05-03 **[后端/深度单测]** `MetacognitivePredictionServiceTest` 16 用例：classifyDiff 11 种情况（exact match / whitespace / crash / Error / partial 双向 / 不同数字 / 不同字符串 / null 双向 / 空字符串）+ recordPrediction + verify + getMetacognitiveMap + zeroPredicts。`TwinChatServiceTest` 9 用例：4 类问题路由 + 无弱 KC + 无待复习 + 未知问题回退 + 空摘要 + quickQuestions。
-- 2026-05-03 **[前端/测试]** 新建 `replay-whatif-deep-contract.spec.js` 12 个 contract 测试。全量 10 套件 96/96 通过。
-
 ### L99 Phase B — Negotiable & Editable Twin (S07-S12)
 
 > **背景**：从 OLM Inspectable 升级到 Negotiable + Editable，让学生反过来质疑、协商、编辑孪生。
