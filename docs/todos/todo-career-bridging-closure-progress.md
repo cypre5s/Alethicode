@@ -26,7 +26,7 @@
 | 6 | `feat(coding-lens-ui): DomainLensToggle 与教师后台只读视图` | 进行中（并行 agent） | — | — |
 | 7 | `feat(career-db): V86 新建 career_micro_project 与 career_path_node 及种子数据` | 本地完成（待 push） | 见 git log | V86 SQL + 12 专业 × 5 节点 path 种子（60 行） |
 | 8 | `feat(career-path): 拓扑排序 + 解锁判断 + GraphRAG why_md 增强` | 本地完成（待 push） | 见 git log | service + controller |
-| 9 | `feat(career-path-ui): vue-mermaid 渲染的专业路径地图与缩略图嵌入` | 待开始 | — | — |
+| 9 | `feat(career-path-ui): vue-mermaid 渲染的专业路径地图与缩略图嵌入` | 本地完成（待 push） | 见 git log | CareerPathPage + API + 路由 |
 | 10 | `feat(career-bridging): 串通 KC 毕业与章节进入两类里程碑触发` | 待开始 | — | — |
 | 11 | `feat(career-studio): 微项目生成与 reference solution 真判题自验证` | 待开始 | — | — |
 | 12 | `feat(career-studio-ui): 项目详情、CodeMirror 复用与作品集卡片导出` | 待开始 | — | — |

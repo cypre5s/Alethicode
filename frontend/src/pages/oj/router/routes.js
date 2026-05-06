@@ -20,7 +20,8 @@ import {
   ManualPage,
   MaintenancePage,
   CareerProfilePage,
-  CareerReportPage
+  CareerReportPage,
+  CareerPathPage
 } from '../views'
 
 import * as Setting from '@oj/views/setting'
@@ -177,6 +178,12 @@ export default [
     name: 'career-reports',
     meta: { title: '专业报告', requiresAuth: true },
     component: CareerReportPage
+  },
+  {
+    path: '/career/path',
+    name: 'career-path',
+    meta: { title: '学习路径', requiresAuth: true },
+    component: CareerPathPage
   },
   {
     name: 'maintenance',
