@@ -29,8 +29,8 @@
 | 9 | `feat(career-path-ui): vue-mermaid 渲染的专业路径地图与缩略图嵌入` | 本地完成（待 push） | 见 git log | CareerPathPage + API + 路由 |
 | review | code review 修复批（🔴 #1 #2 / 🟠 #3-#7 / 🟡 #8 #9 #11） | 本地完成（待 push） | 见 git log | 前端 method/path 拉齐 + Coding Lens RBAC + Vue v-html → marked+DOMPurify + Career Controller 走 service + 死代码删除 + markNodeUnlocked 校验 + ReflectionResult 语义统一 + 新增 13 个单测 |
 | 10 | `feat(career-bridging): 串通 KC 毕业与章节进入两类里程碑触发` | 本地完成（待 push） | `ca511c3` | listener 重建 + JudgeCompletedEventListener / LearnerCourseProgressService 接入 + 10 单测 |
-| 11 | `feat(career-studio): 微项目生成与 reference solution 真判题自验证` | 本地完成（待 push） | 见 git log | studio 服务 + 真判题自验证 + 4 endpoints + 11 单测 |
-| 12 | `feat(career-studio-ui): 项目详情、CodeMirror 复用与作品集卡片导出` | 待开始 | — | — |
+| 11 | `feat(career-studio): 微项目生成与 reference solution 真判题自验证` | 本地完成（待 push） | `8a8ae7b` | studio 服务 + 真判题自验证 + 4 endpoints + 11 单测 |
+| 12 | `feat(career-studio-ui): 项目详情、CodeMirror 复用与作品集卡片导出` | 本地完成（待 push） | 见 git log | CareerStudioPage + CareerProjectDetailPage + 4 API + 2 路由 + Markdown 卡片导出 |
 | 13 | `feat(career-bridging): project_completed 触发报告重激活` | 待开始 | — | — |
 | 14 | `feat(career-rollout): 4 个 experiment_id 接入 RolloutPolicyService 与评测扩展` | 待开始 | — | — |
 | 15 | `feat(career-admin): 教师锁定/考试模式与用户级关闭面板` | 待开始 | — | — |
@@ -235,6 +235,9 @@ push 阻塞）；进度仅靠隔离 DB 的 SQL dry-run 提供证据。
 | 2026-05-06 | todo 11 `mvn -Dtest='MicroProjectStudioServiceImplTest' test` | ✓ 11/11 全过、0 failure 0 error |
 | 2026-05-06 | todo 11 `mvn -Dtest='ReflectionServiceImplTest,CareerBridgingServiceImplTest,DomainLensServiceImplTest,CareerPathServiceImplTest,CareerMilestoneEventListenerTest,MicroProjectStudioServiceImplTest' test` | ✓ 48/48 全过（旧 37 + 新 11）、0 failure 0 error |
 | 2026-05-06 | todo 11 `feat(career-studio): 微项目生成 + 真判题自验证` 本地 commit | ✓ studio 服务 + AiProblemTestCaseWriter 提升 public + controller 4 端点 + 11 单测 + CHANGELOG + progress 同 commit |
+| 2026-05-06 | todo 12 `npm run typecheck` | ✓ 0 错误（vue-tsc -p tsconfig.json） |
+| 2026-05-06 | todo 12 `npx vite build` | ✓ 0 错误，PWA precache 253 entries / 19539.03 KiB 正常生成 |
+| 2026-05-06 | todo 12 `feat(career-studio-ui): 项目详情、判题页深链与作品集卡片导出` 本地 commit | ✓ CareerStudioPage + CareerProjectDetailPage + 4 API + 2 路由 + index.js + CHANGELOG + progress 同 commit |
 
 ## todo 10：KC 毕业 + 章节进入里程碑触发器（本地完成，待 push）
 
@@ -295,6 +298,32 @@ push 阻塞）；进度仅靠隔离 DB 的 SQL dry-run 提供证据。
   不写「降级版本」也不静默吞错（log.warn + 返回 empty 让上游重试可观测）
 - **可观测**：每条 micro project 自带 trace_id（32 字符 UUID），与 `judge_problem_id`
   关联到 problem 表，运维侧可串联出 LLM 出题 → 真判题 → 学生提交全链路
+
+## todo 12：Project Studio 前端 UI + 作品集卡片导出（本地完成，待 push）
+
+### 已落地
+
+- `frontend/src/pages/oj/api/career.js`：新增 4 方法
+  `getStudioRecommendations` / `generateStudioProject` / `listStudioProjects` /
+  `getStudioProject`，对接 `/api/career/studio/*`
+- `frontend/src/pages/oj/views/career/CareerStudioPage.vue`：
+  推荐 KC 卡 + 一键生成 + 项目列表，每张卡片含状态徽章 + 判题页深链 + 详情链接
+- `frontend/src/pages/oj/views/career/CareerProjectDetailPage.vue`：
+  元信息 + `brief_md` 渲染（marked + sanitize）+ 作品集 Markdown 导出
+  （复制到剪贴板 / 下载 .md 文件）
+- `frontend/src/pages/oj/views/career/index.js`：导出 2 个新页面
+- `frontend/src/pages/oj/router/routes.js`：注册 `/career/studio` 与
+  `/career/studio/projects/:projectId` 两条路由（均 `requiresAuth`）
+
+### 强约束遵守
+
+- **不重复实现 CodeMirror**：详情页用「前往判题页提交」深链复用 `Problem.vue`
+  （参数 `problemID = career_micro_project.judge_problem_id`），学生提交走
+  标准 `SubmissionService`，与 todo 10/11 闭环
+- **XSS 防御**：`brief_md` 走 marked + sanitize；其它字段走 Vue 模板插值
+  （Vue 自动 HTML 转义），与 review 修复批确立的渲染规范一致
+- **a11y 合规**：按钮 `aria-label` + `min-height: 44px` 触摸目标 +
+  焦点环 + 4.5:1 颜色对比度（按 ui-ux-pro-max skill 优先级 1-2 项执行）
 
 ## 严格约束清单（每个后续 todo 都要遵守）
 

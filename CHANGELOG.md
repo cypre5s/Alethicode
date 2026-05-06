@@ -4,6 +4,18 @@
 
 ## [Unreleased] - 2026-05-06
 
+### Career Bridging Closure todo 12：Project Studio 前端 UI + 作品集卡片导出
+
+> **背景**：plan 5.3 节定义 Studio 学生侧入口与作品集卡片输出。本 todo 把 todo 11 的 4 个后端端点接到学生 UI：列表 + 推荐 + 一键生成 + 详情 + 作品集卡片 Markdown 导出（用于个人作品集 / 简历附件）。所有 LLM 文本走 `marked` + DOMPurify `sanitize` 渲染（与 review 修复批确立的 Vue 模板渲染规范一致），消除 v-html XSS 面。
+
+- 2026-05-06 **[新增/前端 API]** `frontend/src/pages/oj/api/career.js` 新增 4 方法：`getStudioRecommendations` / `generateStudioProject(majorCode, kcCodes)` / `listStudioProjects(limit)` / `getStudioProject(projectId)`，对应后端 `/api/career/studio/*` 4 端点。命名与现有 `getCareerXxx` 风格一致，避免同语义双拼写。
+- 2026-05-06 **[新增/页面]** `CareerStudioPage.vue`：顶部展示推荐 KC 簇卡片（含「生成微项目」按钮，加 `aria-label` + `:disabled` + `min-height: 44px` 满足 ui-ux-pro-max touch-target 与 keyboard-nav 规范）；下方列出学生最近 N 个项目，每张卡片含状态徽章（passed / recommended / failed 对应不同颜色，对比度 ≥ 4.5:1）+「前往判题页提交」+「查看详情」两个 CTA。生成失败按 service 返回 `error("generation_failed")` 弹 `notify.warning` 提示「reference solution 自验证未通过 / Judge Server 暂不可用」。
+- 2026-05-06 **[新增/页面]** `CareerProjectDetailPage.vue`：上方显示项目元信息（状态 / 专业 / 关联判题题号 / 得分 / 创建 / 完成时间）+ 「前往判题页提交」深链；中间用 `marked` + `sanitize` 渲染 `brief_md`；底部「作品集卡片」段落生成纯 Markdown（标题 + 元信息 + 题目说明 + 自动 footer 标注「reference solution 已通过真判题自验证」），提供 (1) 复制到剪贴板（优先 `navigator.clipboard`，降级到 `execCommand('copy')`） / (2) 下载 `career-project-{id}.md` 文件 两种导出方式。
+- 2026-05-06 **[路由]** `frontend/src/pages/oj/router/routes.js` + `views/career/index.js` 注册 `/career/studio`（`career-studio`）+ `/career/studio/projects/:projectId`（`career-project-detail`），均 `requiresAuth: true`。详情页用 `params.projectId` 解析失败抛 empty state；不存在或非属主时后端返回 404，前端展示「微项目不存在或不属于你」。
+- 2026-05-06 **[安全]** Studio 页面 LLM 输出（`brief_md` / `recommendation.rationale` / `kcCodes`）渲染规则：`brief_md` 走 `marked` + `sanitize`；`rationale` 与 `kcCodes` 走 Vue 模板插值（自动转义），从源头阻断 XSS。
+- 2026-05-06 **[强约束/不重复实现]** Studio 详情页未实现内置 CodeMirror 编辑器，而是用「前往判题页提交」深链复用 `Problem.vue`（参数 `problemID = career_micro_project.judge_problem_id`），保证学生提交、判题、mastery 更新走标准 `SubmissionService` 链路（todo 10 + todo 11 已建立的闭环），不绕过判题主链路也不重复 CodeMirror 集成。
+- 2026-05-06 **[验证]** `npm run typecheck`：0 错误；`npx vite build`：0 错误，PWA precache 253 entries / 19539.03 KiB 正常生成。
+
 ### Career Bridging Closure todo 11：Project Studio 微项目生成 + reference solution 真判题自验证
 
 > **背景**：plan 5.1 节定义 Domain-Aware Project Studio：基于学生 mastery 出与专业紧密相关的 Python 微项目，**关键约束「reference solution 真判题自验证」+「不绕过 Judge Server」**。本 todo 把 LLM 出题 → critic → 真判题自检 → 落 problem + career_micro_project 全链路接通，通过则学生提交时走标准 SubmissionService → Judge Server，与正常 problem 完全同源。

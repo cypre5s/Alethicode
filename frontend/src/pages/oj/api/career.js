@@ -32,5 +32,19 @@ export default {
   },
   lockCodingLensVariant (variantId) {
     return ajax(`coding-lens/variants/${variantId}/lock`, 'post')
+  },
+  getStudioRecommendations () {
+    return ajax('career/studio/recommendations', 'get')
+  },
+  generateStudioProject (majorCode, kcCodes) {
+    return ajax('career/studio/projects', 'post', {
+      data: { major_code: majorCode, kc_codes: kcCodes }
+    })
+  },
+  listStudioProjects (limit = 10) {
+    return ajax('career/studio/projects', 'get', { params: { limit } })
+  },
+  getStudioProject (projectId) {
+    return ajax(`career/studio/projects/${projectId}`, 'get')
   }
 }

@@ -21,7 +21,9 @@ import {
   MaintenancePage,
   CareerProfilePage,
   CareerReportPage,
-  CareerPathPage
+  CareerPathPage,
+  CareerStudioPage,
+  CareerProjectDetailPage
 } from '../views'
 
 import * as Setting from '@oj/views/setting'
@@ -184,6 +186,18 @@ export default [
     name: 'career-path',
     meta: { title: '学习路径', requiresAuth: true },
     component: CareerPathPage
+  },
+  {
+    path: '/career/studio',
+    name: 'career-studio',
+    meta: { title: '微项目工作室', requiresAuth: true },
+    component: CareerStudioPage
+  },
+  {
+    path: '/career/studio/projects/:projectId',
+    name: 'career-project-detail',
+    meta: { title: '微项目详情', requiresAuth: true },
+    component: CareerProjectDetailPage
   },
   {
     name: 'maintenance',
