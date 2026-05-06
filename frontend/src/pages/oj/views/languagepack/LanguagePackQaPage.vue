@@ -132,7 +132,10 @@
               <div v-if="message.role === 'assistant'" class="qa-avatar qa-avatar-char" :style="{ borderColor: currentCharacter ? currentCharacter.color : '' }">
                 <img :src="currentCharSpriteSrc" :alt="currentCharacter ? currentCharacter.name : 'AI'" class="qa-avatar-sprite" />
               </div>
-              <div v-else class="qa-avatar">我</div>
+              <div v-else class="qa-avatar">
+                <img v-if="userAvatarUrl" :src="userAvatarUrl" alt="我" class="qa-user-avatar-img" />
+                <span v-else>我</span>
+              </div>
               <div class="qa-bubble" :style="message.role === 'assistant' && currentCharacter ? { borderColor: currentCharacter.color + '40' } : {}">
                 <div class="qa-message-role">
                   <span v-if="message.role === 'assistant' && currentCharacter" :style="{ color: currentCharacter.color }">{{ currentCharacter.name }}</span>
@@ -369,6 +372,7 @@
   import { checkInputSequence } from '@oj/utils/inputValidator'
   const MotionOverlay = defineAsyncComponent(() => import('@oj/components/MotionOverlay.vue'))
   import { ElMessageBox } from 'element-plus'
+  import { mapGetters } from 'vuex'
   import { matchCharacterForQuestion } from './qaCharacterMatcher'
   import { getCharacter, getSpritePath, getExpressionForEvent } from '../problem/characterConfig'
   import { parseReferences } from '../problem/useReferenceParse'
@@ -592,6 +596,10 @@
       }
     },
     computed: {
+      ...mapGetters(['profile']),
+      userAvatarUrl () {
+        return this.profile && this.profile.avatar ? this.profile.avatar : ''
+      },
       currentPack () {
         return this.packs.find(pack => String(pack.id) === String(this.selectedLanguagePackId)) || null
       },
@@ -2001,6 +2009,14 @@
 
   .qa-message.is-user .qa-avatar {
     background: var(--secondary-color);
+  }
+
+  .qa-user-avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: inherit;
+    display: block;
   }
 
   .qa-bubble {
