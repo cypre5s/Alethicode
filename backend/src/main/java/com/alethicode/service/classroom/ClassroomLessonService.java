@@ -48,8 +48,6 @@ public class ClassroomLessonService {
         this.lessonRoot = Paths.get(properties.getSystem().getClassroomLessonDir());
     }
 
-    // ── public API ──────────────────────────────────────────
-
     public ApiResponse<Object> lessonList(String classroomId, Authentication authentication) {
         UserAuth user = resolveUser(authentication);
         if (!user.authenticated()) {
@@ -62,8 +60,20 @@ public class ClassroomLessonService {
                 """
                 select cl.id, cl.title, cl.description, cl.lesson_type, cl.file_path, cl.file_size, cl.total_pages,
                        cl.table_of_contents::text as toc_json, cl.display_order, cl.create_time, cl.update_time,
-                       (select count(*) from ai_generated_problem agp
-                        where agp.lesson_id = cl.id and agp.is_published = true) as linked_problems_count
+                       (
+                         (select count(*) from ai_generated_problem agp
+                          where agp.lesson_id = cl.id and agp.is_published = true)
+                         +
+                         (select count(*) from classroom_problem cp
+                          where cp.classroom_id = cl.classroom_id
+                            and cp.category like 'chapter-%'
+                            and cl.display_order between
+                              cast(split_part(replace(cp.category, 'chapter-', ''), '-', 1) as integer)
+                              and
+                              cast(coalesce(nullif(split_part(replace(cp.category, 'chapter-', ''), '-', 2), ''),
+                                   split_part(replace(cp.category, 'chapter-', ''), '-', 1)) as integer)
+                         )
+                       ) as linked_problems_count
                 from classroom_lesson cl
                 where cl.classroom_id = ?
                 order by cl.display_order asc, cl.create_time desc
@@ -196,8 +206,6 @@ public class ClassroomLessonService {
         return lessonFile(classroomId, lessonId, authentication, false);
     }
 
-    // ── private helpers ─────────────────────────────────────
-
     private LessonFile lessonFile(String classroomId, String lessonId, Authentication authentication, boolean download) {
         UserAuth user = resolveUser(authentication);
         if (!user.authenticated() || !isMember(classroomId, user.userId())) {
@@ -243,8 +251,20 @@ public class ClassroomLessonService {
                 """
                 select cl.id, cl.title, cl.description, cl.lesson_type, cl.file_path, cl.file_size, cl.total_pages,
                        cl.table_of_contents::text as toc_json, cl.display_order, cl.create_time, cl.update_time,
-                       (select count(*) from ai_generated_problem agp
-                        where agp.lesson_id = cl.id and agp.is_published = true) as linked_problems_count
+                       (
+                         (select count(*) from ai_generated_problem agp
+                          where agp.lesson_id = cl.id and agp.is_published = true)
+                         +
+                         (select count(*) from classroom_problem cp
+                          where cp.classroom_id = cl.classroom_id
+                            and cp.category like 'chapter-%'
+                            and cl.display_order between
+                              cast(split_part(replace(cp.category, 'chapter-', ''), '-', 1) as integer)
+                              and
+                              cast(coalesce(nullif(split_part(replace(cp.category, 'chapter-', ''), '-', 2), ''),
+                                   split_part(replace(cp.category, 'chapter-', ''), '-', 1)) as integer)
+                         )
+                       ) as linked_problems_count
                 from classroom_lesson cl
                 where cl.classroom_id = ? and cl.id = ?
                 """,
@@ -389,8 +409,6 @@ public class ClassroomLessonService {
         double mb = kb / 1024.0;
         return String.format(Locale.ROOT, "%.1f MB", mb);
     }
-
-    // ── shared utilities ────────────────────────────────────
 
     private boolean isMember(String classroomId, Long userId) {
         Integer count = jdbcTemplate.queryForObject(
