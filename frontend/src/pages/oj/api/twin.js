@@ -88,26 +88,5 @@ export default {
   },
   judgeArenaAi(matchId, data) {
     return ajax(`twin/arena/${matchId}/judge-ai`, 'post', { data })
-  },
-  getPublicProfile(handle) {
-    return ajax(`twin/public/${handle}`, 'get')
-  },
-  updateTwinPrivacy(data) {
-    return ajax('twin/profile/privacy', 'patch', { data })
-  },
-  generateSemesterReport(data) {
-    return ajax('twin/semester-report', 'post', { data })
-  },
-  downloadSemesterReportPdf(reportId) {
-    return ajax(`twin/semester-report/${reportId}/pdf`, 'get')
-  },
-  getCredentials() {
-    return ajax('twin/credential', 'get')
-  },
-  generateCredential(data) {
-    return ajax('twin/credential', 'post', { data })
-  },
-  exportTwinDump() {
-    return ajax('twin/export', 'get')
   }
 }
