@@ -1,10 +1,10 @@
 package com.alethicode.service.career.lens;
 
+import com.alethicode.config.AlethicodeProperties;
 import com.alethicode.service.ai.AiModelGateway;
 import com.alethicode.service.aitutor.contract.CardType;
 import com.alethicode.service.aitutor.reflection.ReflectionResult;
 import com.alethicode.service.aitutor.reflection.ReflectionService;
-import com.alethicode.service.aitutor.rollout.RolloutDecision;
 import com.alethicode.service.aitutor.rollout.RolloutPolicyService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -21,6 +21,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -40,29 +41,42 @@ public class DomainLensServiceImpl implements DomainLensService {
 
     private static final Logger log = LoggerFactory.getLogger(DomainLensServiceImpl.class);
     private static final String AI_PROFILE_PREFIX = "coding-lens";
+    /** plan 9 节灰度 4 个 experiment_id 之一：Coding Lens 走 A/B（treatment_rate=0.3，最保守因为改变学生看到的题面）。 */
+    private static final String EXPERIMENT_ID = "coding_lens_v1";
+    private static final double TREATMENT_RATE = 0.3;
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
     private final AiModelGateway aiModelGateway;
     private final ReflectionService reflectionService;
     private final RolloutPolicyService rolloutPolicyService;
+    private final AlethicodeProperties properties;
 
     public DomainLensServiceImpl(
             JdbcTemplate jdbcTemplate,
             ObjectMapper objectMapper,
             AiModelGateway aiModelGateway,
             ReflectionService reflectionService,
-            RolloutPolicyService rolloutPolicyService
+            RolloutPolicyService rolloutPolicyService,
+            AlethicodeProperties properties
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
         this.aiModelGateway = aiModelGateway;
         this.reflectionService = reflectionService;
         this.rolloutPolicyService = rolloutPolicyService;
+        this.properties = properties;
     }
 
     @Override
-    public Optional<ProblemDomainVariant> findOrGenerate(long problemId, String majorCode) {
+    public Optional<ProblemDomainVariant> findOrGenerate(long problemId, String majorCode, long userId) {
+        // plan 11 节：全局开关 + 考试模式禁用（CAREER_LENS_DISABLED_FOR_EXAM=true）
+        AlethicodeProperties.Career.Lens lensConfig = properties.getCareer().getLens();
+        if (!lensConfig.isEnabled() || lensConfig.isDisabledForExam()) {
+            log.debug("coding lens globally disabled (enabled={}, disabledForExam={})",
+                    lensConfig.isEnabled(), lensConfig.isDisabledForExam());
+            return Optional.empty();
+        }
         // 考试模式（plan 4.4 节 + todo 15）：教师 lockForExam 之后，任意 major 的
         // 请求都强制返回锁定 variant，确保所有学生看到同一份题面，避免不公平。
         ProblemDomainVariant lockedVariant = findLockedVariant(problemId);
@@ -77,10 +91,11 @@ public class DomainLensServiceImpl implements DomainLensService {
             return Optional.of(cached);
         }
 
-        RolloutDecision decision = rolloutPolicyService.evaluate(
-                "coding_lens", "problem:" + problemId, Map.of());
-        if ("rollback".equals(decision.rolloutMode())) {
-            log.debug("coding lens rollback for problem={}, major={}", problemId, majorCode);
+        // plan 9 节：A/B 分组（treatment_rate=0.3），control 组直接返回 empty 让前端回退原题
+        RolloutPolicyService.AbTestAssignment assignment = rolloutPolicyService.assignAbTest(
+                EXPERIMENT_ID, userId, TREATMENT_RATE);
+        if (!"treatment".equals(assignment.group())) {
+            log.debug("coding lens A/B control group for problem={}, user={}", problemId, userId);
             return Optional.empty();
         }
 
@@ -157,6 +172,39 @@ public class DomainLensServiceImpl implements DomainLensService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND,
                     "variant not found: id=" + variantId);
         }
+    }
+
+    @Override
+    public List<ProblemDomainVariant> listVariants(String majorCode, int limit) {
+        int safeLimit = Math.max(1, Math.min(limit, 100));
+        if (majorCode == null || majorCode.isBlank()) {
+            return jdbcTemplate.query("""
+                    select id, problem_id, major_code, title, description_md,
+                           sample_input_text, sample_output_text,
+                           domain_metaphor::text as domain_metaphor_json,
+                           semantic_drift_score, reflection_passed, locked_for_exam,
+                           generated_at, validated_by
+                    from problem_domain_variant
+                    order by generated_at desc
+                    limit ?
+                    """,
+                    this::mapVariantRow,
+                    safeLimit);
+        }
+        return jdbcTemplate.query("""
+                select id, problem_id, major_code, title, description_md,
+                       sample_input_text, sample_output_text,
+                       domain_metaphor::text as domain_metaphor_json,
+                       semantic_drift_score, reflection_passed, locked_for_exam,
+                       generated_at, validated_by
+                from problem_domain_variant
+                where major_code = ?
+                order by generated_at desc
+                limit ?
+                """,
+                this::mapVariantRow,
+                majorCode.trim(),
+                safeLimit);
     }
 
     @Override

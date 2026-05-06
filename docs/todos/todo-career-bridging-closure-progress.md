@@ -23,7 +23,7 @@
 | 3 | `feat(career-bridging): 里程碑式 Why 报告生成 + Rollout/Reflection 接入` | 本地完成（待 push） | 见 git log | V84 + service + controller + DTO + 8 单测 |
 | 4 | `feat(career-bridging-ui): CareerProfilePage 与主页 CareerProgressCard` | 本地完成（待 push） | 见 git log | 3 Vue + 1 API + 路由 + 主页卡片嵌入 |
 | 5 | `feat(coding-lens): 受约束 LLM 题面重写 + critic 防语义漂移` | 本地完成（待 push） | 见 git log | service + controller + prompt |
-| 6 | `feat(coding-lens-ui): DomainLensToggle 与教师后台只读视图` | 进行中（并行 agent） | — | — |
+| 6 | `feat(coding-lens-ui): DomainLensToggle 与教师后台只读视图` | 本轮补齐（未 commit） | — | 新增 DomainLensAdmin.vue + listVariants 后端端点 + admin 菜单 |
 | 7 | `feat(career-db): V86 新建 career_micro_project 与 career_path_node 及种子数据` | 本地完成（待 push） | 见 git log | V86 SQL + 12 专业 × 5 节点 path 种子（60 行） |
 | 8 | `feat(career-path): 拓扑排序 + 解锁判断 + GraphRAG why_md 增强` | 本地完成（待 push） | 见 git log | service + controller |
 | 9 | `feat(career-path-ui): vue-mermaid 渲染的专业路径地图与缩略图嵌入` | 本地完成（待 push） | 见 git log | CareerPathPage + API + 路由 |
@@ -32,9 +32,9 @@
 | 11 | `feat(career-studio): 微项目生成与 reference solution 真判题自验证` | 本地完成（待 push） | `8a8ae7b` | studio 服务 + 真判题自验证 + 4 endpoints + 11 单测 |
 | 12 | `feat(career-studio-ui): 项目详情、CodeMirror 复用与作品集卡片导出` | 本地完成（待 push） | `24199e8` | CareerStudioPage + CareerProjectDetailPage + 4 API + 2 路由 + Markdown 卡片导出 |
 | 13 | `feat(career-bridging): project_completed 触发报告重激活` | 本地完成（待 push） | `00092ca` | studio 接口扩 markCompletedByJudgeProblem + JudgeCompletedEventListener 接入 + 5 新单测（15 总计） |
-| 14 | `feat(career-rollout): 4 个 experiment_id 接入 RolloutPolicyService 与评测扩展` | 本地完成（待 push） | `c22b5d5` | studio + path 接入 evaluate；rollback abort；rollout_mode 真实记录；2 新单测 |
+| 14 | `feat(career-rollout): 4 个 experiment_id 接入 RolloutPolicyService 与评测扩展` | 本轮补齐（未 commit） | `c22b5d5` + 本轮工作树 | 原 commit 完成 rollout；本轮新增 CareerEvalHarness + admin 触发端点 + 评测 UI |
 | 15 | `feat(career-admin): 教师锁定/考试模式与用户级关闭面板` | 本地完成（待 push） | `d9dc007` | DomainLens locked 覆盖任意 major + V88 + CareerPreferenceService + Vue 面板 + 4 service 入口短路 + 6 新单测 |
-| 16 | `docs(career): README/PROJECT/CHANGELOG/docs/plans 全量同步` | 本地完成（待 push） | `b76d5f3`（amend 后） | README + PROJECT 加 Career Bridging Closure 章节，progress 文档收口 |
+| 16 | `docs(career): README/PROJECT/CHANGELOG/docs/plans 全量同步` | 本轮补齐（未 commit） | `b76d5f3`（amend 后） + 本轮工作树 | README + PROJECT 加 Career Bridging Closure 章节；本轮新增 docs/plans 日期镜像 |
 
 ## Phase 0：切到 main（本地完成）
 
@@ -447,6 +447,43 @@ push 阻塞）；进度仅靠隔离 DB 的 SQL dry-run 提供证据。
   `#5-2-学习者画像` 引用（已 grep 验证）
 - **CHANGELOG 顶部追加**：与并行 chat composer plan / 判题机 plan
   共享 `## [Unreleased]` 段，按 Career Bridging Closure todo 倒序排列
+
+## 本轮缺口补齐：真实可用状态（未 commit）
+
+### 补齐范围
+
+- `docs/plans/2026-05-06-career-bridging-closure.md`：补齐 plan §12 要求的
+  日期前缀实施计划镜像入口。
+- Coding Lens 教师后台：
+  - 后端新增 `DomainLensService.listVariants(majorCode, limit)`
+  - `CodingLensController` 新增 `GET /api/coding-lens/variants`
+  - 前端新增 `frontend/src/pages/admin/views/career/DomainLensAdmin.vue`
+  - admin 菜单新增 `/domain-lens`，支持筛选、刷新、锁定考试模式
+- Career Eval Harness：
+  - 新增 `CareerEvalHarness`，从真实持久化表计算 8 个指标：
+    `grounding_accuracy` / `refusal_accuracy` / `semantic_drift_rate` /
+    `rewrite_helpfulness` / `solvability_rate` / `kc_alignment_accuracy` /
+    `unlock_consistency` / `why_md_factuality`
+  - 新增 `POST /api/admin/ai/evaluations/career`，后台可手动触发
+  - `DomainLensAdmin.vue` 页面增加「运行闭环评测」按钮与 4 个核心指标卡
+
+### 已验证
+
+- RED：`mvn -Dtest='DomainLensServiceImplTest' test` 先因
+  `listVariants(String,int)` 缺失编译失败，确认测试覆盖缺口。
+- GREEN：`mvn -Dtest='DomainLensServiceImplTest' test`：8/8 通过。
+- RED：`mvn -Dtest='CareerEvalHarnessTest' test` 先因
+  `CareerEvalHarness` 缺失编译失败，确认测试覆盖缺口。
+- GREEN：`mvn -Dtest='CareerEvalHarnessTest' test`：1/1 通过。
+
+### 待完成验证
+
+- `mvn -Dtest='DomainLensServiceImplTest,CareerEvalHarnessTest' test`：9/9 通过。
+- `npm run typecheck && npx vite build`：0 错误，PWA precache 259 entries /
+  19589.78 KiB。
+- `mvn test` 全量已运行但失败：大量 integration 测试与若干既有单测在全量顺序下
+  出现环境 / classpath 型错误（如 `NoClassDefFoundError:
+  *Test$SqlMatcher$1`），本轮相关测试随后单独复跑通过。
 
 ## 落地总结（plan e71ce32e）
 

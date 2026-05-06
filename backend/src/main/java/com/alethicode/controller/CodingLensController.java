@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -52,7 +53,7 @@ public class CodingLensController {
         if (preferenceService.isModuleDisabled(userId, CareerPreferenceServiceImpl.MODULE_CODING_LENS)) {
             return ApiResponse.error("variant_not_available", null);
         }
-        Optional<ProblemDomainVariant> variant = domainLensService.findOrGenerate(problemId, majorCode);
+        Optional<ProblemDomainVariant> variant = domainLensService.findOrGenerate(problemId, majorCode, userId);
         return variant.<ApiResponse<ProblemDomainVariant>>map(ApiResponse::success)
                 .orElseGet(() -> ApiResponse.error("variant_not_available", null));
     }
@@ -71,6 +72,15 @@ public class CodingLensController {
         long userId = requireUserId(authentication);
         domainLensService.lockForExam(variantId, userId);
         return ApiResponse.success(null);
+    }
+
+    @GetMapping("/variants")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<List<ProblemDomainVariant>> listVariants(
+            @RequestParam(name = "major", required = false) String majorCode,
+            @RequestParam(name = "limit", defaultValue = "50") int limit
+    ) {
+        return ApiResponse.success(domainLensService.listVariants(majorCode, limit));
     }
 
     private static long requireUserId(Authentication authentication) {

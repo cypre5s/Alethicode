@@ -4,7 +4,6 @@ import com.alethicode.service.ai.AiModelGateway;
 import com.alethicode.service.aitutor.contract.CardType;
 import com.alethicode.service.aitutor.reflection.ReflectionResult;
 import com.alethicode.service.aitutor.reflection.ReflectionService;
-import com.alethicode.service.aitutor.rollout.RolloutDecision;
 import com.alethicode.service.aitutor.rollout.RolloutPolicyService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,13 +19,16 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.sql.ResultSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -59,9 +61,17 @@ class DomainLensServiceImplTest {
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper();
+        com.alethicode.config.AlethicodeProperties properties = new com.alethicode.config.AlethicodeProperties();
+        // 默认启用、非考试模式；个别测试可单独覆盖
+        properties.getCareer().getLens().setEnabled(true);
+        properties.getCareer().getLens().setDisabledForExam(false);
         service = new DomainLensServiceImpl(
-                jdbcTemplate, objectMapper, aiModelGateway, reflectionService, rolloutPolicyService);
+                jdbcTemplate, objectMapper, aiModelGateway, reflectionService, rolloutPolicyService,
+                properties);
     }
+
+    private static final long USER_TREATMENT = 1L;
+    private static final long USER_CONTROL = 2L;
 
     @Test
     void cacheHitReturnsExistingVariantWithoutCallingLlm() {
@@ -69,23 +79,22 @@ class DomainLensServiceImplTest {
         String major = "biology";
         stubFindCachedReturning(problemId, major);
 
-        Optional<ProblemDomainVariant> variant = service.findOrGenerate(problemId, major);
+        Optional<ProblemDomainVariant> variant = service.findOrGenerate(problemId, major, USER_TREATMENT);
 
         assertThat(variant).isPresent();
         assertThat(variant.get().problemId()).isEqualTo(problemId);
-        verify(rolloutPolicyService, never()).evaluate(anyString(), anyString(), any());
+        verify(rolloutPolicyService, never()).assignAbTest(anyString(), anyLong(), anyDouble());
         verify(aiModelGateway, never()).callForJson(anyString(), anyString(), anyString());
     }
 
     @Test
-    void rollbackDecisionSkipsLlmAndReturnsEmpty() {
+    void controlGroupSkipsLlmAndReturnsEmpty() {
         long problemId = 8L;
         String major = "chemistry";
         stubFindCachedEmpty(problemId, major);
-        when(rolloutPolicyService.evaluate(eq("coding_lens"), eq("problem:" + problemId), any()))
-                .thenReturn(new RolloutDecision("rollback", "force", Map.of()));
+        stubAbTestAssignment(USER_CONTROL, "control");
 
-        Optional<ProblemDomainVariant> variant = service.findOrGenerate(problemId, major);
+        Optional<ProblemDomainVariant> variant = service.findOrGenerate(problemId, major, USER_CONTROL);
 
         assertThat(variant).isEmpty();
         verify(aiModelGateway, never()).callForJson(anyString(), anyString(), anyString());
@@ -96,14 +105,14 @@ class DomainLensServiceImplTest {
         long problemId = 9L;
         String major = "medicine";
         stubFindCachedEmpty(problemId, major);
-        stubRolloutBaseline(problemId);
+        stubAbTestAssignment(USER_TREATMENT, "treatment");
         stubLoadProblem(problemId);
         stubLoadMajor(major);
 
         when(aiModelGateway.callForJson(anyString(), anyString(), eq("coding-lens")))
                 .thenReturn(Map.of("abort", true));
 
-        Optional<ProblemDomainVariant> variant = service.findOrGenerate(problemId, major);
+        Optional<ProblemDomainVariant> variant = service.findOrGenerate(problemId, major, USER_TREATMENT);
 
         assertThat(variant).isEmpty();
         verify(reflectionService, never()).reflectAndRefine(any(), any(), any(), anyInt());
@@ -115,7 +124,7 @@ class DomainLensServiceImplTest {
         long problemId = 10L;
         String major = "finance";
         stubFindCachedEmpty(problemId, major);
-        stubRolloutBaseline(problemId);
+        stubAbTestAssignment(USER_TREATMENT, "treatment");
         stubLoadProblem(problemId);
         stubLoadMajor(major);
 
@@ -125,7 +134,7 @@ class DomainLensServiceImplTest {
         when(reflectionService.reflectAndRefine(eq(CardType.DOMAIN_VARIANT), any(), any(), eq(1)))
                 .thenReturn(new ReflectionResult(initial, false, 1, "drift detected"));
 
-        Optional<ProblemDomainVariant> variant = service.findOrGenerate(problemId, major);
+        Optional<ProblemDomainVariant> variant = service.findOrGenerate(problemId, major, USER_TREATMENT);
 
         assertThat(variant).isEmpty();
         // 关键合约：critic 不通过 → 不允许写 problem_domain_variant
@@ -138,7 +147,7 @@ class DomainLensServiceImplTest {
         long problemId = 11L;
         String major = "psychology";
         stubFindCachedEmptyThenReturning(problemId, major);
-        stubRolloutBaseline(problemId);
+        stubAbTestAssignment(USER_TREATMENT, "treatment");
         stubLoadProblem(problemId);
         stubLoadMajor(major);
 
@@ -157,7 +166,7 @@ class DomainLensServiceImplTest {
         when(reflectionService.reflectAndRefine(eq(CardType.DOMAIN_VARIANT), any(), any(), eq(1)))
                 .thenReturn(new ReflectionResult(initial, true, 1, "ok"));
 
-        Optional<ProblemDomainVariant> variant = service.findOrGenerate(problemId, major);
+        Optional<ProblemDomainVariant> variant = service.findOrGenerate(problemId, major, USER_TREATMENT);
 
         assertThat(variant).isPresent();
         verify(jdbcTemplate, times(1)).update(
@@ -187,6 +196,29 @@ class DomainLensServiceImplTest {
         verify(jdbcTemplate).update(argThat(sqlContains("delete from problem_domain_variant")), eq(123L));
     }
 
+    @Test
+    void listVariantsReturnsRecentRowsForTeacherAdmin() {
+        ProblemDomainVariant first = sampleVariant(11L, "biology");
+        ProblemDomainVariant second = sampleVariant(12L, "finance");
+        when(jdbcTemplate.query(
+                argThat(sqlContains("from problem_domain_variant")
+                        .and(sqlContains("order by generated_at desc"))),
+                any(RowMapper.class),
+                eq("biology"),
+                eq(20)))
+                .thenReturn(List.of(first, second));
+
+        List<ProblemDomainVariant> variants = service.listVariants("biology", 20);
+
+        assertThat(variants).containsExactly(first, second);
+        verify(jdbcTemplate).query(
+                argThat(sqlContains("from problem_domain_variant")
+                        .and(sqlContains("order by generated_at desc"))),
+                any(RowMapper.class),
+                eq("biology"),
+                eq(20));
+    }
+
     // ---------- helpers ----------
 
     private void stubFindCachedReturning(long problemId, String major) {
@@ -214,10 +246,11 @@ class DomainLensServiceImplTest {
                 .thenAnswer(invocation -> sampleVariant(problemId, major));
     }
 
-    private void stubRolloutBaseline(long problemId) {
-        lenient().when(rolloutPolicyService.evaluate(
-                        eq("coding_lens"), eq("problem:" + problemId), any()))
-                .thenReturn(new RolloutDecision("baseline", "default", Map.of()));
+    private void stubAbTestAssignment(long userId, String group) {
+        lenient().when(rolloutPolicyService.assignAbTest(
+                        eq("coding_lens_v1"), eq(userId), eq(0.3)))
+                .thenReturn(new RolloutPolicyService.AbTestAssignment(
+                        "coding_lens_v1", userId, group, 0.0));
     }
 
     private void stubLoadProblem(long problemId) {

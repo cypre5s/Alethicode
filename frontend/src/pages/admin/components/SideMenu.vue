@@ -66,6 +66,7 @@
         </template>
         <el-menu-item index="/kc-management">知识图谱管理</el-menu-item>
         <el-menu-item index="/ai-variant-review">AI 变体题审核</el-menu-item>
+        <el-menu-item index="/domain-lens">Coding Lens 管理</el-menu-item>
         <el-menu-item index="/language-pack-init">课程内容包管理</el-menu-item>
       </el-sub-menu>
 
