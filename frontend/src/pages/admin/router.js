@@ -7,7 +7,7 @@ import {
   Problem, ProblemList, User, PruneTestCase, ProblemImportOrExport,
   AIVariantReview, KCManagement,
   LanguagePackInit,
-  SecretsAiConfig, ObservabilityDashboard, SystemMonitor, SecretsSystemPaths, SecretsInfra,
+  SecretsAiConfig, ObservabilityDashboard, SecretsSystemPaths, SecretsInfra,
   BetaFeedback, UsageStats
 } from './views'
 
@@ -94,11 +94,6 @@ const router = createRouter({
           component: ObservabilityDashboard
         },
         {
-          path: '/secrets/system-monitor',
-          name: 'secrets-system-monitor',
-          component: SystemMonitor
-        },
-        {
           path: '/secrets/paths',
           name: 'secrets-paths',
           component: SecretsSystemPaths
@@ -131,7 +126,6 @@ const TEACHER_DENIED_ROUTE_NAMES = new Set([
   'prune-test-case',
   'secrets-ai',
   'secrets-observability',
-  'secrets-system-monitor',
   'secrets-paths',
   'secrets-infra',
   'beta-feedback',

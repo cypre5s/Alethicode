@@ -7,7 +7,6 @@ import KCManagement from './general/KCManagement.vue'
 import LanguagePackInit from './general/LanguagePackInit.vue'
 import SecretsAiConfig from './general/SecretsAiConfig.vue'
 import ObservabilityDashboard from './general/ObservabilityDashboard.vue'
-import SystemMonitor from './general/SystemMonitor.vue'
 import SecretsSystemPaths from './general/SecretsSystemPaths.vue'
 import SecretsInfra from './general/SecretsInfra.vue'
 import BetaFeedback from './general/BetaFeedback.vue'
@@ -21,6 +20,6 @@ import ProblemImportOrExport from './problem/ImportAndExport.vue'
 export {
   Announcement, User, JudgeServer, Problem, ProblemList, Login, Home, PruneTestCase, ProblemImportOrExport,
   AIVariantReview, KCManagement, LanguagePackInit,
-  SecretsAiConfig, ObservabilityDashboard, SystemMonitor, SecretsSystemPaths, SecretsInfra,
+  SecretsAiConfig, ObservabilityDashboard, SecretsSystemPaths, SecretsInfra,
   BetaFeedback, UsageStats
 }

@@ -28,24 +28,8 @@
         </template>
         <el-menu-item index="/usage-stats">学生学习数据</el-menu-item>
         <el-menu-item index="/secrets/observability">辅导总控</el-menu-item>
-        <el-menu-item index="/secrets/system-monitor">系统监控</el-menu-item>
         <el-menu-item index="/beta-feedback">公测反馈</el-menu-item>
       </el-sub-menu>
-
-      <!-- 密钥与配置：暂时隐藏 -->
-      <!--
-      <el-sub-menu v-if="adminManager" index="secrets">
-        <template #title>
-          <span class="menu-title-content">
-            <i class="el-icon-fa-key menu-leading-icon"></i>
-            <span class="menu-title-text">密钥与配置</span>
-          </span>
-        </template>
-        <el-menu-item index="/secrets/paths">系统路径</el-menu-item>
-        <el-menu-item index="/secrets/infra">数据库与基础设施</el-menu-item>
-      </el-sub-menu>
-      -->
-
       <el-sub-menu v-if="adminManager" index="judge">
         <template #title>
           <span class="menu-title-content">
