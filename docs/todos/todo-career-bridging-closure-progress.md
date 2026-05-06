@@ -28,8 +28,8 @@
 | 8 | `feat(career-path): 拓扑排序 + 解锁判断 + GraphRAG why_md 增强` | 本地完成（待 push） | 见 git log | service + controller |
 | 9 | `feat(career-path-ui): vue-mermaid 渲染的专业路径地图与缩略图嵌入` | 本地完成（待 push） | 见 git log | CareerPathPage + API + 路由 |
 | review | code review 修复批（🔴 #1 #2 / 🟠 #3-#7 / 🟡 #8 #9 #11） | 本地完成（待 push） | 见 git log | 前端 method/path 拉齐 + Coding Lens RBAC + Vue v-html → marked+DOMPurify + Career Controller 走 service + 死代码删除 + markNodeUnlocked 校验 + ReflectionResult 语义统一 + 新增 13 个单测 |
-| 10 | `feat(career-bridging): 串通 KC 毕业与章节进入两类里程碑触发` | 本地完成（待 push） | 见 git log | listener 重建 + JudgeCompletedEventListener / LearnerCourseProgressService 接入 + 10 单测 |
-| 11 | `feat(career-studio): 微项目生成与 reference solution 真判题自验证` | 待开始 | — | — |
+| 10 | `feat(career-bridging): 串通 KC 毕业与章节进入两类里程碑触发` | 本地完成（待 push） | `ca511c3` | listener 重建 + JudgeCompletedEventListener / LearnerCourseProgressService 接入 + 10 单测 |
+| 11 | `feat(career-studio): 微项目生成与 reference solution 真判题自验证` | 本地完成（待 push） | 见 git log | studio 服务 + 真判题自验证 + 4 endpoints + 11 单测 |
 | 12 | `feat(career-studio-ui): 项目详情、CodeMirror 复用与作品集卡片导出` | 待开始 | — | — |
 | 13 | `feat(career-bridging): project_completed 触发报告重激活` | 待开始 | — | — |
 | 14 | `feat(career-rollout): 4 个 experiment_id 接入 RolloutPolicyService 与评测扩展` | 待开始 | — | — |
@@ -232,6 +232,9 @@ push 阻塞）；进度仅靠隔离 DB 的 SQL dry-run 提供证据。
 | 2026-05-06 | todo 10 `mvn -Dtest='ReflectionServiceImplTest,CareerBridgingServiceImplTest,DomainLensServiceImplTest,CareerPathServiceImplTest,CareerMilestoneEventListenerTest' test` | ✓ 37/37 全过（旧 27 + 新 10）、0 failure 0 error |
 | 2026-05-06 | todo 10 `mvn -q compile && mvn -q test-compile` | ✓ 0 错误，CareerMilestoneEventListener + 2 处构造器接入不破坏其它 switch / 注入链 |
 | 2026-05-06 | todo 10 `feat(career-bridging): KC 毕业 + 章节进入里程碑触发器` 本地 commit | ✓ listener + JudgeCompletedEventListener / LearnerCourseProgressService 接入 + 10 单测 + CHANGELOG + progress 同 commit |
+| 2026-05-06 | todo 11 `mvn -Dtest='MicroProjectStudioServiceImplTest' test` | ✓ 11/11 全过、0 failure 0 error |
+| 2026-05-06 | todo 11 `mvn -Dtest='ReflectionServiceImplTest,CareerBridgingServiceImplTest,DomainLensServiceImplTest,CareerPathServiceImplTest,CareerMilestoneEventListenerTest,MicroProjectStudioServiceImplTest' test` | ✓ 48/48 全过（旧 37 + 新 11）、0 failure 0 error |
+| 2026-05-06 | todo 11 `feat(career-studio): 微项目生成 + 真判题自验证` 本地 commit | ✓ studio 服务 + AiProblemTestCaseWriter 提升 public + controller 4 端点 + 11 单测 + CHANGELOG + progress 同 commit |
 
 ## todo 10：KC 毕业 + 章节进入里程碑触发器（本地完成，待 push）
 
@@ -257,6 +260,41 @@ push 阻塞）；进度仅靠隔离 DB 的 SQL dry-run 提供证据。
 - listener 不接管 DB 异常 → 调用方现有 try/catch 兜底
 - 三层边界保护：enabled / has profile / mastery 阈值 → 关闭或非 career 学生路径 0 影响
 - milestone_ref 命名规范化（`lp:<id>:kc:<id>` / `lp:<id>`）保证幂等键稳定，`recordMilestone` 三元组幂等
+
+## todo 11：Project Studio 微项目生成 + reference solution 真判题自验证（本地完成，待 push）
+
+### 已落地
+
+- `backend/src/main/java/com/alethicode/service/career/studio/MicroProjectStudioServiceImpl.java`：
+  - LLM 出题（system: `MicroProjectPrompts.SYSTEM`）+ critic（`CardType.MICRO_PROJECT_BRIEF`）
+  - critic 通过后调 `LanguagePackProblemJudgeCheckService.executeReferenceSolution`
+    走 Judge Server 跑 reference 自身 test_cases，100% AC 才落库
+  - 真判题通过 → 落 `problem`（display_id=`MPRJ-XXXX`，与 SpecializedProblemGenerator
+    同源 INSERT 模板）+ `career_micro_project` 含 `judge_problem_id`
+  - `recommendForUser` / `listForUser` / `findById` / `markCompleted` 完整接口
+- `backend/src/main/java/com/alethicode/service/career/studio/MicroProjectStudioService.java`：
+  接口扩展为 5 方法；`CareerMicroProject` record 字段从 7 项扩为 10 项
+  （`status, score, createdAt, completedAt` 投影完整）
+- `backend/src/main/java/com/alethicode/service/aitutor/review/AiProblemTestCaseWriter.java`：
+  由 package-private 提升为 `public`（`writeTestCases` / `buildTestCaseScoreJson`），
+  允许 Studio 复用现成的 test_case 落盘工具，避免重复实现 `info` 元数据格式
+- `backend/src/main/java/com/alethicode/controller/CareerStudioController.java`：
+  4 端点 `GET /recommendations` / `POST /projects` / `GET /projects?limit` /
+  `GET /projects/{id}`，未登录抛 401，资源属主校验下沉到 service 层
+- `backend/src/test/java/com/alethicode/service/career/studio/MicroProjectStudioServiceImplTest.java`：
+  11 用例覆盖 critic 拒绝 / 缺 reference / 真判题失败 / 真判题异常 /
+  真判题通过双 INSERT / markCompleted 4 路径
+
+### 强约束遵守（plan 0 + plan 5.1 节）
+
+- **不绕过 Judge Server**：`generate` 走 `LanguagePackProblemJudgeCheckService.executeReferenceSolution`
+  （与 OJ 主判题链路同源 `/judge` 协议）；落 problem 表后学生提交走标准
+  `SubmissionService` → `JudgeCompletedEvent` 闭环
+- **不引入新判题路径**：未新增任何 HTTP 调用，未改 Judge Server 协议
+- **fail fast 不掩盖**：critic / reference / 真判题任一失败 ⇒ 不落库返回 empty，
+  不写「降级版本」也不静默吞错（log.warn + 返回 empty 让上游重试可观测）
+- **可观测**：每条 micro project 自带 trace_id（32 字符 UUID），与 `judge_problem_id`
+  关联到 problem 表，运维侧可串联出 LLM 出题 → 真判题 → 学生提交全链路
 
 ## 严格约束清单（每个后续 todo 都要遵守）
 

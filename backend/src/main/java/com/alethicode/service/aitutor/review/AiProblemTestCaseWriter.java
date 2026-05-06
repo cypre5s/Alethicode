@@ -14,21 +14,22 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * AI 特化题测试用例落盘助手（Phase 3 抽离）。
+ * AI 题测试用例落盘助手（Phase 3 抽离自 ErrorReviewPackageService，
+ * todo 11 起提升可见性供 Career Project Studio 复用）。
  * 把 N 条 {input, output} 写入 {testCaseDir}/{testCaseId}/，并生成 OJ runtime 期望的 info 元数据。
  */
 @Component
-class AiProblemTestCaseWriter {
+public class AiProblemTestCaseWriter {
 
     private final ObjectMapper objectMapper;
     private final AlethicodeProperties properties;
 
-    AiProblemTestCaseWriter(ObjectMapper objectMapper, AlethicodeProperties properties) {
+    public AiProblemTestCaseWriter(ObjectMapper objectMapper, AlethicodeProperties properties) {
         this.objectMapper = objectMapper;
         this.properties = properties;
     }
 
-    void writeTestCases(String testCaseId, List<Map<String, Object>> testCases) {
+    public void writeTestCases(String testCaseId, List<Map<String, Object>> testCases) {
         Path dir = Path.of(properties.getSystem().getTestCaseDir(), testCaseId);
         try {
             Files.createDirectories(dir);
@@ -63,7 +64,7 @@ class AiProblemTestCaseWriter {
         }
     }
 
-    String buildTestCaseScoreJson(int count) {
+    public String buildTestCaseScoreJson(int count) {
         Map<String, Integer> scores = new LinkedHashMap<>();
         for (int i = 1; i <= count; i++) scores.put(String.valueOf(i), 100 / count);
         try {
