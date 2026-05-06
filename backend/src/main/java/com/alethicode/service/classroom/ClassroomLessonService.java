@@ -67,7 +67,7 @@ public class ClassroomLessonService {
                          (select count(*) from classroom_problem cp
                           where cp.classroom_id = cl.classroom_id
                             and cp.category like 'chapter-%'
-                            and cl.display_order between
+                            and (cl.display_order + 1) between
                               cast(split_part(replace(cp.category, 'chapter-', ''), '-', 1) as integer)
                               and
                               cast(coalesce(nullif(split_part(replace(cp.category, 'chapter-', ''), '-', 2), ''),
@@ -258,7 +258,7 @@ public class ClassroomLessonService {
                          (select count(*) from classroom_problem cp
                           where cp.classroom_id = cl.classroom_id
                             and cp.category like 'chapter-%'
-                            and cl.display_order between
+                            and (cl.display_order + 1) between
                               cast(split_part(replace(cp.category, 'chapter-', ''), '-', 1) as integer)
                               and
                               cast(coalesce(nullif(split_part(replace(cp.category, 'chapter-', ''), '-', 2), ''),
