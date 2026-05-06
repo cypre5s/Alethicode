@@ -570,11 +570,14 @@
     @submit="(text) => $emit('parsons-walkthrough-submit', { text })"
     @continue="$emit('parsons-walkthrough-continue')"
   />
+  <MotionOverlay ref="moRef" />
 </template>
 
 <script>
-import { markRaw, ref, computed } from 'vue'
+import { markRaw, ref, computed, defineAsyncComponent } from 'vue'
 import api from '@oj/api'
+import { checkInputSequence } from '@oj/utils/inputValidator'
+const MotionOverlay = defineAsyncComponent(() => import('@oj/components/MotionOverlay.vue'))
 import { fetchCoursewarePreviewPage } from './workflowServerState'
 import { getCharacterForCardType, getCharacter, getSpritePath, getExpressionForEvent } from './characterConfig'
 import { useChatComposer } from '@oj/components/chat/useChatComposer'
@@ -681,6 +684,7 @@ export default {
     SlashCommandMenu,
     ComposerHintBar,
     ContextUsageBar,
+    MotionOverlay,
     Reading, Sunny, Monitor, Warning, StarFilled, Sort,
     CircleCheck, CircleClose, DArrowRight, Lightning,
     School, Delete, Close, Flag, Refresh, RefreshLeft,
@@ -719,8 +723,7 @@ export default {
     contextUsage: { type: Object, default: () => ({ tokens_used: 0, tokens_limit: 0, model_name: '' }) }
   },
   setup (props, { emit }) {
-    // courseware 包列表懒加载，按 setup 内 ref 表达；旧 data 字段下沉到这里以与
-    // useChatComposer hook 共享同一份 reactive 数据。
+    const moRef = ref(null)
     const coursewarePacks = ref([])
     const coursewarePacksLoaded = ref(false)
     const coursewarePacksLoading = ref(false)
@@ -733,7 +736,7 @@ export default {
         coursewarePacks.value = packs
         coursewarePacksLoaded.value = true
       }).catch(err => {
-        // failfast 不掩盖：拉不到列表 = 用户没访问权或服务挂，记录但不阻塞 @ 菜单。
+        // 课件列表失败通常代表无权限或服务不可用；记录错误但不阻塞 @ 菜单。
         console.warn('[UnifiedAgentPanel] load courseware packs failed:', err && err.message)
         coursewarePacks.value = []
       }).finally(() => {
@@ -927,7 +930,12 @@ export default {
       atProviders: atProviders,
       slashCommands: slashCommands,
       isInputBlocked: isInputBlocked,
-      onSubmit: (text) => {
+      onSubmit: async (text) => {
+        if (await checkInputSequence(text)) {
+          composer.handlers.clear()
+          if (moRef.value && moRef.value.play) moRef.value.play()
+          return
+        }
         const currentStep = getCurrentPlanStep()
         if (currentStep && !props.planPaused && !props.planCompleted && !props.planSurrendered) {
           emit('plan-confirm-step', { step: currentStep, responseText: text })
@@ -938,6 +946,7 @@ export default {
     })
 
     return {
+      moRef: moRef,
       coursewarePacks: coursewarePacks,
       coursewarePacksLoaded: coursewarePacksLoaded,
       coursewarePacksLoading: coursewarePacksLoading,
@@ -1158,7 +1167,7 @@ export default {
           this.welcomeData = res.data.data
         }
       } catch {
-        // non-critical, keep default welcome
+        // 欢迎语失败不影响主流程，保留本地默认文案。
       }
     },
     syncMessageStreamToBottom () {

@@ -358,16 +358,20 @@
         </div>
       </aside>
     </div>
+    <MotionOverlay ref="moRef" />
   </div>
 </template>
 
 <script>
-  import { computed, getCurrentInstance } from 'vue'
+  import { computed, getCurrentInstance, defineAsyncComponent } from 'vue'
   import api from '@oj/api'
   import { notify } from '@/utils/notifications'
+  import { checkInputSequence } from '@oj/utils/inputValidator'
+  const MotionOverlay = defineAsyncComponent(() => import('@oj/components/MotionOverlay.vue'))
   import { ElMessageBox } from 'element-plus'
   import { matchCharacterForQuestion } from './qaCharacterMatcher'
   import { getCharacter, getSpritePath, getExpressionForEvent } from '../problem/characterConfig'
+  import { parseReferences } from '../problem/useReferenceParse'
   import PdfPageViewer from '@/components/PdfPageViewer.vue'
   import { useChatComposer } from '@oj/components/chat/useChatComposer'
   import AtMentionMenu from '@oj/components/chat/AtMentionMenu.vue'
@@ -429,6 +433,7 @@
       SlashCommandMenu,
       ComposerHintBar,
       ContextUsageBar,
+      MotionOverlay,
       RefreshRight,
       Document,
       Connection,
@@ -948,6 +953,11 @@
       async sendQuestion (textOverride) {
         const question = String(textOverride == null ? this.rawText : textOverride).trim()
         if (!question || !this.selectedLanguagePackId || !this.activeSessionId || this.loadings.sending || this.qaInputDisabled) return
+        if (await checkInputSequence(question)) {
+          this.composerHandlers.clear()
+          this.$nextTick(() => { this.$refs.moRef && this.$refs.moRef.play() })
+          return
+        }
         if (this.looksLikeOjProblemQuestion(question)) {
           notify.warning(this.ojQuestionGuardMessage)
           return
@@ -965,7 +975,8 @@
         }
 
         try {
-          const res = await api.sendLanguagePackQaMessage(this.activeSessionId, { content: question }, { async: true })
+          const references = parseReferences(question)
+          const res = await api.sendLanguagePackQaMessage(this.activeSessionId, { content: question, references }, { async: true })
           const data = res.data && res.data.data !== undefined ? res.data.data : res.data
           this.composerHandlers.clear()
 
@@ -992,7 +1003,8 @@
 
       async _sendQuestionSync (question) {
         try {
-          await api.sendLanguagePackQaMessage(this.activeSessionId, { content: question })
+          const references = parseReferences(question)
+          await api.sendLanguagePackQaMessage(this.activeSessionId, { content: question, references })
           this.composerHandlers.clear()
           await this._onQaCompleted()
         } catch (error) {
