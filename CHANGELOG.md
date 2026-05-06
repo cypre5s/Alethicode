@@ -20,20 +20,6 @@
 - 2026-05-03 **[前端/集成]** `NotebookHeader.vue` TABS 数组追加 `{ value: 'timeline', label: '学习时间线' }`；`notebookConstants.js` VIEW_MODES 追加 `TIMELINE`；`LearnerNotebook.vue` 注册 `LearningTimeline` 组件并在 `viewMode === 'timeline'` 时渲染。
 - 2026-05-03 **[前端/测试]** 新建 `learning-timeline-contract.spec.js`，14 个 contract 测试覆盖：组件存在性、API 调用参数、4 类过滤、3 态处理、hover 卡片、事件标签映射、API 模块注册、tab 集成、token 引用、响应式断点。14/14 通过。
 
-### L99 Phase B — Negotiable & Editable Twin (S07-S12)
-
-> **背景**：从 OLM Inspectable 升级到 Negotiable + Editable，让学生反过来质疑、协商、编辑孪生。
-
-- 2026-05-03 **[Sprint 07/后端]** 新建 `V88__ai_metacognitive_event.sql`（元认知预测事件表）+ `MetacognitivePredictionService`（记录预测 + 自动 diff 分类）+ `MetacognitiveController`（POST /predict + GET /map）。
-- 2026-05-03 **[Sprint 07/前端]** 新建 `PredictBeforeCodeCard.vue`（预测卡片 + 跳过选项 + 提交/折叠态）+ `MetacognitiveMapView.vue`（认知错觉地图 + 热力条）。前端测试 8/8。
-- 2026-05-03 **[Sprint 08/后端]** 新建 `TwinChatService`（基于学情数据回答 4 类元学习问题：近况/薄弱/下一步/复习）+ `TwinChatController`（POST /chat + GET /quick-questions）。不调 LLM，纯数据驱动。
-- 2026-05-03 **[Sprint 08/前端]** 新建 `TwinChatPanel.vue`（对话面板 + 快捷问题按钮 + 消息气泡 + 自动滚动）。前端测试 7/7。
-- 2026-05-03 **[Sprint 09/后端]** 新建 `V89__ai_learner_mastery_override.sql`（掌握度覆写表）+ `TwinEditController`（POST /mastery-override + GET /mastery-overrides）。
-- 2026-05-03 **[Sprint 09/前端]** 新建 `TwinEditMasteryPanel.vue`（覆写记录列表）。
-- 2026-05-03 **[Sprint 12/前端]** 新建 `TwinWeeklyReflection.vue`（本周数据 + 周日冥想 textarea）。
-- 2026-05-03 **[前端/API]** `api/twin.js` 新增 8 个方法：`submitMetacogPrediction / getMetacogMap / askTwin / getTwinQuickQuestions / overrideMastery / getMasteryOverrides / getTwinWeekly / submitSundayReflection`。
-- 2026-05-03 **[前端/测试]** 新建 3 个测试文件（`metacog-predict-contract.spec.js` 8 例 + `twin-chat-contract.spec.js` 7 例 + `phase-b-twin-contract.spec.js` 6 例），共 21/21 通过。
-
 ### L99 Sprint 06 — 孪生主页 v1.0 整合（Phase A 收官）
 
 > **背景**：L99 Phase A 最后一个 Sprint。整合 S01-S05 五个组件为统一的"孪生主页" `/twin`，注册路由，添加 Hero 区和 back-to-top FAB。
