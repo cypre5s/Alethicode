@@ -82,6 +82,16 @@ public class LanguagePackQaController {
         return ApiResponse.success(languagePackQaService.toggleSessionStarred(username(authentication), sessionId));
     }
 
+    @GetMapping({"/api/language-pack-qa/sessions/{sessionId}/usage", "/api/language-pack-qa/sessions/{sessionId}/usage/"})
+    public ApiResponse<Map<String, Object>> getSessionUsage(
+            Authentication authentication,
+            @PathVariable Long sessionId
+    ) {
+        // Phase 1 chat composer plan 1.7：课件问答 ContextUsageBar 拉 token / 上下文用量。
+        // 鉴权由 service 层 requireOwnedSessionId 统一做，越权抛 BadRequestException → 422。
+        return ApiResponse.success(languagePackQaService.getSessionUsage(username(authentication), sessionId).toMap());
+    }
+
     @GetMapping({"/api/language-pack-qa/sessions/{sessionId}/messages", "/api/language-pack-qa/sessions/{sessionId}/messages/"})
     public ApiResponse<List<Map<String, Object>>> listMessages(
             Authentication authentication,

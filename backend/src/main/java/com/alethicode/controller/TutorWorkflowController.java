@@ -1,6 +1,8 @@
 package com.alethicode.controller;
 
 import com.alethicode.dto.response.ApiResponse;
+import com.alethicode.service.aitutor.InternalAITutorToolService;
+import com.alethicode.service.aitutor.SessionUsage;
 import com.alethicode.service.aitutor.context.CardSummary;
 import com.alethicode.service.aitutor.context.ConversationContextService;
 import com.alethicode.service.aitutor.context.ConversationMode;
@@ -71,6 +73,7 @@ public class TutorWorkflowController {
     private final TutorWorkflowWebSocketHandler webSocketHandler;
     private final ConversationContextService conversationContextService;
     private final AiTutorQuotaService quotaService;
+    private final InternalAITutorToolService internalAITutorToolService;
     private final ConcurrentHashMap<String, String> activeRuns = new ConcurrentHashMap<>();
 
     public TutorWorkflowController(
@@ -79,7 +82,8 @@ public class TutorWorkflowController {
             TutorWorkflowAuthorizer authorizer,
             TutorWorkflowWebSocketHandler webSocketHandler,
             ConversationContextService conversationContextService,
-            AiTutorQuotaService quotaService
+            AiTutorQuotaService quotaService,
+            InternalAITutorToolService internalAITutorToolService
     ) {
         this.graphClient = graphClient;
         this.projectionService = projectionService;
@@ -87,6 +91,7 @@ public class TutorWorkflowController {
         this.webSocketHandler = webSocketHandler;
         this.conversationContextService = conversationContextService;
         this.quotaService = quotaService;
+        this.internalAITutorToolService = internalAITutorToolService;
     }
 
     @PostConstruct
@@ -190,6 +195,27 @@ public class TutorWorkflowController {
             return fail403("Session not owned by current user");
         }
         return ResponseEntity.ok(ApiResponse.success(sessionOpt.get()));
+    }
+
+    /**
+     * Phase 1 chat composer plan 1.7：用户态前端 ContextUsageBar 拉 token / 上下文用量。
+     * 鉴权与 getSession 同源——必须是当前登录用户的 session 才可读。
+     */
+    @GetMapping("/{sessionId}/usage")
+    public ResponseEntity<ApiResponse<Object>> getSessionUsage(
+            @PathVariable String sessionId,
+            Authentication authentication
+    ) {
+        Long userId = extractUserId(authentication);
+        Optional<Map<String, Object>> sessionOpt = projectionService.getSession(sessionId);
+        if (sessionOpt.isEmpty()) {
+            return fail404("Session not found");
+        }
+        if (!projectionService.isSessionOwnedByUser(sessionId, userId)) {
+            return fail403("Session not owned by current user");
+        }
+        SessionUsage usage = internalAITutorToolService.getSessionUsage(sessionId);
+        return ResponseEntity.ok(ApiResponse.success(usage.toMap()));
     }
 
     @DeleteMapping("/{sessionId}")

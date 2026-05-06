@@ -60,18 +60,17 @@ describe('unified chat context (P3) contracts', () => {
     expect(problemSource).toContain("mode: this.activeConversationMode || 'chat'")
   })
 
-  test('UnifiedAgentPanel shows @ card suggestions and inserts @card token', () => {
+  test('UnifiedAgentPanel surfaces @ card / @last_ / @courseware tokens via the shared composer hook', () => {
     const panelSource = readSource('../../src/pages/oj/views/problem/UnifiedAgentPanel.vue')
+    // Phase 1 sprint 把 @ 菜单从 panel 内联实现迁移到 useChatComposer + AtMentionMenu 共享组件，
+    // panel 通过 setup() 给 hook 注入卡片 / 课件 / Phase 2 占位三组 atProviders。
     expect(panelSource).toContain('lastConversationCards')
-    expect(panelSource).toContain('reference-suggestions')
-    expect(panelSource).toContain('filteredReferenceCards')
-    expect(panelSource).toContain('shouldShowReferenceSuggestions')
-    expect(panelSource).toContain('handleInputChange')
-    expect(panelSource).toContain('insertReferenceCard')
-    expect(panelSource).toContain('`@card:${card.card_id}`')
-    expect(panelSource).toContain('reference_token')
-    expect(panelSource).toContain('@last_')
-    expect(panelSource).toContain('this.messages || []')
+    expect(panelSource).toContain("from '@oj/components/chat/useChatComposer'")
+    expect(panelSource).toContain('AtMentionMenu')
+    expect(panelSource).toContain('SlashCommandMenu')
+    expect(panelSource).toContain("'@card:' + card.card_id")
+    expect(panelSource).toContain("'@last_' + (SHORTHAND_BY_TYPE[card.card_type]")
+    expect(panelSource).toContain("'@courseware:' + pack.id")
     expect(panelSource).toContain('formatReferenceDescription')
     expect(panelSource).toContain('引用最近的知识点回顾卡片')
     expect(panelSource).toContain('rgba(255, 255, 255, 0.98)')

@@ -1,11 +1,18 @@
 package com.alethicode.service.aitutor.impl;
 
 import com.alethicode.service.aitutor.InternalAITutorToolService;
+import com.alethicode.service.aitutor.SessionUsage;
 import com.alethicode.service.aitutor.context.CardSummary;
 import com.alethicode.service.aitutor.context.ConversationContextService;
 import com.alethicode.service.aitutor.context.ConversationMode;
 import com.alethicode.service.aitutor.context.CoursewareContextProvider;
 import com.alethicode.service.aitutor.context.CoursewareSummary;
+import com.alethicode.service.aitutor.context.KcContextProvider;
+import com.alethicode.service.aitutor.context.KcSummary;
+import com.alethicode.service.aitutor.context.NotebookContextProvider;
+import com.alethicode.service.aitutor.context.NotebookSummary;
+import com.alethicode.service.aitutor.context.PageContextProvider;
+import com.alethicode.service.aitutor.context.PageSummary;
 import com.alethicode.service.aitutor.context.ReferenceResolver;
 import com.alethicode.service.aitutor.profile.ContextSignals;
 import com.alethicode.service.aitutor.profile.LearnerProfileProjector;
@@ -27,6 +34,8 @@ import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -48,6 +57,9 @@ public class InternalAITutorToolServiceImpl implements InternalAITutorToolServic
     private final VisualizeCapabilityService visualizeCapabilityService;
     private final ConversationContextService conversationContextService;
     private final CoursewareContextProvider coursewareContextProvider;
+    private final PageContextProvider pageContextProvider;
+    private final KcContextProvider kcContextProvider;
+    private final NotebookContextProvider notebookContextProvider;
     private final ParsonsCapabilityService parsonsCapabilityService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -58,6 +70,9 @@ public class InternalAITutorToolServiceImpl implements InternalAITutorToolServic
                                           VisualizeCapabilityService visualizeCapabilityService,
                                           ConversationContextService conversationContextService,
                                           CoursewareContextProvider coursewareContextProvider,
+                                          PageContextProvider pageContextProvider,
+                                          KcContextProvider kcContextProvider,
+                                          NotebookContextProvider notebookContextProvider,
                                           ParsonsCapabilityService parsonsCapabilityService) {
         this.jdbc = jdbc;
         this.coursewareRetrievalService = coursewareRetrievalService;
@@ -66,6 +81,9 @@ public class InternalAITutorToolServiceImpl implements InternalAITutorToolServic
         this.visualizeCapabilityService = visualizeCapabilityService;
         this.conversationContextService = conversationContextService;
         this.coursewareContextProvider = coursewareContextProvider;
+        this.pageContextProvider = pageContextProvider;
+        this.kcContextProvider = kcContextProvider;
+        this.notebookContextProvider = notebookContextProvider;
         this.parsonsCapabilityService = parsonsCapabilityService;
     }
 
@@ -723,9 +741,28 @@ public class InternalAITutorToolServiceImpl implements InternalAITutorToolServic
             }
         }
 
+        String username = null;
+        Long userId = null;
+        if (hasPageToken(safeRefs) || hasKcToken(safeRefs) || hasNotebookToken(safeRefs)) {
+            username = lookupSessionUsername(sessionId);
+            userId = lookupSessionUserId(sessionId);
+        }
+        List<Map<String, Object>> pages = username == null ? List.of() : pageContextProvider
+                .resolvePageReferences(username, null, safeRefs)
+                .stream().map(PageSummary::toMap).toList();
+        List<Map<String, Object>> kcs = userId == null ? List.of() : kcContextProvider
+                .resolveKcReferences(userId, safeRefs)
+                .stream().map(KcSummary::toMap).toList();
+        List<Map<String, Object>> notebooks = userId == null ? List.of() : notebookContextProvider
+                .resolveNotebookReferences(userId, safeRefs)
+                .stream().map(NotebookSummary::toMap).toList();
+
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("cards", cards);
         result.put("coursewares", coursewares);
+        result.put("pages", pages);
+        result.put("kcs", kcs);
+        result.put("notebooks", notebooks);
         return result;
     }
 
@@ -735,6 +772,65 @@ public class InternalAITutorToolServiceImpl implements InternalAITutorToolServic
             if (ReferenceResolver.isCoursewareRef(raw)) return true;
         }
         return false;
+    }
+
+    private static boolean hasPageToken(List<String> references) {
+        for (String raw : references) {
+            if (ReferenceResolver.extractPageRef(raw) != null) return true;
+        }
+        return false;
+    }
+
+    private static boolean hasKcToken(List<String> references) {
+        for (String raw : references) {
+            if (ReferenceResolver.extractKcId(raw) != null) return true;
+        }
+        return false;
+    }
+
+    private static boolean hasNotebookToken(List<String> references) {
+        for (String raw : references) {
+            if (ReferenceResolver.extractNotebookEntryId(raw) != null) return true;
+        }
+        return false;
+    }
+
+    @Override
+    public SessionUsage getSessionUsage(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            throw new IllegalArgumentException("session_id is required");
+        }
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT tokens_used, tokens_limit, model_name, updated_at "
+                        + "FROM ai_tutor_workflow_session WHERE session_id = :sid",
+                new MapSqlParameterSource("sid", sessionId)
+        );
+        if (rows.isEmpty()) {
+            throw new ProblemNotFoundException("Session not found: " + sessionId);
+        }
+        Map<String, Object> row = rows.get(0);
+        Long used = toLong(row.get("tokens_used"));
+        Long limit = toLong(row.get("tokens_limit"));
+        String modelName = asString(row.get("model_name"));
+        Instant updated = toInstant(row.get("updated_at"));
+        return new SessionUsage(
+                used == null ? 0L : used,
+                limit == null ? 0L : limit,
+                modelName == null ? "" : modelName,
+                updated
+        );
+    }
+
+    private static Instant toInstant(Object raw) {
+        if (raw == null) return null;
+        if (raw instanceof Instant i) return i;
+        if (raw instanceof Timestamp ts) return ts.toInstant();
+        if (raw instanceof java.util.Date d) return d.toInstant();
+        if (raw instanceof java.time.OffsetDateTime odt) return odt.toInstant();
+        if (raw instanceof java.time.LocalDateTime ldt) {
+            return ldt.atZone(java.time.ZoneId.systemDefault()).toInstant();
+        }
+        return null;
     }
 
     /**
@@ -754,6 +850,22 @@ public class InternalAITutorToolServiceImpl implements InternalAITutorToolServic
             return null;
         } catch (Exception ex) {
             log.warn("lookupSessionUsername failed for session {}: {}", sessionId, ex.getMessage());
+            return null;
+        }
+    }
+
+    private Long lookupSessionUserId(String sessionId) {
+        try {
+            return jdbc.queryForObject(
+                    "SELECT user_id FROM ai_tutor_workflow_session "
+                            + "WHERE session_id = :sid AND is_active = TRUE",
+                    new MapSqlParameterSource("sid", sessionId),
+                    Long.class
+            );
+        } catch (org.springframework.dao.EmptyResultDataAccessException ex) {
+            return null;
+        } catch (Exception ex) {
+            log.warn("lookupSessionUserId failed for session {}: {}", sessionId, ex.getMessage());
             return null;
         }
     }

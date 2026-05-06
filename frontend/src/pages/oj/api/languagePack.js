@@ -47,6 +47,9 @@ export default {
   getLanguagePackQaMessages(sessionId) {
     return ajax(`language-pack-qa/sessions/${sessionId}/messages`, 'get')
   },
+  getLanguagePackQaSessionUsage(sessionId, options = {}) {
+    return ajax(`language-pack-qa/sessions/${sessionId}/usage`, 'get', options)
+  },
   sendLanguagePackQaMessage(sessionId, data, options = {}) {
     const params = options.async ? { async: true } : {}
     return ajax(`language-pack-qa/sessions/${sessionId}/messages`, 'post', { data, params })

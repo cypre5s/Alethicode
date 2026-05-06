@@ -262,18 +262,44 @@
           </div>
 
           <div class="qa-composer">
+            <ContextUsageBar
+              v-if="qaContextUsage && qaContextUsage.tokens_limit"
+              :tokens-used="qaContextUsage.tokens_used || 0"
+              :tokens-limit="qaContextUsage.tokens_limit || 0"
+              :model-name="qaContextUsage.model_name || ''"
+              @compact-click="handleQaCompactPlaceholder"
+            />
+
+            <AtMentionMenu
+              :visible="atMenuVisible"
+              :groups="atGroups"
+              :active-index="atActiveIndex"
+              @select="composerHandlers.selectAtItem"
+            />
+
+            <SlashCommandMenu
+              :visible="slashMenuVisible"
+              :groups="slashGroups"
+              :active-index="slashActiveIndex"
+              @select="composerHandlers.selectSlashItem"
+            />
+
             <el-input
-              v-model="draftQuestion"
+              :model-value="rawText"
               type="textarea"
               :autosize="{ minRows: 3, maxRows: 6 }"
               resize="none"
               :placeholder="composerPlaceholder"
               :disabled="qaInputDisabled"
-              @keyup.ctrl.enter="sendQuestion"
+              @update:model-value="composerHandlers.onInput"
+              @keydown="composerHandlers.onKeydown"
             />
             <div class="qa-composer-actions">
-              <span class="qa-composer-hint">Ctrl + Enter 发送</span>
-              <button class="qa-primary-btn" type="button" @click="sendQuestion" :disabled="!canSend">
+              <ComposerHintBar
+                :at-active="atMenuVisible"
+                :slash-active="slashMenuVisible"
+              />
+              <button class="qa-primary-btn" type="button" @click="composerHandlers.submit" :disabled="!canSend">
                 {{ loadings.sending ? '发送中...' : '发送问题' }}
               </button>
             </div>
@@ -334,12 +360,18 @@
 </template>
 
 <script>
+  import { computed, getCurrentInstance } from 'vue'
   import api from '@oj/api'
   import { notify } from '@/utils/notifications'
   import { ElMessageBox } from 'element-plus'
   import { matchCharacterForQuestion } from './qaCharacterMatcher'
   import { getCharacter, getSpritePath, getExpressionForEvent } from '../problem/characterConfig'
   import PdfPageViewer from '@/components/PdfPageViewer.vue'
+  import { useChatComposer } from '@oj/components/chat/useChatComposer'
+  import AtMentionMenu from '@oj/components/chat/AtMentionMenu.vue'
+  import SlashCommandMenu from '@oj/components/chat/SlashCommandMenu.vue'
+  import ComposerHintBar from '@oj/components/chat/ComposerHintBar.vue'
+  import ContextUsageBar from '@oj/components/chat/ContextUsageBar.vue'
 
   function encodeQaCtx (packId, sessionId) {
     const obj = {}
@@ -365,7 +397,6 @@
   } from '@/utils/runtimeContract'
   import {
     RefreshRight,
-    Reading,
     Document,
     Connection,
     CircleCloseFilled,
@@ -373,7 +404,6 @@
     Star,
     StarFilled,
     Delete,
-    ChatLineSquare,
     VideoPlay,
     Loading,
     Close
@@ -393,8 +423,11 @@
     name: 'LanguagePackQaPage',
     components: {
       PdfPageViewer,
+      AtMentionMenu,
+      SlashCommandMenu,
+      ComposerHintBar,
+      ContextUsageBar,
       RefreshRight,
-      Reading,
       Document,
       Connection,
       CircleCloseFilled,
@@ -402,10 +435,91 @@
       Star,
       StarFilled,
       Delete,
-      ChatLineSquare,
       VideoPlay,
       Loading,
       Close
+    },
+    setup () {
+      const instance = getCurrentInstance()
+      const proxy = instance && instance.proxy
+      const scopeKey = computed(() => {
+        const packId = proxy && proxy.selectedLanguagePackId ? proxy.selectedLanguagePackId : 'none'
+        const sessionId = proxy && proxy.activeSessionId ? proxy.activeSessionId : 'new'
+        return `qa:${packId}:${sessionId}`
+      })
+      const isInputBlocked = computed(() => Boolean(proxy && proxy.qaInputDisabled))
+      const slashCommands = [
+        {
+          key: 'qa-refs',
+          group: '课件问答',
+          command: '/refs',
+          label: '证据侧栏',
+          hint: '收起当前证据侧栏',
+          run: () => {
+            if (proxy && proxy.showEvidencePanel) {
+              proxy.closeEvidencePanel()
+            } else {
+              notify.info('当前还没有可展示的证据页')
+            }
+          }
+        },
+        {
+          key: 'qa-page',
+          group: '课件问答',
+          command: '/page',
+          label: '跳转页码',
+          hint: '/page <n>',
+          status: 'placeholder',
+          onPlaceholder: () => notify.info('按页跳转将在课件页目录接入后上线')
+        },
+        {
+          key: 'qa-clear',
+          group: '会话控制',
+          command: '/clear',
+          label: '收起证据',
+          run: () => proxy && proxy.closeEvidencePanel()
+        },
+        {
+          key: 'qa-export',
+          group: '会话控制',
+          command: '/export',
+          label: '导出 Markdown',
+          run: () => proxy && proxy.exportConversationMarkdown()
+        },
+        {
+          key: 'qa-compact',
+          group: '会话进阶',
+          command: '/compact',
+          label: '压缩上下文',
+          status: 'placeholder',
+          onPlaceholder: () => notify.info('上下文压缩将在 Phase 3 上线')
+        },
+        {
+          key: 'qa-fork',
+          group: '会话进阶',
+          command: '/fork',
+          label: '分叉会话',
+          status: 'placeholder',
+          onPlaceholder: () => notify.info('会话分叉将在 Phase 3 上线')
+        }
+      ]
+      const composer = useChatComposer({
+        scopeKey,
+        atProviders: [],
+        slashCommands,
+        isInputBlocked,
+        onSubmit: (text) => proxy && proxy.sendQuestion(text)
+      })
+      return {
+        rawText: composer.rawText,
+        atMenuVisible: composer.atMenuVisible,
+        atGroups: composer.atGroups,
+        atActiveIndex: composer.atActiveIndex,
+        slashMenuVisible: composer.slashMenuVisible,
+        slashGroups: composer.slashGroups,
+        slashActiveIndex: composer.slashActiveIndex,
+        composerHandlers: composer.handlers
+      }
     },
     data () {
       return {
@@ -414,7 +528,7 @@
         messages: [],
         selectedLanguagePackId: null,
         activeSessionId: null,
-        draftQuestion: '',
+        qaContextUsage: { tokens_used: 0, tokens_limit: 0, model_name: '', last_updated: null },
         activeCitation: null,
         citationPreview: null,
         feedbackByMessageId: {},
@@ -452,7 +566,7 @@
         return this.packs.find(pack => String(pack.id) === String(this.selectedLanguagePackId)) || null
       },
       canSend () {
-        return Boolean(this.selectedLanguagePackId && this.activeSessionId && this.draftQuestion.trim() && !this.loadings.sending && !this.qaInputDisabled)
+        return Boolean(this.selectedLanguagePackId && this.activeSessionId && this.rawText.trim() && !this.loadings.sending && !this.qaInputDisabled)
       },
       isBusy () {
         return this.loadings.sessions || this.loadings.messages || this.loadings.sending
@@ -593,6 +707,7 @@
         this.loadings.sending = false
         this.selectedLanguagePackId = String(packId)
         this.activeSessionId = null
+        this.qaContextUsage = { tokens_used: 0, tokens_limit: 0, model_name: '', last_updated: null }
         this.sessions = []
         this.messages = []
         this.citationPreview = null
@@ -640,6 +755,7 @@
         await this.$router.replace({
           query: { ctx: encodeQaCtx(this.selectedLanguagePackId, sessionId) }
         }).catch(() => {})
+        await this.refreshQaContextUsage()
         await this.loadMessages()
       },
       async loadMessages () {
@@ -652,6 +768,21 @@
         } finally {
           this.loadings.messages = false
           this.$nextTick(() => this._scrollMessagesToBottom())
+        }
+      },
+      async refreshQaContextUsage () {
+        if (!this.activeSessionId) return
+        try {
+          const res = await api.getLanguagePackQaSessionUsage(this.activeSessionId, { silent: true })
+          const usage = res && res.data && res.data.data !== undefined ? res.data.data : (res ? res.data : null)
+          this.qaContextUsage = {
+            tokens_used: Number(usage && usage.tokens_used) || 0,
+            tokens_limit: Number(usage && usage.tokens_limit) || 0,
+            model_name: usage && usage.model_name ? String(usage.model_name) : '',
+            last_updated: usage && usage.last_updated ? usage.last_updated : null
+          }
+        } catch (_) {
+          this.qaContextUsage = { tokens_used: 0, tokens_limit: 0, model_name: '', last_updated: null }
         }
       },
       _scrollMessagesToBottom () {
@@ -689,13 +820,13 @@
         if (!this.activeSessionId && this.currentPackIsQaReady) {
           await this.startNewSession()
         }
-        this.draftQuestion = question
-        this.$nextTick(() => this.sendQuestion())
+        this.composerHandlers.setText(question)
+        this.$nextTick(() => this.composerHandlers.submit())
       },
 
-      async sendQuestion () {
-        if (!this.canSend) return
-        const question = this.draftQuestion.trim()
+      async sendQuestion (textOverride) {
+        const question = String(textOverride == null ? this.rawText : textOverride).trim()
+        if (!question || !this.selectedLanguagePackId || !this.activeSessionId || this.loadings.sending || this.qaInputDisabled) return
         if (this.looksLikeOjProblemQuestion(question)) {
           notify.warning(this.ojQuestionGuardMessage)
           return
@@ -715,7 +846,7 @@
         try {
           const res = await api.sendLanguagePackQaMessage(this.activeSessionId, { content: question }, { async: true })
           const data = res.data && res.data.data !== undefined ? res.data.data : res.data
-          this.draftQuestion = ''
+          this.composerHandlers.clear()
 
           if (data && data.status === 'dispatched') {
             this.qaRuntimeContext = {
@@ -741,7 +872,7 @@
       async _sendQuestionSync (question) {
         try {
           await api.sendLanguagePackQaMessage(this.activeSessionId, { content: question })
-          this.draftQuestion = ''
+          this.composerHandlers.clear()
           await this._onQaCompleted()
         } catch (error) {
           notify.error('发送失败，请稍后重试')
@@ -757,6 +888,7 @@
         this.qaCharExpression = getExpressionForEvent(this.qaCharacterId, 'card_delivered')
         setTimeout(() => { this.qaCharExpression = '' }, 3000)
         await this.loadMessages()
+        await this.refreshQaContextUsage()
         this.$nextTick(() => this._scrollMessagesToBottom())
         const latestAssistant = [...this.messages].reverse().find(item => item.role === 'assistant')
         const firstCitation = latestAssistant && this.resolveCitations(latestAssistant)[0]
@@ -771,6 +903,14 @@
 
         if (normalized.sessionId && normalized.sessionId !== String(this.activeSessionId)) {
           return
+        }
+        if (normalized.data && normalized.data.usage) {
+          this.qaContextUsage = {
+            tokens_used: Number(normalized.data.usage.tokens_used) || 0,
+            tokens_limit: Number(normalized.data.usage.tokens_limit) || 0,
+            model_name: normalized.data.usage.model_name ? String(normalized.data.usage.model_name) : '',
+            last_updated: normalized.data.usage.last_updated || null
+          }
         }
 
         this.qaRuntimeContext = {
@@ -893,9 +1033,9 @@
       retryLastQuestion () {
         if (!this.qaPendingQuestion) return
         this._resetQaRuntimeContext()
-        this.draftQuestion = this.qaPendingQuestion
+        this.composerHandlers.setText(this.qaPendingQuestion)
         this.qaPendingQuestion = ''
-        this.$nextTick(() => this.sendQuestion())
+        this.$nextTick(() => this.composerHandlers.submit())
       },
 
       _disconnectQaWs () {
@@ -1063,6 +1203,31 @@
         this.activeVideoPlayback = null
         this.citationPreview = null
         this.activeCitation = null
+      },
+      handleQaCompactPlaceholder () {
+        notify.info('上下文压缩将在 Phase 3 上线')
+      },
+      exportConversationMarkdown () {
+        if (!this.messages.length) {
+          notify.info('当前没有可导出的消息')
+          return
+        }
+        const title = this.currentPack ? this.currentPack.name : '课件问答'
+        const header = '# ' + title + ' 对话导出\n\n时间：' + new Date().toLocaleString() + '\n\n'
+        const body = this.messages.map(message => {
+          const role = message.role === 'user' ? '我' : 'AI 助手'
+          const text = message.role === 'assistant' ? this.resolveAnswerText(message) : message.content
+          return '## ' + role + '\n\n' + (text || '') + '\n'
+        }).join('\n')
+        const blob = new Blob([header + body], { type: 'text/markdown;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = 'language-pack-qa-' + (this.activeSessionId || 'session') + '-' + Date.now() + '.md'
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
       },
       async toggleStarSession (session) {
         try {

@@ -1,6 +1,8 @@
 package com.alethicode.controller;
 
 import com.alethicode.dto.response.ApiResponse;
+import com.alethicode.service.aitutor.InternalAITutorToolService;
+import com.alethicode.service.aitutor.SessionUsage;
 import com.alethicode.service.aitutor.context.CardSummary;
 import com.alethicode.service.aitutor.context.ConversationContextService;
 import com.alethicode.service.aitutor.context.ConversationMode;
@@ -51,6 +53,7 @@ class TutorWorkflowControllerTest {
     private TutorWorkflowWebSocketHandler webSocketHandler;
     private ConversationContextService conversationContextService;
     private AiTutorQuotaService quotaService;
+    private InternalAITutorToolService internalAITutorToolService;
     private TutorWorkflowController controller;
 
     @BeforeEach
@@ -61,9 +64,10 @@ class TutorWorkflowControllerTest {
         webSocketHandler = mock(TutorWorkflowWebSocketHandler.class);
         conversationContextService = mock(ConversationContextService.class);
         quotaService = mock(AiTutorQuotaService.class);
+        internalAITutorToolService = mock(InternalAITutorToolService.class);
         controller = new TutorWorkflowController(
                 graphClient, projectionService, authorizer, webSocketHandler,
-                conversationContextService, quotaService);
+                conversationContextService, quotaService, internalAITutorToolService);
     }
 
     @Test
@@ -101,7 +105,7 @@ class TutorWorkflowControllerTest {
 
     @Test
     void createSession_happyPath_returns201WithSessionSnapshot() {
-        when(graphClient.createThread(anyString(), anyLong(), anyLong(), eq("Python3")))
+        when(graphClient.createThread(anyString(), anyLong(), anyLong(), eq("Python3"), any()))
                 .thenReturn(Mono.just(Map.<String, Object>of("thread_id", "thread_abc")));
         when(projectionService.createSessionWithId(anyString(), eq(1L), eq(42L), eq("thread_abc"), eq("Python3")))
                 .thenAnswer(inv -> {
@@ -288,6 +292,49 @@ class TutorWorkflowControllerTest {
         Map<String, Object> body = (Map<String, Object>) response.getBody().data();
         assertThat(body).containsEntry("active_mode", "reading");
         assertThat((List<?>) body.get("last_cards")).hasSize(1);
+    }
+
+    @Test
+    void getSessionUsage_returnsCounters_forOwner() {
+        when(projectionService.getSession("twf_x")).thenReturn(Optional.of(sessionSnapshot("Python3")));
+        when(projectionService.isSessionOwnedByUser("twf_x", 1L)).thenReturn(true);
+        when(internalAITutorToolService.getSessionUsage("twf_x"))
+                .thenReturn(new SessionUsage(2048L, 8000L, "deepseek-chat",
+                        Instant.parse("2026-05-06T10:00:00Z")));
+
+        ResponseEntity<ApiResponse<Object>> response =
+                controller.getSessionUsage("twf_x", authenticationFor(1L));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> body = (Map<String, Object>) response.getBody().data();
+        assertThat(body)
+                .containsEntry("tokens_used", 2048L)
+                .containsEntry("tokens_limit", 8000L)
+                .containsEntry("model_name", "deepseek-chat");
+    }
+
+    @Test
+    void getSessionUsage_returns404_whenSessionMissing() {
+        when(projectionService.getSession("twf_missing")).thenReturn(Optional.empty());
+
+        ResponseEntity<ApiResponse<Object>> response =
+                controller.getSessionUsage("twf_missing", authenticationFor(1L));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        verifyNoInteractions(internalAITutorToolService);
+    }
+
+    @Test
+    void getSessionUsage_returns403_whenNotOwner() {
+        when(projectionService.getSession("twf_x")).thenReturn(Optional.of(sessionSnapshot("Python3")));
+        when(projectionService.isSessionOwnedByUser("twf_x", 1L)).thenReturn(false);
+
+        ResponseEntity<ApiResponse<Object>> response =
+                controller.getSessionUsage("twf_x", authenticationFor(1L));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        verifyNoInteractions(internalAITutorToolService);
     }
 
     @Test

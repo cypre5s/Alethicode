@@ -409,20 +409,43 @@
           用自然语言描述你的思路（至少10个字）
         </div>
 
+        <ContextUsageBar
+          v-if="contextUsage && contextUsage.tokens_limit"
+          :tokens-used="contextUsage.tokens_used || 0"
+          :tokens-limit="contextUsage.tokens_limit || 0"
+          :model-name="contextUsage.model_name || ''"
+          @compact-click="handleCompactPlaceholder"
+        />
+
+        <AtMentionMenu
+          :visible="atMenuVisible && inputMode === 'chat'"
+          :groups="atGroups"
+          :active-index="atActiveIndex"
+          @select="composerHandlers.selectAtItem"
+          @close="composerHandlers.refreshProvider('coursewares')"
+        />
+
+        <SlashCommandMenu
+          :visible="slashMenuVisible"
+          :groups="slashGroups"
+          :active-index="slashActiveIndex"
+          @select="composerHandlers.selectSlashItem"
+        />
+
         <div class="input-row">
           <el-input
             type="textarea"
             :rows="2"
-            v-model="userInput"
+            :model-value="rawText"
+            @update:model-value="composerHandlers.onInput"
             :placeholder="inputPlaceholder"
             :disabled="!canChatInput || loading || isInputBlocked"
-            @input="handleInputChange"
-            @keydown="handleKeydown"
+            @keydown="composerHandlers.onKeydown"
             class="panel-input"
           />
           <button
             :class="['action-btn', { 'is-stop': loading }]"
-            :disabled="loading ? false : (!canChatInput || !userInput.trim() || isInputBlocked)"
+            :disabled="loading ? false : (!canChatInput || !rawText.trim() || isInputBlocked)"
             @click="loading ? $emit('stop-agent') : handleSend()"
             :title="loading ? '中断生成' : '发送'"
           >
@@ -431,19 +454,10 @@
           </button>
         </div>
 
-        <div v-if="shouldShowReferenceSuggestions" class="reference-suggestions">
-          <button
-            v-for="card in filteredReferenceCards"
-            :key="card.reference_key"
-            type="button"
-            class="reference-suggestion-item"
-            @mousedown.prevent="insertReferenceCard(card)"
-          >
-            <span class="reference-suggestion-token">{{ card.reference_token }}</span>
-            <span class="reference-suggestion-main">{{ card.display_label }}</span>
-            <span class="reference-suggestion-desc">{{ card.short_text }}</span>
-          </button>
-        </div>
+        <ComposerHintBar
+          :at-active="atMenuVisible"
+          :slash-active="slashMenuVisible"
+        />
 
         <div class="quick-actions">
           <a
@@ -559,10 +573,15 @@
 </template>
 
 <script>
-import { markRaw } from 'vue'
+import { markRaw, ref, computed } from 'vue'
 import api from '@oj/api'
 import { fetchCoursewarePreviewPage } from './workflowServerState'
 import { getCharacterForCardType, getCharacter, getSpritePath, getExpressionForEvent } from './characterConfig'
+import { useChatComposer } from '@oj/components/chat/useChatComposer'
+import AtMentionMenu from '@oj/components/chat/AtMentionMenu.vue'
+import SlashCommandMenu from '@oj/components/chat/SlashCommandMenu.vue'
+import ComposerHintBar from '@oj/components/chat/ComposerHintBar.vue'
+import ContextUsageBar from '@oj/components/chat/ContextUsageBar.vue'
 import ProblemGuideCard from './cards/ProblemGuideCard.vue'
 import IdeateAnalysisCard from './cards/IdeateAnalysisCard.vue'
 import SkeletonCodeCard from './cards/SkeletonCodeCard.vue'
@@ -656,6 +675,10 @@ export default {
     PlanStepsCard,
     SteeringBar,
     ProfileDrawer,
+    AtMentionMenu,
+    SlashCommandMenu,
+    ComposerHintBar,
+    ContextUsageBar,
     Reading, Sunny, Monitor, Warning, StarFilled, Sort,
     CircleCheck, CircleClose, DArrowRight, Lightning,
     School, Delete, Close, Flag, Refresh, RefreshLeft,
@@ -690,13 +713,247 @@ export default {
     planReasoning: { type: String, default: '' },
     lastConversationCards: { type: Array, default: () => [] },
     parsonsState: { type: Object, default: () => ({ submitting: false, hint: '', lastResult: null }) },
-    parsonsWalkthrough: { type: Object, default: () => ({ visible: false, loading: false, score: 0, feedback: '', lastPassed: false, canRewrite: false }) }
+    parsonsWalkthrough: { type: Object, default: () => ({ visible: false, loading: false, score: 0, feedback: '', lastPassed: false, canRewrite: false }) },
+    contextUsage: { type: Object, default: () => ({ tokens_used: 0, tokens_limit: 0, model_name: '' }) }
+  },
+  setup (props, { emit }) {
+    // courseware 包列表懒加载，按 setup 内 ref 表达；旧 data 字段下沉到这里以与
+    // useChatComposer hook 共享同一份 reactive 数据。
+    const coursewarePacks = ref([])
+    const coursewarePacksLoaded = ref(false)
+    const coursewarePacksLoading = ref(false)
+
+    function ensureCoursewarePacksLoaded () {
+      if (coursewarePacksLoaded.value || coursewarePacksLoading.value) return Promise.resolve()
+      coursewarePacksLoading.value = true
+      return api.getLanguagePackQaPacks().then(res => {
+        const packs = res && res.data && Array.isArray(res.data.data) ? res.data.data : []
+        coursewarePacks.value = packs
+        coursewarePacksLoaded.value = true
+      }).catch(err => {
+        // failfast 不掩盖：拉不到列表 = 用户没访问权或服务挂，记录但不阻塞 @ 菜单。
+        console.warn('[UnifiedAgentPanel] load courseware packs failed:', err && err.message)
+        coursewarePacks.value = []
+      }).finally(() => {
+        coursewarePacksLoading.value = false
+      })
+    }
+
+    function formatReferenceDescription (raw, cardType) {
+      const TYPE_HINTS = {
+        problem_guide: '引用最近的题目导读卡片',
+        ideate_analysis: '引用最近的思路分析卡片',
+        skeleton_code: '引用最近的骨架代码卡片',
+        error_diagnosis: '引用最近的错误诊断卡片',
+        post_ac: '引用最近的过题总结卡片',
+        transfer_problem: '引用最近的迁移题卡片',
+        knowledge_review: '引用最近的知识点回顾卡片',
+        visualize: '引用最近的教学可视化卡片',
+        parsons_problem: '引用最近的拼装挑战卡片'
+      }
+      let text = ''
+      if (typeof raw === 'string') {
+        text = raw.trim()
+      } else if (raw && typeof raw === 'object') {
+        text = raw.review_content || raw.root_cause || raw.analysis || raw.plain_task || raw.alt_text || raw.title || ''
+      }
+      if (text.startsWith('{') || text.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(text)
+          text = parsed.review_content || parsed.root_cause || parsed.analysis || parsed.plain_task || parsed.alt_text || parsed.title || ''
+        } catch {
+          text = ''
+        }
+      }
+      text = String(text || TYPE_HINTS[cardType] || '引用这张卡片').replace(/\s+/g, ' ').trim()
+      return text.length > 42 ? text.slice(0, 42) + '…' : text
+    }
+
+    const TYPE_LABELS = {
+      problem_guide: '题目导读',
+      ideate_analysis: '思路分析',
+      skeleton_code: '骨架代码',
+      error_diagnosis: '错误诊断',
+      post_ac: '过题总结',
+      transfer_problem: '迁移题',
+      knowledge_review: '知识点回顾',
+      visualize: '教学可视化',
+      parsons_problem: '拼装挑战'
+    }
+    const SHORTHAND_BY_TYPE = {
+      problem_guide: 'guide',
+      ideate_analysis: 'ideate',
+      error_diagnosis: 'error',
+      post_ac: 'post_ac',
+      transfer_problem: 'transfer',
+      knowledge_review: 'review',
+      visualize: 'visualize'
+    }
+
+    function buildCardItems () {
+      const cards = []
+      const seenTypes = new Set()
+      const conversationCards = Array.isArray(props.lastConversationCards) ? props.lastConversationCards : []
+      conversationCards
+        .filter(card => card && (card.card_id || card.card_type))
+        .forEach(card => {
+          const token = card.card_id ? '@card:' + card.card_id : '@last_' + (SHORTHAND_BY_TYPE[card.card_type] || 'review')
+          cards.push({
+            key: card.card_id || ('last-' + card.card_type),
+            token: token,
+            label: TYPE_LABELS[card.card_type] || card.card_type || '卡片',
+            desc: formatReferenceDescription(card.short_text || card.summary, card.card_type),
+            hoverPreview: formatReferenceDescription(card.short_text || card.summary, card.card_type)
+          })
+          if (card.card_type) seenTypes.add(card.card_type)
+        })
+      const messages = Array.isArray(props.messages) ? props.messages : []
+      messages
+        .filter(item => item && SHORTHAND_BY_TYPE[item.type] && !seenTypes.has(item.type))
+        .forEach(item => {
+          cards.push({
+            key: 'last-' + item.type,
+            token: '@last_' + SHORTHAND_BY_TYPE[item.type],
+            label: TYPE_LABELS[item.type] || item.type,
+            desc: formatReferenceDescription(item.content || item.title, item.type),
+            hoverPreview: formatReferenceDescription(item.content || item.title, item.type)
+          })
+          seenTypes.add(item.type)
+        })
+      return cards
+    }
+
+    function buildCoursewareItems () {
+      const packs = Array.isArray(coursewarePacks.value) ? coursewarePacks.value : []
+      return packs
+        .filter(pack => pack && pack.id != null)
+        .map(pack => ({
+          key: 'courseware-' + pack.id,
+          token: '@courseware:' + pack.id,
+          label: '课件 · ' + (pack.name || ('LP-' + pack.id)),
+          desc: pack.description || (pack.documents_count != null ? pack.documents_count + ' 份文档' : ''),
+          hoverPreview: pack.description || (pack.documents_count != null ? pack.documents_count + ' 份文档' : '')
+        }))
+    }
+
+    const atProviders = [
+      { key: 'cards', group: '会话卡片', items: buildCardItems },
+      {
+        key: 'coursewares',
+        group: '课件',
+        lazyLoad: true,
+        items: () => ensureCoursewarePacksLoaded().then(() => buildCoursewareItems())
+      },
+      {
+        key: 'phase2-placeholders',
+        group: '即将上线（Phase 2）',
+        items: () => [
+          { key: 'placeholder-page', token: '@page:<n>', label: '@page', desc: '引用课件具体页', placeholder: true },
+          { key: 'placeholder-kc', token: '@kc:<id>', label: '@kc', desc: '引用知识点节点', placeholder: true },
+          { key: 'placeholder-notebook', token: '@notebook:<id>', label: '@notebook', desc: '引用学习笔记条目', placeholder: true }
+        ]
+      }
+    ]
+
+    function getCurrentPlanStep () {
+      const steps = Array.isArray(props.planSteps) ? props.planSteps : []
+      if (!steps.length) return null
+      return steps.find(step => ['active', 'current', 'in_progress'].includes(String(step.status || '').toLowerCase())) ||
+        steps.find(step => String(step.status || '').toLowerCase() === 'pending') ||
+        steps[0]
+    }
+
+    function exportConversationMarkdown () {
+      const messages = Array.isArray(props.messages) ? props.messages : []
+      if (!messages.length) return
+      const header = '# 学习对话导出\n\n时间：' + new Date().toLocaleString() + '\n\n'
+      const body = messages.map(msg => {
+        const role = msg.type === 'user' ? '我' : (msg.type === 'system' ? '系统' : 'AI 助手')
+        const text = (msg.content || msg.title || '')
+        return '## ' + role + '\n\n' + text + '\n'
+      }).join('\n')
+      const blob = new Blob([header + body], { type: 'text/markdown;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'chat-' + (props.sessionId || 'session') + '-' + Date.now() + '.md'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    }
+
+    const slashCommands = [
+      { key: 'cmd-ideate', group: 'Agent 动作', command: '/ideate', label: '思路分析', hint: '描述你的思路', run: () => emit('switch-input-mode', 'ideate') },
+      { key: 'cmd-guide', group: 'Agent 动作', command: '/guide', label: '题目导读', run: () => emit('trigger-agent', { key: 'problem_guide', event: 'PROBLEM_GUIDE' }) },
+      { key: 'cmd-error', group: 'Agent 动作', command: '/error', label: '错误诊断', run: () => emit('trigger-agent', { key: 'error_chain', event: 'ERROR_DIAGNOSIS' }) },
+      { key: 'cmd-skeleton', group: 'Agent 动作', command: '/skeleton', label: '骨架代码', run: () => emit('request-skeleton') },
+      { key: 'cmd-transfer', group: 'Agent 动作', command: '/transfer', label: '迁移题', run: () => emit('trigger-agent', { key: 'transfer', event: 'TRANSFER' }) },
+      { key: 'cmd-review', group: 'Agent 动作', command: '/review', label: '知识点回顾', run: () => emit('trigger-agent', { key: 'knowledge_review', event: 'KNOWLEDGE_REVIEW' }) },
+      { key: 'cmd-postac', group: 'Agent 动作', command: '/post-ac', label: '过题总结', run: () => emit('trigger-agent', { key: 'post_ac', event: 'POST_AC' }) },
+      { key: 'cmd-visualize', group: 'Agent 动作', command: '/visualize', label: '教学可视化', run: () => emit('request-visualize') },
+      { key: 'cmd-clear', group: '会话控制', command: '/clear', label: '清空对话', run: () => emit('clear-chat') },
+      { key: 'cmd-export', group: '会话控制', command: '/export', label: '导出 Markdown', run: () => exportConversationMarkdown() },
+      {
+        key: 'cmd-compact', group: '会话进阶', command: '/compact', label: '压缩上下文',
+        status: 'placeholder',
+        onPlaceholder: () => notify.info('上下文压缩将在 Phase 3 上线')
+      },
+      {
+        key: 'cmd-fork', group: '会话进阶', command: '/fork', label: '分叉会话',
+        status: 'placeholder',
+        onPlaceholder: () => notify.info('会话分叉将在 Phase 3 上线')
+      },
+      {
+        key: 'cmd-resume', group: '会话进阶', command: '/resume', label: '恢复会话',
+        status: 'placeholder',
+        onPlaceholder: () => notify.info('会话恢复将在 Phase 3 上线')
+      }
+    ]
+
+    const scopeKey = computed(() => 'tutor:' + (props.problemId || props.sessionId || 'default'))
+
+    const isInputBlocked = computed(() => {
+      if (!props.canChatInput) return true
+      if (props.loading) return true
+      const ctx = props.runtimeContext || {}
+      return ctx.runtimeState === 'WAITING_HUMAN_APPROVAL' || ctx.runtimeState === 'RESTORING'
+    })
+
+    const composer = useChatComposer({
+      scopeKey: scopeKey,
+      atProviders: atProviders,
+      slashCommands: slashCommands,
+      isInputBlocked: isInputBlocked,
+      onSubmit: (text) => {
+        const currentStep = getCurrentPlanStep()
+        if (currentStep && !props.planPaused && !props.planCompleted && !props.planSurrendered) {
+          emit('plan-confirm-step', { step: currentStep, responseText: text })
+          return
+        }
+        emit('send', { text: text, mode: props.inputMode })
+      }
+    })
+
+    return {
+      coursewarePacks: coursewarePacks,
+      coursewarePacksLoaded: coursewarePacksLoaded,
+      coursewarePacksLoading: coursewarePacksLoading,
+      ensureCoursewarePacksLoaded: ensureCoursewarePacksLoaded,
+      rawText: composer.rawText,
+      atMenuVisible: composer.atMenuVisible,
+      atQuery: composer.atQuery,
+      atGroups: composer.atGroups,
+      atActiveIndex: composer.atActiveIndex,
+      slashMenuVisible: composer.slashMenuVisible,
+      slashQuery: composer.slashQuery,
+      slashGroups: composer.slashGroups,
+      slashActiveIndex: composer.slashActiveIndex,
+      composerHandlers: composer.handlers
+    }
   },
   data () {
     return {
-      userInput: '',
-      referenceQuery: '',
-      referenceMenuVisible: false,
       feedbackMap: {},
       iconComponents: ICON_COMPONENTS,
       coursewarePreviewVisible: false,
@@ -706,12 +963,7 @@ export default {
       selectedCoursewareRef: null,
       coursewarePreviewPage: null,
       welcomeData: {},
-      profileDrawerVisible: false,
-      // 用户可以通过 @ 菜单引用的课件包列表（来自 LanguagePackQaService.listQaPacks 的鉴权过滤）。
-      // 第一次输入 @ 触发 ensureCoursewarePacksLoaded() 懒加载，避免 panel 挂载即拉取。
-      coursewarePacks: [],
-      coursewarePacksLoaded: false,
-      coursewarePacksLoading: false
+      profileDrawerVisible: false
     }
   },
   computed: {
@@ -775,92 +1027,6 @@ export default {
       }
       if (this.inputMode === 'ideate') return '描述你的解题思路...'
       return '输入消息与 AI 助手对话...'
-    },
-    referenceCards () {
-      const TYPE_LABELS = {
-        problem_guide: '题目导读',
-        ideate_analysis: '思路分析',
-        skeleton_code: '骨架代码',
-        error_diagnosis: '错误诊断',
-        post_ac: '过题总结',
-        transfer_problem: '迁移题',
-        knowledge_review: '知识点回顾',
-        visualize: '教学可视化',
-        parsons_problem: '拼装挑战'
-      }
-      const SHORTHAND_BY_TYPE = {
-        problem_guide: 'guide',
-        ideate_analysis: 'ideate',
-        error_diagnosis: 'error',
-        post_ac: 'post_ac',
-        transfer_problem: 'transfer',
-        knowledge_review: 'review',
-        visualize: 'visualize'
-      }
-      const cards = []
-      const seenTypes = new Set()
-      ;(this.lastConversationCards || [])
-        .filter(card => card && (card.card_id || card.card_type))
-        .map(card => ({
-          ...card,
-          display_label: TYPE_LABELS[card.card_type] || card.card_type || '卡片',
-          short_text: this.formatReferenceDescription(card.short_text || card.summary, card.card_type),
-          reference_key: card.card_id || `last-${card.card_type}`,
-          reference_token: card.card_id ? `@card:${card.card_id}` : `@last_${SHORTHAND_BY_TYPE[card.card_type] || 'review'}`
-        }))
-        .forEach(card => {
-          cards.push(card)
-          if (card.card_type) seenTypes.add(card.card_type)
-        })
-      ;(this.messages || [])
-        .filter(item => item && SHORTHAND_BY_TYPE[item.type] && !seenTypes.has(item.type))
-        .forEach(item => {
-          cards.push({
-            card_type: item.type,
-            display_label: TYPE_LABELS[item.type] || item.type,
-            short_text: this.formatReferenceDescription(item.content || item.title, item.type),
-            reference_key: `last-${item.type}`,
-            reference_token: `@last_${SHORTHAND_BY_TYPE[item.type]}`
-          })
-          seenTypes.add(item.type)
-        })
-      return cards
-    },
-    /**
-     * 把当前用户可见的语言包包装成与 referenceCards 同形态的引用项，让 @ 菜单可以
-     * 复用同一套渲染 / 插入逻辑。reference_token 落 ASCII `@courseware:<lpId>` 与
-     * backend ReferenceResolver 的正则一致；display_label 用中文「课件 · <name>」
-     * 让用户一眼能区分卡片引用和课件引用。
-     */
-    referenceCoursewares () {
-      const packs = Array.isArray(this.coursewarePacks) ? this.coursewarePacks : []
-      return packs
-        .filter(pack => pack && pack.id != null)
-        .map(pack => ({
-          card_id: `courseware-${pack.id}`,
-          card_type: 'courseware',
-          display_label: `课件 · ${pack.name || ('LP-' + pack.id)}`,
-          short_text: pack.description || (pack.documents_count != null ? `${pack.documents_count} 份文档` : ''),
-          reference_key: `courseware-${pack.id}`,
-          reference_token: `@courseware:${pack.id}`
-        }))
-    },
-    filteredReferenceCards () {
-      const all = [...this.referenceCards, ...this.referenceCoursewares]
-      const query = String(this.referenceQuery || '').toLowerCase()
-      if (!query) return all.slice(0, 8)
-      return all.filter(card => {
-        const haystack = `${card.card_id} ${card.card_type} ${card.display_label} ${card.short_text}`.toLowerCase()
-        return haystack.includes(query)
-      }).slice(0, 8)
-    },
-    shouldShowReferenceSuggestions () {
-      return this.inputMode === 'chat'
-        && this.referenceMenuVisible
-        && this.filteredReferenceCards.length > 0
-        && this.canChatInput
-        && !this.loading
-        && !this.isInputBlocked
     },
     coursewarePreviewFrameUrl () {
       if (!this.selectedCoursewareRef || !this.selectedCoursewareRef.document_id || !this.selectedCoursewareRef.page_no || !this.languagePackId) {
@@ -1025,89 +1191,11 @@ export default {
       html = html.replace(/(\d+)\^([{(]?[-\w.+]+[})]?)/g, '$1<sup>$2</sup>')
       return html
     },
-    handleKeydown (e) {
-      if (e.keyCode === 13 && !e.shiftKey) {
-        e.preventDefault()
-        this.handleSend()
-      }
-    },
-    handleInputChange (value) {
-      const text = String(value || '')
-      const match = text.match(/(?:^|\s)@([A-Za-z0-9_-]*)$/)
-      this.referenceMenuVisible = Boolean(match)
-      this.referenceQuery = match ? match[1] : ''
-      // 第一次弹出 @ 菜单时懒加载课件清单（避免 panel 挂载即拉取）。
-      if (this.referenceMenuVisible) {
-        this.ensureCoursewarePacksLoaded()
-      }
-    },
-    ensureCoursewarePacksLoaded () {
-      if (this.coursewarePacksLoaded || this.coursewarePacksLoading) return
-      this.coursewarePacksLoading = true
-      api.getLanguagePackQaPacks().then(res => {
-        const packs = res && res.data && Array.isArray(res.data.data) ? res.data.data : []
-        this.coursewarePacks = packs
-        this.coursewarePacksLoaded = true
-      }).catch(err => {
-        // failfast 不掩盖：拉不到列表 = 用户没访问权或服务挂，记录但不阻塞 @ 菜单
-        // 显示卡片引用部分（cards 仍可用）。
-        console.warn('[UnifiedAgentPanel] load courseware packs failed:', err && err.message)
-        this.coursewarePacks = []
-      }).finally(() => {
-        this.coursewarePacksLoading = false
-      })
-    },
-    insertReferenceCard (card) {
-      if (!card || !card.reference_token) return
-      const token = card.reference_token
-      const raw = this.userInput || ''
-      const replaced = raw.replace(/(^|\s)@([A-Za-z0-9_-]*)$/, (match, prefix) => `${prefix}${token} `)
-      this.userInput = replaced === raw
-        ? `${raw.trimEnd()}${raw.trim() ? ' ' : ''}${token} `
-        : replaced
-      this.referenceMenuVisible = false
-      this.referenceQuery = ''
-    },
-    formatReferenceDescription (raw, cardType = '') {
-      const TYPE_HINTS = {
-        problem_guide: '引用最近的题目导读卡片',
-        ideate_analysis: '引用最近的思路分析卡片',
-        skeleton_code: '引用最近的骨架代码卡片',
-        error_diagnosis: '引用最近的错误诊断卡片',
-        post_ac: '引用最近的过题总结卡片',
-        transfer_problem: '引用最近的迁移题卡片',
-        knowledge_review: '引用最近的知识点回顾卡片',
-        visualize: '引用最近的教学可视化卡片',
-        parsons_problem: '引用最近的拼装挑战卡片'
-      }
-      let text = ''
-      if (typeof raw === 'string') {
-        text = raw.trim()
-      } else if (raw && typeof raw === 'object') {
-        text = raw.review_content || raw.root_cause || raw.analysis || raw.plain_task || raw.alt_text || raw.title || ''
-      }
-      if (text.startsWith('{') || text.startsWith('[')) {
-        try {
-          const parsed = JSON.parse(text)
-          text = parsed.review_content || parsed.root_cause || parsed.analysis || parsed.plain_task || parsed.alt_text || parsed.title || ''
-        } catch {
-          text = ''
-        }
-      }
-      text = String(text || TYPE_HINTS[cardType] || '引用这张卡片').replace(/\s+/g, ' ').trim()
-      return text.length > 42 ? text.slice(0, 42) + '…' : text
-    },
     handleSend () {
-      const text = this.userInput.trim()
-      if (!text || this.loading || !this.canChatInput) return
-      this.userInput = ''
-      this.referenceMenuVisible = false
-      this.referenceQuery = ''
-      if (this.currentPlanStep && !this.planPaused && !this.planCompleted && !this.planSurrendered) {
-        this.$emit('plan-confirm-step', { step: this.currentPlanStep, responseText: text })
-        return
-      }
-      this.$emit('send', { text, mode: this.inputMode })
+      this.composerHandlers.submit()
+    },
+    handleCompactPlaceholder () {
+      notify.info('上下文压缩将在 Phase 3 上线，请暂时使用 /clear 清空对话')
     },
     handlePlanConfirmStep (payload) {
       this.$emit('plan-confirm-step', payload)
@@ -1130,8 +1218,8 @@ export default {
     },
     handleQuickQuestion (questionText) {
       if (!this.canChatInput) return
-      this.userInput = questionText
-      this.$nextTick(() => this.handleSend())
+      this.composerHandlers.setText(questionText)
+      this.$nextTick(() => this.composerHandlers.submit())
     },
     handleStartIdeate (warmupQuestion) {
       if (!this.canStartIdeate) return

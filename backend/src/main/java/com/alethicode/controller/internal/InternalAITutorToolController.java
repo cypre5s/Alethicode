@@ -248,6 +248,17 @@ public class InternalAITutorToolController {
         return ResponseEntity.ok(service.getLastCards(sessionId, limit));
     }
 
+    @GetMapping("/sessions/{sessionId}/usage")
+    public ResponseEntity<Object> getSessionUsage(
+            @PathVariable String sessionId,
+            @RequestHeader("X-Internal-Service-Key") String key
+    ) {
+        validateServiceKey(key);
+        // tutor-graph 内部 retrieval 链路在做 RAG / answer-synthesis 之前会读这个 endpoint
+        // 拿到当前 session 的 token 累计量，超过阈值时主动触发 compact 节点。
+        return ResponseEntity.ok(service.getSessionUsage(sessionId).toMap());
+    }
+
     @PostMapping("/sessions/{sessionId}/references/resolve")
     @SuppressWarnings("unchecked")
     public ResponseEntity<Object> resolveReferences(

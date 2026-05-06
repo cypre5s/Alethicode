@@ -84,6 +84,9 @@ export default {
   tutorWorkflowGetSession(sessionId, options = {}) {
     return ajax(`ai/tutor-workflow-sessions/${sessionId}`, 'get', options)
   },
+  tutorWorkflowGetSessionUsage(sessionId, options = {}) {
+    return ajax(`ai/tutor-workflow-sessions/${sessionId}/usage`, 'get', options)
+  },
   tutorWorkflowDeleteSession(sessionId) {
     return ajax(`ai/tutor-workflow-sessions/${sessionId}`, 'delete')
   },

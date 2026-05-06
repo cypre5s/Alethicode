@@ -120,6 +120,7 @@ export default {
       lastConversationCards: [],
       pendingHumanAction: '',
       backendAvailableActions: null,
+      contextUsage: { tokens_used: 0, tokens_limit: 0, model_name: '', last_updated: null },
       _activeAbortController: null,
       workflowCheckpoints: [],
       planId: null,
@@ -500,6 +501,11 @@ export default {
       if (data && data.session_id) {
         setWorkflowSessionSnapshot(this._workflowSessionQueryClient, data.session_id, data)
       }
+      if (data && data.usage) {
+        this._applyContextUsage(data.usage)
+      } else if (data && data.session_id) {
+        this._fetchSessionUsage(data.session_id).catch(() => {})
+      }
       if (previousSessionId && data && data.session_id && previousSessionId !== data.session_id) {
         removeWorkflowSessionSnapshot(this._workflowSessionQueryClient, previousSessionId)
         removeWorkflowCheckpoints(this._workflowSessionQueryClient, previousSessionId)
@@ -870,6 +876,29 @@ export default {
       return !!normalizedEvent
     },
 
+    _applyContextUsage(usage) {
+      if (!usage || typeof usage !== 'object') return
+      const toNumber = (value) => {
+        const n = Number(value)
+        return Number.isFinite(n) && n >= 0 ? n : 0
+      }
+      this.contextUsage = {
+        tokens_used: toNumber(usage.tokens_used),
+        tokens_limit: toNumber(usage.tokens_limit),
+        model_name: usage.model_name ? String(usage.model_name) : '',
+        last_updated: usage.last_updated || null
+      }
+    },
+
+    async _fetchSessionUsage(sessionId) {
+      if (!sessionId) return
+      const response = await api.tutorWorkflowGetSessionUsage(sessionId, { silent: true })
+      const payload = response && response.data && response.data.data !== undefined
+        ? response.data.data
+        : (response ? response.data : null)
+      this._applyContextUsage(payload)
+    },
+
     _resolveWorkflowDispatchError(err) {
       const response = err && err.response ? err.response : null
       if (response) {
@@ -1048,6 +1077,7 @@ export default {
 
         const data = res.data && res.data.data !== undefined ? res.data.data : res.data
         if (data) {
+          if (data.usage) this._applyContextUsage(data.usage)
           const isAsync = data.runtime_state === 'QUEUED' || data.status === 'dispatched'
           if (isAsync) {
             if (data.session_id) {
@@ -1841,6 +1871,9 @@ export default {
       const serverEvent = normalized.serverEvent
 
       this._updateRuntimeContext(normalized)
+      if (normalized.data && normalized.data.usage) {
+        this._applyContextUsage(normalized.data.usage)
+      }
 
       switch (serverEvent) {
         case SERVER_EVENTS.TASK_STARTED:
@@ -1935,6 +1968,7 @@ export default {
       if (!data) return
       this._clearWsResultWatchdog()
       const pendingEvent = this._lastAgentCall ? this._lastAgentCall.event : ''
+      if (data.usage) this._applyContextUsage(data.usage)
       this._applySessionSnapshot(data)
       if (data.phase && STATES.includes(data.phase)) {
         this.transitionState(data.phase)

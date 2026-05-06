@@ -8,6 +8,7 @@ import com.alethicode.exception.BadRequestException;
 import com.alethicode.exception.BusinessException;
 import com.alethicode.exception.ErrorCode;
 import com.alethicode.service.ai.AiModelGateway;
+import com.alethicode.service.aitutor.SessionUsage;
 import com.alethicode.service.aitutor.contract.RuntimeContract;
 import com.alethicode.service.aitutor.contract.RuntimeState;
 import com.alethicode.service.aitutor.contract.ServerEvent;
@@ -578,6 +579,26 @@ public class LanguagePackQaServiceImpl implements LanguagePackQaService {
                 ownedSessionId
         );
         return getSessionRow(ownedSessionId, userId);
+    }
+
+    @Override
+    public SessionUsage getSessionUsage(String username, Long sessionId) {
+        Long ownedSessionId = requireOwnedSessionId(username, sessionId);
+        Map<String, Object> row = jdbcTemplate.queryForMap(
+                """
+                SELECT tokens_used, tokens_limit, model_name, update_time
+                FROM language_pack_chat_session
+                WHERE id = ?
+                """,
+                ownedSessionId
+        );
+        long used = row.get("tokens_used") instanceof Number n ? n.longValue() : 0L;
+        long limit = row.get("tokens_limit") instanceof Number n ? n.longValue() : 0L;
+        Object modelRaw = row.get("model_name");
+        String modelName = modelRaw == null ? "" : String.valueOf(modelRaw);
+        Object updateRaw = row.get("update_time");
+        Instant updated = updateRaw instanceof Timestamp ts ? ts.toInstant() : null;
+        return new SessionUsage(used, limit, modelName, updated);
     }
 
     private Map<String, Object> getSessionRow(Long sessionId, Long userId) {

@@ -327,6 +327,7 @@
       :language-pack-id="problem.language_pack_id || null"
       :workflow-query-client="_workflowSessionQueryClient"
       :runtime-context="runtimeContext"
+      :context-usage="contextUsage"
       :pending-human-action="pendingHumanAction"
       :student-event="charStudentEvent"
       :can-chat-input="canUseChatInput"
