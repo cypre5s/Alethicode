@@ -4,6 +4,15 @@
 
 ## [Unreleased] - 2026-05-06
 
+### Career Bridging Closure todo 7：V86 数据基线（career_micro_project + career_path_node 含 60 条种子）
+
+> **背景**：plan 2.4 节要求为 Career Path Map（todo 8/9）与 Project Studio（todo 11/12）建立共享数据基线——`career_micro_project` 把 Studio 生成的微项目挂到正常 `problem` 表的判题流（不绕过 Judge Server），`career_path_node` 把现有 KC 体系（V13 / V25 / V51）映射到「专业 × KC」桥接关系，作为 GraphRAG `why_md` 的稳定来源。本批 commit 是纯 SQL + 60 条人工种子，零 Java/Vue 改动。
+
+- 2026-05-06 **[新增/V86]** `backend/src/main/resources/db/migration/V86__career_path_and_micro_project.sql`：新建 `career_micro_project` 表（13 列含 `judge_problem_id` 关联到 `problem` 表、8 状态枚举 `draft/recommended/accepted/submitted/passed/failed/archived`、`portfolio_card_uri` 作品集卡片输出位置、`rollout_mode`/`trace_id` 灰度可观测）+ 2 索引；新建 `career_path_node` 表（UNIQUE(major_code, kc_code) 防同一专业重复同一 KC + `parent_kc_code` 形成 DAG + `sort_order` 给前端按拓扑序展示）+ 1 索引。判题不动、Judge Server 协议不动、IO schema 不动 —— `career_micro_project.judge_problem_id` 是普通 FK，Studio 走正常 SubmissionService 提交（plan 5 节约束）。
+- 2026-05-06 **[新增/path 种子]** V86 末尾 INSERT 60 行种子：12 个高占比专业（生物 / 化学 / 医学 / 药学 / 临床医学 / 工商管理 / 经济学 / 金融学 / 统计学 / 心理学 / 机械工程 / 土木工程）× 5 个核心 Python KC 链（`variables` → `data_types` → `collections` → `control_flow` → `functions`），每条 `why_md` 与 `typical_use_cases` 严格基于 V83 字典里该专业的 `seed_use_cases`——例如生物的 `data_types` why_md 直接引用 V83 的 `DNA 序列 GC 含量计算` / `序列读写` 真实场景，不编造行业实例。`ON CONFLICT (major_code, kc_code) DO NOTHING` 保证幂等，重复跑 Flyway 不会 conflict。
+- 2026-05-06 **[强约束/path 维护]** 第一批人工编辑（本 commit），符合 plan 2.4 节强约束「不允许 LLM 直接写 `career_path_node`」；后续 todo 8 服务层会用现有 `career_path_node` 做拓扑排序与解锁判断（不会再写 path 数据），LLM 辅助扩展只能产出候选，必须人审才入库。
+- 2026-05-06 **[验证/SQL 基线]** `wc -l V86` = 256 行；`grep INSERT/VALUES + 12 个专业前缀计数` = 60 条 INSERT（精确匹配 12 × 5 节点种子）；本机 dev DB Flyway checksum 冲突按 progress 文档「方案 3」继续保留 dev DB 不重置，等远端 CI 干净 DB 做最终 Flyway validation。
+
 ### Career Bridging Closure todo 3：里程碑式 Why 报告生成 + Rollout/Reflection 接入
 
 > **背景**：plan 3 节定义「Career Bridging Why 层」的完整闭环——学生填专业触发 enrollment 里程碑，treatment 组走 LLM 生成 + Reflection critic 输出一份面向其专业的 Why 报告。control 组仅消费里程碑不调 LLM，保持 A/B 可比。
@@ -14,6 +23,11 @@
 - 2026-05-06 **[新增/REST]** `CareerController`（`/api/career/*`）5 个端点：`GET /profile`（读学生专业档案）、`POST /profile`（写专业 + 学习目标 + 自动触发 enrollment 报告）、`GET /majors`（专业字典下拉）、`POST /milestones/{id}/generate`（显式触发 Why 报告）、`GET /reports?limit=5`（最近 N 份报告）。路径 kebab-case、JSON 字段 snake_case（全局 Jackson 策略）。
 - 2026-05-06 **[新增/DTO]** `CareerProfileRequest` / `CareerEnrollmentResponse` / `CareerProfileView` / `CareerMajorOption` 四个 record。
 - 2026-05-06 **[新增/测试]** `CareerBridgingServiceImplTest` 8 个用例全过：首次填专业触发 milestone、重复填不重复插入、blank major 422、未注册 major 422、missing user_profile 404、null MilestoneType 422、control 组消费不调 LLM、treatment 组完整链路验证。
+
+### Career Bridging Closure todo 8：Career Path 拓扑排序 + 解锁判断
+
+- 2026-05-06 **[新增/服务]** `com.alethicode.service.career.path` 包：`CareerPathService`（接口 buildView + markNodeUnlocked）+ `CareerPathServiceImpl`（拓扑排序 + mastery 解锁规则：parent >= 0.7 且 self >= 0.5 → unlocked / [0.3, 0.7) → in_progress / 否则 locked）+ `CareerPathView` / `CareerPathNodeView` 投影 record。
+- 2026-05-06 **[新增/REST]** `CareerPathController`（`GET /api/career/path?major=code`）。
 
 ### Career Bridging Closure todo 7：V86 career_path_node + career_micro_project + 种子
 
