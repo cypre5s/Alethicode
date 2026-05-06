@@ -355,7 +355,40 @@ com.pytutor/
                └──────────────┘         └──────────────┘  └──────────────┘
 ```
 
-### 5.2 学习者画像
+### 5.2 Career Bridging Closure（专业 × 编程 4 模块闭环）
+
+为 12 个非 CS 专业（生物 / 化学 / 医学 / 药学 / 临床医学 / 工商管理 / 经济 / 金融 / 统计 / 心理 / 机械工程 / 土木工程）补齐 Why / How / What / Map 四层闭环，**判题不动、Judge Server 协议不动、IO schema 不动**。
+
+| 模块 | 触发链路 | 关键产物 | 灰度 experiment_id |
+|---|---|---|---|
+| **Career Bridging（Why）** | 5 类里程碑（enrollment / kc_cluster_graduated / chapter_entered / project_completed / path_node_unlocked）→ A/B 分组 → LLM + Reflection critic → `career_bridging_report` | Why 报告 | `career_bridging_v1`（A/B） |
+| **Coding Lens（How / Variant）** | 学生在题目页切「我专业版」→ rollout → LLM 重写题面（IO schema 不变 + 测试样例语义不偏移）→ `problem_domain_variant` | 专业化题面变体 | `coding_lens` |
+| **Project Studio（What）** | 学生在 Studio 选 KC → LLM 出题 + critic → **reference solution 真判题自验证**（100% AC 自身 test_cases）→ 落 `problem` 表 + `career_micro_project` | Python 微项目 + 作品集 Markdown 卡片 | `career_micro_project` |
+| **Career Path Map（Map）** | 学生看路径地图 → 拓扑排序 + mastery 三态判断（unlocked / in_progress / locked）→ GraphRAG why_md | 12 专业 × 5 KC 路径 DAG | `career_path` |
+
+**触发联动（todo 10 + 13）**：
+1. `JudgeCompletedEventListener` 在 mastery 写入后调用 `CareerMilestoneEventListener.onMasteryUpdated`，KC 跨过 0.7 触发 `kc_cluster_graduated`
+2. `LearnerCourseProgressService.getOrCreateProgress` 首次访问课件包触发 `chapter_entered`
+3. AC 微项目对应 problem → `JudgeCompletedEventListener.handleMicroProjectCompletion` → `MicroProjectStudioService.markCompletedByJudgeProblem` → 写 `project_completed` + 立即 `generateForMilestone` 重激活 Why 报告
+
+**关闭路径（todo 15）**：
+- 教师锁定（考试模式）：`POST /api/coding-lens/variants/{id}/lock` 后任意 major 请求都返回锁定 variant，确保所有学生看同一份题面
+- 学生级面板：`PUT /api/career/preferences` 可独立关闭 4 个模块；service 入口 `isModuleDisabled` 短路
+
+```
+关键 Flyway 表（V83 / V84 / V85 / V86 / V88）
+├── user_profile (扩展) ── major_code / career_intent / career_profile_completed_at
+│                       └─ 4 个 disabled BOOLEAN 列（V88）
+├── career_major_dictionary ── 12 专业字典 + seed_use_cases
+├── career_bridging_milestone (5 类 type) + career_bridging_report
+├── problem_domain_variant ── (problem_id, major_code) 题面变体缓存 + locked_for_exam
+├── career_micro_project ── (user_id, judge_problem_id, status, rollout_mode, trace_id)
+└── career_path_node ── (major_code, kc_code) DAG + sort_order + 60 行人工种子
+```
+
+进度详见 [`docs/todos/todo-career-bridging-closure-progress.md`](./docs/todos/todo-career-bridging-closure-progress.md)。
+
+### 5.3 学习者画像
 
 ```
 ┌─────────────────────────────────────────────────────────────┐

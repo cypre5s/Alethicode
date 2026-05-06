@@ -33,8 +33,8 @@
 | 12 | `feat(career-studio-ui): 项目详情、CodeMirror 复用与作品集卡片导出` | 本地完成（待 push） | `24199e8` | CareerStudioPage + CareerProjectDetailPage + 4 API + 2 路由 + Markdown 卡片导出 |
 | 13 | `feat(career-bridging): project_completed 触发报告重激活` | 本地完成（待 push） | `00092ca` | studio 接口扩 markCompletedByJudgeProblem + JudgeCompletedEventListener 接入 + 5 新单测（15 总计） |
 | 14 | `feat(career-rollout): 4 个 experiment_id 接入 RolloutPolicyService 与评测扩展` | 本地完成（待 push） | `c22b5d5` | studio + path 接入 evaluate；rollback abort；rollout_mode 真实记录；2 新单测 |
-| 15 | `feat(career-admin): 教师锁定/考试模式与用户级关闭面板` | 本地完成（待 push） | 见 git log | DomainLens locked 覆盖任意 major + V88 + CareerPreferenceService + Vue 面板 + 4 service 入口短路 + 6 新单测 |
-| 16 | `docs(career): README/PROJECT/CHANGELOG/docs/plans 全量同步` | 待开始 | — | — |
+| 15 | `feat(career-admin): 教师锁定/考试模式与用户级关闭面板` | 本地完成（待 push） | `d9dc007` | DomainLens locked 覆盖任意 major + V88 + CareerPreferenceService + Vue 面板 + 4 service 入口短路 + 6 新单测 |
+| 16 | `docs(career): README/PROJECT/CHANGELOG/docs/plans 全量同步` | 本地完成（待 push） | `cf3a4f6` | README + PROJECT 加 Career Bridging Closure 章节，progress 文档收口 |
 
 ## Phase 0：切到 main（本地完成）
 
@@ -248,6 +248,7 @@ push 阻塞）；进度仅靠隔离 DB 的 SQL dry-run 提供证据。
 | 2026-05-06 | todo 15 `mvn -q compile && mvn -q test-compile` | ✓ 0 错误 |
 | 2026-05-06 | todo 15 `npm run typecheck && npx vite build` | ✓ 0 错误，PWA precache 255 entries / 19568.81 KiB |
 | 2026-05-06 | todo 15 `feat(career-admin): 教师锁定考试覆盖 + 用户级 4 模块关闭面板` 本地 commit | ✓ V88 + CareerPreferenceService + Vue + 4 service 短路 + 6 新单测 + CHANGELOG + progress 同 commit |
+| 2026-05-06 | todo 16 `docs(career): README/PROJECT/progress 全量同步` 本地 commit | ✓ README 核心特性表 + PROJECT §5.2 新增 + progress 收口 + CHANGELOG 顶部 |
 
 ## todo 10：KC 毕业 + 章节进入里程碑触发器（本地完成，待 push）
 
@@ -419,6 +420,48 @@ push 阻塞）；进度仅靠隔离 DB 的 SQL dry-run 提供证据。
   参数，hook 放 controller 层
 - **不破坏 review 修复批契约**：CareerBridging.ensureProfile 与
   recordMilestone 不加偏好检查（保持 career 学生注册入口可用）
+
+## todo 16：README / PROJECT / CHANGELOG / docs 全量同步（本地完成，待 push）
+
+### 已落地
+
+- `README.md`：
+  - 「核心特性」表格新增 `Career Bridging Closure` 行（GA），描述 4 模块
+    联动 + 里程碑 + 真判题 + 教师锁定 + 用户级关闭
+  - 「文档索引」表格新增 `docs/todos/todo-career-bridging-closure-progress.md`
+    作为本 plan 落地进度入口
+- `PROJECT.md`：
+  - 新增「§5.2 Career Bridging Closure」专节（原 §5.2 学习者画像顺延为 §5.3）
+  - 4 模块对照表（触发链路 + 关键产物 + 灰度 experiment_id）
+  - 触发联动说明（todo 10 + 13 闭环）
+  - 关闭路径说明（todo 15 教师锁定 + 用户级面板）
+  - 关键 Flyway 表清单（V83 / V84 / V85 / V86 / V88）
+- `docs/todos/todo-career-bridging-closure-progress.md`：
+  - 总进度表 16 行全部更新到「本地完成（待 push）」+ sha 列填实
+  - 验证记录追加 todo 10-16 全部条目
+  - 每个 todo 一节「已落地 / 强约束遵守」详记
+
+### 强约束遵守
+
+- **PROJECT.md 不破坏现有锚点**：原 §5.2 学习者画像改名为 §5.3，无外部
+  `#5-2-学习者画像` 引用（已 grep 验证）
+- **CHANGELOG 顶部追加**：与并行 chat composer plan / 判题机 plan
+  共享 `## [Unreleased]` 段，按 Career Bridging Closure todo 倒序排列
+
+## 落地总结（plan e71ce32e）
+
+16 个 commit 全部本地完成，等待 GitHub SSH 网络恢复后 push origin main。
+
+| 阶段 | commit 范围 | 关键产物 |
+|---|---|---|
+| Phase 0 | `8d8fede` | sprint 分支 ff-merge 至 main，AGENTS.md 同步 |
+| Phase 1 | `d00091d` `7ee640b` | V83/V85 数据基线 + CardType +4 + Reflection rubric |
+| Phase 2 | `2150279` `0bbe4df` `d76e1a9` `4a364f7` | Career Bridging service/controller/UI + Coding Lens service/UI |
+| Phase 3 | `df8a494` `c86c561` `8cec301` | V86 path 种子 + Career Path service + UI |
+| review | `1e05c95` `346f546` `39f4fe8` | code review 🔴 / 🟠 / 🟡 / 🟢 修复批 |
+| Phase 4 | `ca511c3` `8a8ae7b` `24199e8` `00092ca` | listener 接入 + Studio 服务 + 前端 UI + project_completed 触发 |
+| Phase 5 | `c22b5d5` `d9dc007` | 4 experiment_id 全接 RolloutPolicyService + 教师锁定 + 用户级关闭面板 |
+| Phase 6 | 本 commit | README / PROJECT / progress 全量同步 |
 
 ## 严格约束清单（每个后续 todo 都要遵守）
 

@@ -82,6 +82,7 @@ Alethicode 的回答是：把 **真实判题、AI 多 Agent 教学、课件 RAG�
 | **多模型 LLM 网关** | DeepSeek（生产）/ MiniMax-M2.7（备选），Spring AI 抽象层 | GA |
 | **可观测性** | Sentry/GlitchTip 错误追踪 + Micrometer + Prometheus + Jaeger + JaCoCo | GA |
 | **A/B 灰度 + Bandit** | 自研 RolloutPolicyService，支持按 user / KC / classroom 维度切流 | GA |
+| **Career Bridging Closure** | 4 模块联动（Why 报告 / 题面专业化 Lens / 微项目 Studio / 学习路径 Map）面向 12 个非 CS 专业，里程碑触发 + 真判题自验证 + 教师锁定 + 用户级关闭面板 | GA |
 | **TypeScript 渐进** | tsconfig + vue-tsc，新代码可逐文件迁移，旧 JS 不强约束 | Phase 1 |
 
 ---
@@ -470,6 +471,7 @@ Application
 | [`docs/adr/`](./docs/adr/) | 架构决策记录（ADR） |
 | [`docs/plans/`](./docs/plans/) | 设计稿（按日期归档） |
 | [`docs/todos/todo-agent-harness/`](./docs/todos/todo-agent-harness/) | Agent + Harness 工程路线图（Phase 0.5 / 1 / 2 / 3 / 4+5） |
+| [`docs/todos/todo-career-bridging-closure-progress.md`](./docs/todos/todo-career-bridging-closure-progress.md) | Career Bridging Closure 16 个 commit 落地进度（专业 × 编程 4 模块闭环） |
 | [`backend/README.md`](./backend/README.md) | 后端开发说明 |
 | [`deploy/README.md`](./deploy/README.md) | 部署运维说明 |
 | [`services/tutor-graph/README.md`](./services/tutor-graph/README.md) | tutor-graph 微服务 |

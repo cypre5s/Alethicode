@@ -18,6 +18,15 @@
 - 2026-05-06 **[新增/后端迁移]** `V87__ai_tutor_session_token_usage.sql`：在 `ai_tutor_workflow_session` 上幂等加 `tokens_used BIGINT NOT NULL DEFAULT 0` / `tokens_limit BIGINT NOT NULL DEFAULT 0` / `model_name VARCHAR(120) NOT NULL DEFAULT ''` 三列。Phase 1 仅做 schema 预留，前端 `ContextUsageBar` 用 `v-if hasData` 兜底（无数据时不渲染）；usage controller endpoint + LangGraph 推理回写 token 量留待 Phase 2 sprint 与 follow-ups / @page/@kc/@notebook 一起接入。
 - 2026-05-06 **[强约束/外科手术]** 与 `career-bridging-closure_e71ce32e.plan.md`（V83-V86 + CardType 扩展 + 4 个 career 模块）改动半径完全分离：`tutor_session` / `language_pack_qa_session` 表与 `ReferenceResolver` 不动 CardType 体系；Flyway 版本号让位为 V87+；`tutor-graph` 微服务本期不修改；`CHANGELOG.md` 仅顶部追加新条目。
 
+### Career Bridging Closure todo 16：README / PROJECT / docs 全量同步（plan 收口）
+
+> **背景**：plan `career-bridging-closure_e71ce32e` 16 个 commit 落地完成，本 todo 把已交付的 4 模块闭环（Career Bridging / Coding Lens / Project Studio / Career Path Map）写入对外门面文档（README / PROJECT.md）与 progress 文档收口。
+
+- 2026-05-06 **[文档/README]** `README.md` 「核心特性」表格新增 `Career Bridging Closure` 行（GA 状态），一行说明覆盖 4 模块联动 + 里程碑触发 + 真判题自验证 + 教师锁定 + 用户级关闭面板；「文档索引」表格新增 `docs/todos/todo-career-bridging-closure-progress.md` 作为 plan 落地进度入口。
+- 2026-05-06 **[文档/PROJECT]** `PROJECT.md` 新增 §5.2「Career Bridging Closure（专业 × 编程 4 模块闭环）」专节（原 §5.2 学习者画像顺延 §5.3，已 grep 确认无外部锚点引用 `#5-2-学习者画像`）：4 模块对照表（触发链路 + 关键产物 + 灰度 experiment_id）+ 触发联动（todo 10 + 13 闭环：mastery 写入 → KC 簇毕业 / AC 微项目 → project_completed → Why 报告重激活）+ 关闭路径（todo 15 教师锁定 + 用户级面板）+ 关键 Flyway 表清单（V83 / V84 / V85 / V86 / V88）。
+- 2026-05-06 **[文档/progress]** `docs/todos/todo-career-bridging-closure-progress.md` 总进度表 16 行全部状态更新为「本地完成（待 push）」+ sha 列填实；验证记录追加 todo 10-16 全部条目；新增 plan 落地总结一节，按 7 个 Phase 列出 commit 范围与关键产物。
+- 2026-05-06 **[强约束/不引入新代码]** 本 commit 仅文档同步，零 Java / Vue / SQL 改动；progress 文档与 CHANGELOG 共同作为 plan 完成的双向证据链（commit hash + 验证结果）。
+
 ### Career Bridging Closure todo 15：教师锁定/考试模式增强 + 用户级关闭面板
 
 > **背景**：plan 9.3 节定义两种关闭路径——教师在课堂用「锁定考试模式」绑定题面、学生在「我的」面板独立关闭 4 个 Career 模块。todo 5 + review 修复批已经完成 `lockForExam` + ADMIN RBAC，但「锁定后是否覆盖学生 major 请求」未明确。本 todo 把考试模式语义补到「locked variant 强制覆盖任意 major 请求」+ 完整建立「学生级 4 模块关闭面板」（V88 + service + 4 endpoints + Vue + 4 个 service 入口短路）。
