@@ -16,6 +16,7 @@ public class AlethicodeProperties {
     private final LanguagePack languagePack = new LanguagePack();
     private final Nfk nfk = new Nfk();
     private final Rag rag = new Rag();
+    private final Career career = new Career();
 
     @PostConstruct
     void validate() {
@@ -51,6 +52,10 @@ public class AlethicodeProperties {
 
     public Rag getRag() {
         return rag;
+    }
+
+    public Career getCareer() {
+        return career;
     }
 
     public static class Website {
@@ -352,6 +357,44 @@ public class AlethicodeProperties {
         public void setFallbackToBkt(boolean fallbackToBkt) { this.fallbackToBkt = fallbackToBkt; }
         public long getInferenceTimeoutMs() { return inferenceTimeoutMs; }
         public void setInferenceTimeoutMs(long inferenceTimeoutMs) { this.inferenceTimeoutMs = inferenceTimeoutMs; }
+    }
+
+    /**
+     * Career Bridging Closure 4 个模块（Career Bridging / Coding Lens /
+     * Project Studio / Career Path Map）共享的灰度配置。每个模块独立 enabled
+     * 开关 + treatmentRate（A/B 治理组比例）；treatmentRate 与模块默认值由
+     * plan 9 节给定，可被 env 覆盖。所有开关默认 true / 默认 treatmentRate
+     * 与 plan 一致；**关闭时服务层 fail fast 抛 ResponseStatusException(503)**，
+     * 不写兜底降级，遵循 AGENTS.md 「fail fast，不写防御性掩盖问题逻辑」。
+     */
+    public static class Career {
+
+        private final Bridging bridging = new Bridging();
+
+        public Bridging getBridging() {
+            return bridging;
+        }
+
+        public static class Bridging {
+            private boolean enabled = true;
+            private double treatmentRate = 0.5;
+
+            public boolean isEnabled() {
+                return enabled;
+            }
+
+            public void setEnabled(boolean enabled) {
+                this.enabled = enabled;
+            }
+
+            public double getTreatmentRate() {
+                return treatmentRate;
+            }
+
+            public void setTreatmentRate(double treatmentRate) {
+                this.treatmentRate = treatmentRate;
+            }
+        }
     }
 
     public static class Rag {

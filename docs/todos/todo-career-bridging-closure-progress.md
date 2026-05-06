@@ -19,9 +19,8 @@
 |---|---|---|---|---|
 | 0 | `docs(agents): 同步本轮工作准则修订` | 本地完成（待 push） | `8d8fede` | sprint 分支 35 commit ff-merge 至 main 已落本地 |
 | 1 | `feat(career-db): 扩展 user_profile 并新建 career_major_dictionary（V83）+ problem_domain_variant（V85）` | 本地完成（待 push） | `d00091d` | V83/V85 SQL + CHANGELOG + 本进度文档同 commit |
-| 2 | `feat(aitutor-cardtype): 扩展 4 个新 CardType 与 ReflectionServiceImpl 对应 critic rubric` | 本地完成（待 push） | 见 git log | CardType +4 + ReflectionServiceImpl 4 case rubric + ReflectionServiceImplTest 6 用例 |
-| 3 | `feat(career-bridging): 里程碑式 Why 报告生成 + Rollout/Reflection 接入` | 进行中 | — | 依赖 V84 迁移（plan 后续 phase） |
-| 3 | `feat(career-bridging): 里程碑式 Why 报告生成 + Rollout/Reflection 接入` | 待开始 | — | 依赖 V84 迁移（plan 后续 phase） |
+| 2 | `feat(aitutor-cardtype): 扩展 4 个新 CardType 与 ReflectionServiceImpl 对应 critic rubric` | 本地完成（待 push） | `7ee640b` | CardType +4 + ReflectionServiceImpl 4 case rubric + ReflectionServiceImplTest 6 用例 |
+| 3 | `feat(career-bridging): 里程碑式 Why 报告生成 + Rollout/Reflection 接入` | 本地完成（待 push） | 见 git log | V84 + service + controller + DTO + 8 单测 |
 | 4 | `feat(career-bridging-ui): CareerProfilePage 与主页 CareerProgressCard` | 待开始 | — | — |
 | 5 | `feat(coding-lens): 受约束 LLM 题面重写 + critic 防语义漂移` | 待开始 | — | — |
 | 6 | `feat(coding-lens-ui): DomainLensToggle 与教师后台只读视图` | 待开始 | — | — |
