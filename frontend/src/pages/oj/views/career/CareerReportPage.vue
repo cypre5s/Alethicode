@@ -36,6 +36,8 @@
 
 <script>
 import api from '@oj/api'
+import marked from 'marked'
+import { sanitize } from '@/utils/sanitize'
 
 export default {
   name: 'CareerReportPage',
@@ -60,10 +62,7 @@ export default {
     },
     renderMd (md) {
       if (!md) return ''
-      return md
-        .replace(/## (.+)/g, '<h3>$1</h3>')
-        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\n/g, '<br/>')
+      return sanitize(marked(md))
     }
   }
 }

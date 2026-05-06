@@ -74,11 +74,31 @@ public class CareerPathServiceImpl implements CareerPathService {
 
     @Override
     public void markNodeUnlocked(long userId, String majorCode, String kcCode) {
+        ensurePathNodeExists(majorCode, kcCode);
         careerBridgingService.recordMilestone(
                 userId, MilestoneType.PATH_NODE_UNLOCKED,
                 majorCode + ":" + kcCode
         );
         log.info("career path node unlocked: user={}, major={}, kc={}", userId, majorCode, kcCode);
+    }
+
+    /**
+     * 校验 (majorCode, kcCode) 二元组真实存在于 {@code career_path_node}，
+     * 避免任意字符串污染 {@code career_bridging_milestone.milestone_ref}。
+     */
+    private void ensurePathNodeExists(String majorCode, String kcCode) {
+        if (majorCode == null || majorCode.isBlank()
+                || kcCode == null || kcCode.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "major_code / kc_code required");
+        }
+        Boolean exists = jdbcTemplate.queryForObject(
+                "select exists(select 1 from career_path_node where major_code = ? and kc_code = ?)",
+                Boolean.class, majorCode, kcCode);
+        if (exists == null || !exists) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                    "career_path_node not found: major=" + majorCode + ", kc=" + kcCode);
+        }
     }
 
     private String determineStatus(String parentKcCode, Double selfMastery,

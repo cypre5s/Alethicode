@@ -139,14 +139,15 @@ class ReflectionServiceImplTest {
         when(aiModelGateway.callForJson(anyString(), anyString()))
                 .thenReturn(failResult("missing citations"))   // round 1 critic
                 .thenReturn(refinedOutput())                    // round 1 refine
-                .thenReturn(passResult());                      // round 1 next critic? wait — re-read flow
+                .thenReturn(passResult());                      // round 2 critic
 
-        // 实际上 reflectAndRefine 流程：critic1 失败 → refine1 → round 2 critic 通过 → 直接返回
-        // ReflectionResult.passed=false 因为 round 2 才通过（passedFirstTry 语义）
+        // 流程：critic1 失败 → refine1 → round 2 critic 通过 → 直接返回。
+        // passed 表示「最终一次 critic 是否通过」，所以这里 = true；
+        // 是否「第一次就过」由 roundsUsed == 1 && passed 表达。
         ReflectionResult result = service.reflectAndRefine(CardType.DOMAIN_VARIANT,
                 Map.of(), Map.of("title", "init"), 2);
 
-        assertThat(result.passed()).isFalse();
+        assertThat(result.passed()).isTrue();
         assertThat(result.roundsUsed()).isEqualTo(2);
         // 共 3 次 LLM 调用：critic1（失败）+ refine1 + critic2（通过）
         verify(aiModelGateway, times(3)).callForJson(anyString(), anyString());

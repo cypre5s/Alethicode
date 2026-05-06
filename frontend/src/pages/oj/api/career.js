@@ -9,7 +9,7 @@ export default {
     return ajax('career/profile', 'get')
   },
   updateCareerProfile (majorCode, careerIntent, autoGenerate = true) {
-    return ajax('career/profile', 'post', {
+    return ajax('career/profile', 'put', {
       data: { major_code: majorCode, career_intent: careerIntent, auto_generate: autoGenerate }
     })
   },
@@ -17,7 +17,7 @@ export default {
     return ajax('career/majors', 'get')
   },
   generateCareerReport (milestoneId) {
-    return ajax(`career/milestones/${milestoneId}/generate`, 'post')
+    return ajax(`career/milestones/${milestoneId}/reports`, 'post')
   },
   getCareerReports (limit = 5) {
     return ajax('career/reports', 'get', { params: { limit } })

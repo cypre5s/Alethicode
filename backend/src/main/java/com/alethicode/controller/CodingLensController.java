@@ -5,6 +5,7 @@ import com.alethicode.service.career.lens.DomainLensService;
 import com.alethicode.service.career.lens.ProblemDomainVariant;
 import com.alethicode.util.AuthUserResolver;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -46,7 +47,13 @@ public class CodingLensController {
                 .orElseGet(() -> ApiResponse.error("variant_not_available", null));
     }
 
+    /**
+     * 锁定题面变体（考试模式下不允许 LLM 重新生成）。
+     * 必须为 Admin 角色（教师 / 超管）才能调用——普通学生不应触达此端点。
+     * 与 {@code AdminLanguagePackController} 等管理端遵循同一 RBAC 范式。
+     */
     @PostMapping("/variants/{variantId}/lock")
+    @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<Void> lockForExam(
             @PathVariable long variantId,
             Authentication authentication

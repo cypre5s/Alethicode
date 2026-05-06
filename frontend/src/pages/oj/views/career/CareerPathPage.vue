@@ -9,7 +9,15 @@
     </div>
     <template v-else>
       <p class="path-major">专业：<strong>{{ pathData.major_name_zh }}</strong></p>
-      <div class="dag-container" v-html="dagHtml"></div>
+      <div class="dag-container">
+        <template v-for="(n, idx) in pathData.nodes" :key="n.kc_code">
+          <div class="dag-chip" :class="'dag-chip--' + n.status">
+            <div class="dag-chip-name">{{ n.kc_code }}</div>
+            <div class="dag-chip-pct">{{ formatPct(n.mastery) }}</div>
+          </div>
+          <span v-if="idx < pathData.nodes.length - 1" class="dag-arrow">&rarr;</span>
+        </template>
+      </div>
       <div class="node-list">
         <div v-for="n in pathData.nodes" :key="n.kc_code" class="node-card" :class="'node-' + n.status">
           <div class="node-header">
@@ -31,7 +39,7 @@
 import api from '@oj/api'
 export default {
   name: 'CareerPathPage',
-  data () { return { pathData: null, dagHtml: '', loading: true } },
+  data () { return { pathData: null, loading: true } },
   async created () {
     try {
       const p = await api.getCareerProfile()
@@ -39,24 +47,12 @@ export default {
       if (!mc) { this.loading = false; return }
       const r = await api.getCareerPath(mc)
       this.pathData = r.data.data
-      this.dagHtml = this.buildDag(this.pathData.nodes || [])
     } catch {}
     this.loading = false
   },
   methods: {
-    buildDag (nodes) {
-      if (!nodes.length) return ''
-      const colors = { unlocked: '#22c55e', in_progress: '#eab308', locked: '#9ca3af' }
-      let h = '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
-      for (let i = 0; i < nodes.length; i++) {
-        const n = nodes[i], c = colors[n.status] || '#9ca3af'
-        const pct = n.mastery != null ? Math.round(n.mastery * 100) + '%' : '\u2014'
-        h += '<div style="padding:10px 16px;border:2px solid ' + c + ';border-radius:10px;background:' + c + '18;text-align:center;min-width:100px;">'
-        h += '<div style="font-weight:700;color:' + c + ';">' + n.kc_code + '</div>'
-        h += '<div style="font-size:12px;color:#6b7280;">' + pct + '</div></div>'
-        if (i < nodes.length - 1) h += '<div style="font-size:20px;color:#d1d5db;">\u2192</div>'
-      }
-      return h + '</div>'
+    formatPct (m) {
+      return m == null ? '\u2014' : Math.round(m * 100) + '%'
     }
   }
 }
@@ -69,7 +65,17 @@ export default {
 .path-major { font-size: 15px; color: #374151; margin-bottom: 20px; }
 .loading-state, .empty-state { text-align: center; color: #9ca3af; padding: 48px 0; }
 .link-cta { color: #6366f1; font-weight: 600; text-decoration: none; }
-.dag-container { margin-bottom: 28px; overflow-x: auto; padding: 12px 0; }
+.dag-container { margin-bottom: 28px; overflow-x: auto; padding: 12px 0; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.dag-chip { padding: 10px 16px; border-radius: 10px; text-align: center; min-width: 100px; border: 2px solid #9ca3af; background: rgba(156, 163, 175, 0.09); }
+.dag-chip-name { font-weight: 700; color: #4b5563; }
+.dag-chip-pct { font-size: 12px; color: #6b7280; }
+.dag-chip--unlocked { border-color: #22c55e; background: rgba(34, 197, 94, 0.09); }
+.dag-chip--unlocked .dag-chip-name { color: #16a34a; }
+.dag-chip--in_progress { border-color: #eab308; background: rgba(234, 179, 8, 0.09); }
+.dag-chip--in_progress .dag-chip-name { color: #ca8a04; }
+.dag-chip--locked { border-color: #9ca3af; background: rgba(156, 163, 175, 0.09); }
+.dag-chip--locked .dag-chip-name { color: #6b7280; }
+.dag-arrow { font-size: 20px; color: #d1d5db; }
 .node-list { display: flex; flex-direction: column; gap: 12px; }
 .node-card { padding: 16px; border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; }
 .node-unlocked { border-left: 4px solid #22c55e; }

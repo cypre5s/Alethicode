@@ -40,7 +40,7 @@ public class ReflectionServiceImpl implements ReflectionService {
                     round, maxRounds, cardType.messageType(), pass, abbreviate(verdict, 120));
 
             if (pass) {
-                return new ReflectionResult(current, round == 1, round, verdict);
+                return new ReflectionResult(current, true, round, verdict);
             }
 
             String feedback = extractString(criticResult, "feedback");

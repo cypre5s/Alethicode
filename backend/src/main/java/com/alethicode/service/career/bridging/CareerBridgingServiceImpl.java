@@ -471,20 +471,15 @@ public class CareerBridgingServiceImpl implements CareerBridgingService {
     }
 
     private List<String> loadRecentPackTitles(long userId) {
-        try {
-            return jdbcTemplate.queryForList("""
-                    select distinct lp.title
-                    from learner_kc_mastery m
-                    join language_pack_kc kc on kc.id = m.kc_id
-                    join language_pack lp on lp.id = m.language_pack_id
-                    where m.user_id = ?
-                    order by lp.title
-                    limit 5
-                    """, String.class, userId);
-        } catch (Exception e) {
-            log.debug("failed to load recent pack titles for user {}: {}", userId, e.toString());
-            return List.of();
-        }
+        return jdbcTemplate.queryForList("""
+                select distinct lp.title
+                from learner_kc_mastery m
+                join language_pack_kc kc on kc.id = m.kc_id
+                join language_pack lp on lp.id = m.language_pack_id
+                where m.user_id = ?
+                order by lp.title
+                limit 5
+                """, String.class, userId);
     }
 
     private CareerBridgingReport loadReportById(long reportId) {

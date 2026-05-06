@@ -12,8 +12,6 @@ import com.alethicode.util.AuthUserResolver;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.dao.EmptyResultDataAccessException;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -23,9 +21,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
-import java.sql.Timestamp;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 
@@ -52,30 +49,18 @@ import java.util.Optional;
 public class CareerController {
 
     private static final Logger log = LoggerFactory.getLogger(CareerController.class);
+    private static final CareerProfileView EMPTY_PROFILE_VIEW =
+            new CareerProfileView(null, "", null, null);
 
     private final CareerBridgingService careerBridgingService;
-    private final JdbcTemplate jdbcTemplate;
 
-    public CareerController(CareerBridgingService careerBridgingService,
-                            JdbcTemplate jdbcTemplate) {
+    public CareerController(CareerBridgingService careerBridgingService) {
         this.careerBridgingService = careerBridgingService;
-        this.jdbcTemplate = jdbcTemplate;
     }
 
     @GetMapping({"/api/career/majors", "/api/career/majors/"})
     public ApiResponse<List<CareerMajorOption>> listMajors() {
-        List<CareerMajorOption> options = jdbcTemplate.query("""
-                        SELECT code, name_zh, name_en, discipline
-                          FROM career_major_dictionary
-                         WHERE enabled = TRUE
-                         ORDER BY discipline, code
-                        """,
-                (rs, rowNum) -> new CareerMajorOption(
-                        rs.getString("code"),
-                        rs.getString("name_zh"),
-                        rs.getString("name_en"),
-                        rs.getString("discipline")));
-        return ApiResponse.success(options);
+        return ApiResponse.success(careerBridgingService.listMajors());
     }
 
     @GetMapping({"/api/career/profile", "/api/career/profile/"})
@@ -84,30 +69,8 @@ public class CareerController {
         if (userId == null) {
             return ApiResponse.error("error-permission-denied");
         }
-        try {
-            CareerProfileView view = jdbcTemplate.queryForObject("""
-                            SELECT up.major_code,
-                                   COALESCE(d.name_zh, '') AS major_name_zh,
-                                   up.career_intent,
-                                   up.career_profile_completed_at
-                              FROM user_profile up
-                              LEFT JOIN career_major_dictionary d
-                                ON d.code = up.major_code AND d.enabled = TRUE
-                             WHERE up.user_id = ?
-                            """,
-                    (rs, rowNum) -> {
-                        Timestamp ts = rs.getTimestamp("career_profile_completed_at");
-                        return new CareerProfileView(
-                                rs.getString("major_code"),
-                                rs.getString("major_name_zh"),
-                                rs.getString("career_intent"),
-                                ts == null ? null : ts.toInstant());
-                    },
-                    userId);
-            return ApiResponse.success(view);
-        } catch (EmptyResultDataAccessException e) {
-            return ApiResponse.success(new CareerProfileView(null, "", null, null));
-        }
+        return ApiResponse.success(
+                careerBridgingService.findProfile(userId).orElse(EMPTY_PROFILE_VIEW));
     }
 
     @PutMapping({"/api/career/profile", "/api/career/profile/"})
@@ -125,8 +88,13 @@ public class CareerController {
             try {
                 autoReport = careerBridgingService.generateForMilestone(
                         userId, result.milestoneId()).orElse(null);
+            } catch (ResponseStatusException e) {
+                // service 用 ResponseStatusException 表达明确业务错误（如 503 关闭、
+                // 404 milestone 已不存在）；profile 已写入，但不能掩盖语义错误
+                throw e;
             } catch (Exception e) {
-                // 自动生成失败不阻塞 profile 写入；前端可后续手动 POST 重试
+                // 仅吞 LLM/Reflection/IO 层的不确定性失败，让前端通过手动 POST
+                // /api/career/milestones/{id}/reports 重试，profile 写入不被阻塞
                 log.warn("career bridging auto-generate failed: user={}, milestone={}, reason={}",
                         userId, result.milestoneId(), e.toString());
             }
