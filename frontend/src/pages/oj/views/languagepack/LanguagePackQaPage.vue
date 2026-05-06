@@ -51,9 +51,11 @@
             v-for="session in sessions"
             :key="session.id"
             class="qa-session-item"
-            :class="{ 'is-active': session.id === activeSessionId, 'is-starred': session.starred }"
+            :class="{ 'is-active': session.id === activeSessionId, 'is-starred': session.starred, 'is-forked': !!session.parent_session_id }"
+            :style="session.parent_session_id ? { paddingLeft: '32px' } : {}"
             @click="activateSession(session.id)"
           >
+            <span v-if="session.parent_session_id" class="qa-session-fork-prefix">↳</span>
             <img v-if="currentCharacter" :src="currentCharSpriteSrc" class="qa-session-avatar" :alt="currentCharacter.name" />
             <span class="qa-session-title">{{ sessionTitle(session) }}</span>
             <span class="qa-session-actions" @click.stop>
@@ -448,6 +450,26 @@
         return `qa:${packId}:${sessionId}`
       })
       const isInputBlocked = computed(() => Boolean(proxy && proxy.qaInputDisabled))
+      const atProviders = [
+        {
+          key: 'qa-pages',
+          group: '课件页码',
+          lazyLoad: true,
+          items: () => proxy ? proxy.buildQaPageMentionItems() : []
+        },
+        {
+          key: 'qa-kcs',
+          group: '知识点',
+          lazyLoad: true,
+          items: () => proxy ? proxy.buildQaKcMentionItems() : []
+        },
+        {
+          key: 'qa-notebooks',
+          group: '学习笔记',
+          lazyLoad: true,
+          items: () => proxy ? proxy.buildQaNotebookMentionItems() : []
+        }
+      ]
       const slashCommands = [
         {
           key: 'qa-refs',
@@ -469,8 +491,7 @@
           command: '/page',
           label: '跳转页码',
           hint: '/page <n>',
-          status: 'placeholder',
-          onPlaceholder: () => notify.info('按页跳转将在课件页目录接入后上线')
+          run: ({ args }) => proxy && proxy.jumpToQaPage(args)
         },
         {
           key: 'qa-clear',
@@ -491,21 +512,21 @@
           group: '会话进阶',
           command: '/compact',
           label: '压缩上下文',
-          status: 'placeholder',
-          onPlaceholder: () => notify.info('上下文压缩将在 Phase 3 上线')
+          status: 'available',
+          run: () => proxy && proxy.handleCompactSession()
         },
         {
           key: 'qa-fork',
           group: '会话进阶',
           command: '/fork',
           label: '分叉会话',
-          status: 'placeholder',
-          onPlaceholder: () => notify.info('会话分叉将在 Phase 3 上线')
+          status: 'available',
+          run: () => proxy && proxy.handleForkSession()
         }
       ]
       const composer = useChatComposer({
         scopeKey,
-        atProviders: [],
+        atProviders,
         slashCommands,
         isInputBlocked,
         onSubmit: (text) => proxy && proxy.sendQuestion(text)
@@ -549,6 +570,7 @@
         qaPendingQuestion: '',
         _qaWsConnection: null,
         _qaWsReconnectTimer: null,
+        _qaMentionCache: { packId: null, pages: null, kcs: null, notebooks: null },
         loadings: {
           packs: false,
           sessions: false,
@@ -706,6 +728,7 @@
         this.qaPendingQuestion = ''
         this.loadings.sending = false
         this.selectedLanguagePackId = String(packId)
+        this.resetQaMentionCache()
         this.activeSessionId = null
         this.qaContextUsage = { tokens_used: 0, tokens_limit: 0, model_name: '', last_updated: null }
         this.sessions = []
@@ -784,6 +807,100 @@
         } catch (_) {
           this.qaContextUsage = { tokens_used: 0, tokens_limit: 0, model_name: '', last_updated: null }
         }
+      },
+      resetQaMentionCache () {
+        this._qaMentionCache = { packId: this.selectedLanguagePackId, pages: null, kcs: null, notebooks: null }
+        if (this.composerHandlers && this.composerHandlers.refreshProvider) {
+          this.composerHandlers.refreshProvider('qa-pages')
+          this.composerHandlers.refreshProvider('qa-kcs')
+          this.composerHandlers.refreshProvider('qa-notebooks')
+        }
+      },
+      async buildQaPageMentionItems () {
+        if (!this.selectedLanguagePackId) return []
+        const cache = this._qaMentionCache || {}
+        if (cache.packId === this.selectedLanguagePackId && cache.pages) return cache.pages
+        const documents = await this.loadQaDocumentsForMentions()
+        const items = []
+        documents.forEach(doc => {
+          const pageCount = Number(doc.page_count) || 0
+          for (let pageNo = 1; pageNo <= pageCount; pageNo++) {
+            const title = doc.original_filename || doc.title || '课件'
+            items.push({
+              key: `page:${doc.id}:${pageNo}`,
+              token: `@page:${pageNo}`,
+              label: `第 ${pageNo} 页`,
+              desc: title,
+              hoverPreview: `${title} · 第 ${pageNo} 页`
+            })
+          }
+        })
+        this._qaMentionCache = Object.assign({}, cache, { packId: this.selectedLanguagePackId, pages: items })
+        return items
+      },
+      async buildQaKcMentionItems () {
+        if (!this.selectedLanguagePackId) return []
+        const cache = this._qaMentionCache || {}
+        if (cache.packId === this.selectedLanguagePackId && cache.kcs) return cache.kcs
+        const res = await api.getKcGraph(this.selectedLanguagePackId)
+        const payload = res && res.data && res.data.data !== undefined ? res.data.data : (res ? res.data : {})
+        const nodes = Array.isArray(payload.nodes) ? payload.nodes : []
+        const items = nodes.map(node => {
+          const id = node.id == null ? '' : String(node.id)
+          return {
+            key: `kc:${id}`,
+            token: `@kc:${id}`,
+            label: node.name || `知识点 ${id}`,
+            desc: node.chapter_title || '',
+            hoverPreview: node.description || node.chapter_title || ''
+          }
+        }).filter(item => item.token !== '@kc:')
+        this._qaMentionCache = Object.assign({}, cache, { packId: this.selectedLanguagePackId, kcs: items })
+        return items
+      },
+      async buildQaNotebookMentionItems () {
+        const cache = this._qaMentionCache || {}
+        if (cache.notebooks) return cache.notebooks
+        const res = await api.getLearnerNotebook({})
+        const payload = res && res.data && res.data.data !== undefined ? res.data.data : (res ? res.data : {})
+        const entries = Array.isArray(payload.entries) ? payload.entries : []
+        const items = entries.map(entry => {
+          const id = entry.id == null ? '' : String(entry.id)
+          const label = entry.title || entry.problem_title || entry.error_taxonomy || `笔记 ${id}`
+          const desc = entry.reflection || entry.root_cause || entry.breakthrough_insight || entry.content || ''
+          return {
+            key: `notebook:${id}`,
+            token: `@notebook:${id}`,
+            label,
+            desc: String(desc).slice(0, 80),
+            hoverPreview: String(desc).slice(0, 180)
+          }
+        }).filter(item => item.token !== '@notebook:')
+        this._qaMentionCache = Object.assign({}, cache, { notebooks: items })
+        return items
+      },
+      async loadQaDocumentsForMentions () {
+        const res = await api.getLanguagePackDocuments(this.selectedLanguagePackId)
+        const payload = res && res.data && res.data.data !== undefined ? res.data.data : (res ? res.data : [])
+        return Array.isArray(payload) ? payload : []
+      },
+      async jumpToQaPage (args) {
+        const pageNo = Number.parseInt(String(args || '').trim(), 10)
+        if (!Number.isInteger(pageNo) || pageNo <= 0) {
+          notify.info('用法：/page <页码>')
+          return
+        }
+        const documents = await this.loadQaDocumentsForMentions()
+        const doc = documents.find(item => pageNo <= (Number(item.page_count) || 0))
+        if (!doc) {
+          notify.warning(`找不到第 ${pageNo} 页`)
+          return
+        }
+        await this.openCitation({
+          document_id: doc.id,
+          document_title: doc.original_filename || doc.title || '课件',
+          page_no: pageNo
+        })
       },
       _scrollMessagesToBottom () {
         const el = this.$refs.messageList
@@ -1205,7 +1322,42 @@
         this.activeCitation = null
       },
       handleQaCompactPlaceholder () {
-        notify.info('上下文压缩将在 Phase 3 上线')
+        this.handleCompactSession()
+      },
+      handleCompactSession () {
+        if (!this.activeSessionId) return
+        api.compactLanguagePackQaSession(this.activeSessionId)
+          .then(res => {
+            const data = (res && res.data) || res || {}
+            if (data.compacted) {
+              notify.success('上下文已压缩')
+              this.loadMessages(this.activeSessionId)
+              this.refreshUsage()
+            } else {
+              notify.info(data.message || '消息数量不足，无需压缩')
+            }
+          })
+          .catch(err => {
+            console.error('[qa] compact failed', err)
+            notify.error('压缩失败，请重试')
+          })
+      },
+      handleForkSession () {
+        if (!this.activeSessionId) return
+        api.forkLanguagePackQaSession(this.activeSessionId, {})
+          .then(res => {
+            const data = (res && res.data) || res || {}
+            const newId = data.session_id
+            if (newId) {
+              notify.success('会话已分叉')
+              this.loadSessions()
+              this.activateSession(newId)
+            }
+          })
+          .catch(err => {
+            console.error('[qa] fork failed', err)
+            notify.error('分叉失败，请重试')
+          })
       },
       exportConversationMarkdown () {
         if (!this.messages.length) {

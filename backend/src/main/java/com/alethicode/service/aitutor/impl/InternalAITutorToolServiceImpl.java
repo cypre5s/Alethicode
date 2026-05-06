@@ -913,6 +913,80 @@ public class InternalAITutorToolServiceImpl implements InternalAITutorToolServic
         return text.isEmpty() ? null : text;
     }
 
+    @Override
+    @Transactional
+    public Map<String, Object> forkSession(String sourceSessionId, Long fromMessageEventId) {
+        if (sourceSessionId == null || sourceSessionId.isBlank()) {
+            throw new IllegalArgumentException("source session_id is required");
+        }
+
+        List<Map<String, Object>> srcRows = jdbc.queryForList(
+                "SELECT session_id, user_id, problem_id, thread_id, language, phase "
+                        + "FROM ai_tutor_workflow_session WHERE session_id = :sid AND is_active = TRUE",
+                new MapSqlParameterSource("sid", sourceSessionId)
+        );
+        if (srcRows.isEmpty()) {
+            throw new ProblemNotFoundException("Source session not found: " + sourceSessionId);
+        }
+        Map<String, Object> src = srcRows.get(0);
+        Long userId = toLong(src.get("user_id"));
+        Long problemId = toLong(src.get("problem_id"));
+        String language = asString(src.get("language"));
+        String phase = asString(src.get("phase"));
+
+        String newSessionId = "twf_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        String newThreadId = "thr_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+
+        jdbc.update(
+                "INSERT INTO ai_tutor_workflow_session "
+                        + "(session_id, user_id, problem_id, thread_id, language, phase, "
+                        + " runtime_state, is_active, parent_session_id, fork_from_message_id, created_at, updated_at) "
+                        + "VALUES (:sid, :uid, :pid, :tid, :lang, :pha, 'IDLE', TRUE, :psid, :fmid, now(), now())",
+                new MapSqlParameterSource()
+                        .addValue("sid", newSessionId)
+                        .addValue("uid", userId)
+                        .addValue("pid", problemId)
+                        .addValue("tid", newThreadId)
+                        .addValue("lang", language)
+                        .addValue("pha", phase)
+                        .addValue("psid", sourceSessionId)
+                        .addValue("fmid", fromMessageEventId)
+        );
+
+        String eventCopyCondition = fromMessageEventId != null
+                ? "AND e.id <= :fmid"
+                : "";
+        MapSqlParameterSource copyParams = new MapSqlParameterSource()
+                .addValue("srcSid", sourceSessionId)
+                .addValue("newSid", newSessionId);
+        if (fromMessageEventId != null) {
+            copyParams.addValue("fmid", fromMessageEventId);
+        }
+
+        jdbc.update(
+                "INSERT INTO ai_tutor_workflow_event "
+                        + "(session_id, run_id, thread_id, event_type, event_data, runtime_state, "
+                        + " phase, node_outputs, behavior_metrics, available_actions, "
+                        + " pending_human_action, created_at) "
+                        + "SELECT :newSid, e.run_id, e.thread_id, e.event_type, e.event_data, e.runtime_state, "
+                        + " e.phase, e.node_outputs, e.behavior_metrics, e.available_actions, "
+                        + " e.pending_human_action, e.created_at "
+                        + "FROM ai_tutor_workflow_event e "
+                        + "WHERE e.session_id = :srcSid " + eventCopyCondition
+                        + " ORDER BY e.id ASC",
+                copyParams
+        );
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("session_id", newSessionId);
+        result.put("thread_id", newThreadId);
+        result.put("problem_id", problemId);
+        result.put("language", language);
+        result.put("phase", phase);
+        result.put("forked_from", sourceSessionId);
+        return result;
+    }
+
     /**
      * Dedicated exception to map "resource not found" → HTTP 404 in controller.
      */

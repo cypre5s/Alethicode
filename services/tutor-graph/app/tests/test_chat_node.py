@@ -125,6 +125,87 @@ async def test_chat_handles_empty_references_and_cards():
 
 
 @pytest.mark.asyncio
+async def test_chat_single_courseware_labelled_as_primary():
+    """Single courseware bundle should be labelled as primary (用户引用的课件)."""
+    captured = {}
+
+    async def fake_generate_json(system_prompt, user_msg, **kwargs):
+        captured["user"] = user_msg
+        return {"content": "ok", "history": []}
+
+    llm = MagicMock()
+    llm.generate_json = AsyncMock(side_effect=fake_generate_json)
+
+    state = {
+        "client_event": "CHAT",
+        "current_phase": "READING",
+        "event_data": {"message": "@courseware:1 第3页讲了什么"},
+        "node_outputs": {},
+        "evidence_pack": {
+            "learner_state": {},
+            "coursewares": [
+                {
+                    "language_pack_id": 1,
+                    "pack_name": "Python入门",
+                    "chunks": [
+                        {"text": "变量赋值", "page_number": 3}
+                    ],
+                }
+            ],
+        },
+        "references": [],
+        "last_cards": [],
+    }
+
+    await chat_node(state, llm_client=llm)
+
+    assert "用户引用的课件 #1" in captured["user"]
+    assert "旁证课件" not in captured["user"]
+
+
+@pytest.mark.asyncio
+async def test_chat_multi_courseware_labels_primary_and_side_evidence():
+    """Multiple courseware bundles: first is primary, rest are side-evidence (旁证)."""
+    captured = {}
+
+    async def fake_generate_json(system_prompt, user_msg, **kwargs):
+        captured["user"] = user_msg
+        return {"content": "ok", "history": []}
+
+    llm = MagicMock()
+    llm.generate_json = AsyncMock(side_effect=fake_generate_json)
+
+    state = {
+        "client_event": "CHAT",
+        "current_phase": "READING",
+        "event_data": {"message": "@courseware:1 @courseware:2 对比一下"},
+        "node_outputs": {},
+        "evidence_pack": {
+            "learner_state": {},
+            "coursewares": [
+                {
+                    "language_pack_id": 1,
+                    "pack_name": "Python入门",
+                    "chunks": [{"text": "变量赋值", "page_number": 3}],
+                },
+                {
+                    "language_pack_id": 2,
+                    "pack_name": "数据结构",
+                    "chunks": [{"text": "列表操作", "page_number": 7}],
+                },
+            ],
+        },
+        "references": [],
+        "last_cards": [],
+    }
+
+    await chat_node(state, llm_client=llm)
+
+    assert "用户引用的课件 #1" in captured["user"]
+    assert "旁证课件 #2" in captured["user"]
+
+
+@pytest.mark.asyncio
 async def test_chat_propagates_user_mode_to_prompt():
     captured = {}
 

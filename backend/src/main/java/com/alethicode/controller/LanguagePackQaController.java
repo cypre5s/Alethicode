@@ -113,6 +113,24 @@ public class LanguagePackQaController {
         return ApiResponse.success(languagePackQaService.sendMessage(username(authentication), sessionId, request.content()));
     }
 
+    @PostMapping({"/api/language-pack-qa/sessions/{sessionId}/compact", "/api/language-pack-qa/sessions/{sessionId}/compact/"})
+    public ApiResponse<Map<String, Object>> compactSession(
+            Authentication authentication,
+            @PathVariable Long sessionId
+    ) {
+        return ApiResponse.success(languagePackQaService.compactSession(username(authentication), sessionId));
+    }
+
+    @PostMapping({"/api/language-pack-qa/sessions/{sessionId}/fork", "/api/language-pack-qa/sessions/{sessionId}/fork/"})
+    public ApiResponse<Map<String, Object>> forkSession(
+            Authentication authentication,
+            @PathVariable Long sessionId,
+            @RequestBody Map<String, Object> request
+    ) {
+        Long fromMessageId = request.get("fromMessageId") instanceof Number n ? n.longValue() : null;
+        return ApiResponse.success(languagePackQaService.forkSession(username(authentication), sessionId, fromMessageId));
+    }
+
     @PostMapping({"/api/language-pack-qa/messages/{messageId}/feedback", "/api/language-pack-qa/messages/{messageId}/feedback/"})
     public ApiResponse<Object> submitFeedback(
             Authentication authentication,

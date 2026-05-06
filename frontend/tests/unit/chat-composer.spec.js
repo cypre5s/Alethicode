@@ -274,6 +274,23 @@ describe('chat composer · useChatComposer 行为', () => {
     expect(c.slashMenuVisible.value).toBe(false)
   })
 
+  test('带参数的 slash 命令按 Enter 时把参数传给 run()', () => {
+    const run = jest.fn()
+    const onSubmit = jest.fn()
+    const c = makeComposer({
+      slashCommands: [{ key: 'page', group: 'g', command: '/page', label: '跳页', run: run }],
+      onSubmit: onSubmit
+    })
+    c.handlers.onInput('/page 7')
+    const event = { key: 'Enter', shiftKey: false, preventDefault: jest.fn() }
+    c.handlers.onKeydown(event)
+
+    expect(event.preventDefault).toHaveBeenCalled()
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ args: '7' }))
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(c.rawText.value).toBe('')
+  })
+
   test('placeholder 命令不触发 run', () => {
     const run = jest.fn()
     const c = makeComposer()
@@ -281,6 +298,32 @@ describe('chat composer · useChatComposer 行为', () => {
     c.handlers.selectSlashItem({ command: '/compact', status: 'placeholder', run: run })
     expect(run).not.toHaveBeenCalled()
     expect(c.slashMenuVisible.value).toBe(false)
+  })
+
+  test('/compact available 时触发 run', () => {
+    const compactRun = jest.fn()
+    const c = makeComposer({
+      slashCommands: [
+        { key: 'cmd-compact', group: '会话进阶', command: '/compact', label: '压缩上下文', status: 'available', run: compactRun }
+      ]
+    })
+    c.handlers.onInput('/compact')
+    c.handlers.selectSlashItem({ key: 'cmd-compact', command: '/compact', status: 'available', run: compactRun })
+    expect(compactRun).toHaveBeenCalledTimes(1)
+    expect(c.rawText.value).toBe('')
+  })
+
+  test('/fork available 时触发 run', () => {
+    const forkRun = jest.fn()
+    const c = makeComposer({
+      slashCommands: [
+        { key: 'cmd-fork', group: '会话进阶', command: '/fork', label: '分叉会话', status: 'available', run: forkRun }
+      ]
+    })
+    c.handlers.onInput('/fork')
+    c.handlers.selectSlashItem({ key: 'cmd-fork', command: '/fork', status: 'available', run: forkRun })
+    expect(forkRun).toHaveBeenCalledTimes(1)
+    expect(c.rawText.value).toBe('')
   })
 
   test('submit 触发 onSubmit 且把消息写入历史', () => {

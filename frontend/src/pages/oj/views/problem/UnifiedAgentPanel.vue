@@ -657,7 +657,9 @@ export default {
     'parsons-submit',
     'parsons-reset',
     'parsons-walkthrough-submit',
-    'parsons-walkthrough-continue'
+    'parsons-walkthrough-continue',
+    'compact-session',
+    'fork-session'
   ],
   components: {
     ProblemGuideCard,
@@ -896,13 +898,13 @@ export default {
       { key: 'cmd-export', group: '会话控制', command: '/export', label: '导出 Markdown', run: () => exportConversationMarkdown() },
       {
         key: 'cmd-compact', group: '会话进阶', command: '/compact', label: '压缩上下文',
-        status: 'placeholder',
-        onPlaceholder: () => notify.info('上下文压缩将在 Phase 3 上线')
+        status: 'available',
+        run: () => emit('compact-session')
       },
       {
         key: 'cmd-fork', group: '会话进阶', command: '/fork', label: '分叉会话',
-        status: 'placeholder',
-        onPlaceholder: () => notify.info('会话分叉将在 Phase 3 上线')
+        status: 'available',
+        run: () => emit('fork-session')
       },
       {
         key: 'cmd-resume', group: '会话进阶', command: '/resume', label: '恢复会话',
@@ -1195,7 +1197,7 @@ export default {
       this.composerHandlers.submit()
     },
     handleCompactPlaceholder () {
-      notify.info('上下文压缩将在 Phase 3 上线，请暂时使用 /clear 清空对话')
+      this.$emit('compact-session')
     },
     handlePlanConfirmStep (payload) {
       this.$emit('plan-confirm-step', payload)

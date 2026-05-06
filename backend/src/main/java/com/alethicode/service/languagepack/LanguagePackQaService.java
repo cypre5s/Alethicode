@@ -38,4 +38,8 @@ public interface LanguagePackQaService {
      * {@link com.alethicode.exception.BadRequestException}。</p>
      */
     SessionUsage getSessionUsage(String username, Long sessionId);
+
+    Map<String, Object> compactSession(String username, Long sessionId);
+
+    Map<String, Object> forkSession(String username, Long sessionId, Long fromMessageId);
 }

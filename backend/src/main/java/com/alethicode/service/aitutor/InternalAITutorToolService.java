@@ -40,4 +40,6 @@ public interface InternalAITutorToolService {
      *         session_id 不存在时抛出，由 controller 映射 404
      */
     SessionUsage getSessionUsage(String sessionId);
+
+    Map<String, Object> forkSession(String sourceSessionId, Long fromMessageEventId);
 }

@@ -11,7 +11,7 @@ PHASE_TRANSITIONS: dict[str, frozenset[str]] = {
     "TRANSFER": frozenset({"TRANSFER", "CODING", "ERROR_FEEDBACK", "AC_REVIEW"}),
 }
 
-AUXILIARY_EVENTS: frozenset[str] = frozenset({"CHAT", "AGENT_FEEDBACK", "KNOWLEDGE_REVIEW", "VISUALIZE", "SKELETON", "PARSONS"})
+AUXILIARY_EVENTS: frozenset[str] = frozenset({"CHAT", "AGENT_FEEDBACK", "KNOWLEDGE_REVIEW", "VISUALIZE", "SKELETON", "PARSONS", "COMPACT"})
 PLAN_EVENTS: frozenset[str] = frozenset({
     "PLAN_RECOMMEND", "PLAN_START", "PLAN_RESPONSE", "PLAN_STEERING",
 })

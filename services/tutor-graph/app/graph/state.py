@@ -26,6 +26,7 @@ ClientEvent = Literal[
     "AGENT_FEEDBACK",
     "KNOWLEDGE_REVIEW",
     "VISUALIZE",
+    "COMPACT",
     "PLAN_RECOMMEND",
     "PLAN_START",
     "PLAN_RESPONSE",

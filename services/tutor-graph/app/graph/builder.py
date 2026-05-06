@@ -47,6 +47,7 @@ def build_tutor_graph(
     from app.nodes.ac_review import ac_review_node
     from app.nodes.transfer import transfer_draft_node, materialize_transfer_problem_node
     from app.nodes.chat import chat_node
+    from app.nodes.compact import compact_node
     from app.nodes.knowledge_review import knowledge_review_node
     from app.nodes.visualize import visualize_node
     from app.nodes.parsons import parsons_node
@@ -99,6 +100,9 @@ def build_tutor_graph(
 
     async def _chat(state: TutorGraphState) -> TutorGraphState:
         return await chat_node(state, llm_client=llm_client)
+
+    async def _compact(state: TutorGraphState) -> TutorGraphState:
+        return await compact_node(state, llm_client=llm_client)
 
     async def _knowledge_review(state: TutorGraphState) -> TutorGraphState:
         return await knowledge_review_node(state, llm_client=llm_client)
@@ -175,6 +179,7 @@ def build_tutor_graph(
             "KNOWLEDGE_REVIEW": "knowledge_review",
             "VISUALIZE": "visualize",
             "PARSONS": "parsons",
+            "COMPACT": "compact",
             "PLAN_RECOMMEND": "coach_recommendation",
             "PLAN_START": "coach_plan_start",
             "PLAN_RESPONSE": "coach_step_evaluate",
@@ -230,6 +235,7 @@ def build_tutor_graph(
     graph.add_node("transfer_draft", _transfer_draft)
     graph.add_node("transfer_materialize", _transfer_materialize)
     graph.add_node("chat", _chat)
+    graph.add_node("compact", _compact)
     graph.add_node("knowledge_review", _knowledge_review)
     graph.add_node("visualize", _visualize)
     graph.add_node("parsons", _parsons)
@@ -259,6 +265,7 @@ def build_tutor_graph(
         "diagnosis",
         "ac_review",
         "chat",
+        "compact",
         "knowledge_review",
         "visualize",
         "parsons",

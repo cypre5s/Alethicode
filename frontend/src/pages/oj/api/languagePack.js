@@ -50,6 +50,12 @@ export default {
   getLanguagePackQaSessionUsage(sessionId, options = {}) {
     return ajax(`language-pack-qa/sessions/${sessionId}/usage`, 'get', options)
   },
+  compactLanguagePackQaSession(sessionId) {
+    return ajax(`language-pack-qa/sessions/${sessionId}/compact`, 'post')
+  },
+  forkLanguagePackQaSession(sessionId, data) {
+    return ajax(`language-pack-qa/sessions/${sessionId}/fork`, 'post', { data })
+  },
   sendLanguagePackQaMessage(sessionId, data, options = {}) {
     const params = options.async ? { async: true } : {}
     return ajax(`language-pack-qa/sessions/${sessionId}/messages`, 'post', { data, params })

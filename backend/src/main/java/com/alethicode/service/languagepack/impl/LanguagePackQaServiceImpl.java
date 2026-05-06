@@ -202,7 +202,7 @@ public class LanguagePackQaServiceImpl implements LanguagePackQaService {
         }
         return jdbcTemplate.query(
                 """
-                SELECT s.id, s.language_pack_id, s.status, s.title, s.starred, s.create_time, s.update_time,
+                SELECT s.id, s.language_pack_id, s.status, s.title, s.starred, s.parent_session_id, s.create_time, s.update_time,
                        lp.name AS language_pack_name,
                        COALESCE(
                            NULLIF(last_message.content, ''),
@@ -230,6 +230,8 @@ public class LanguagePackQaServiceImpl implements LanguagePackQaService {
                     session.put("status", rs.getString("status"));
                     session.put("title", safeString(rs.getString("title")));
                     session.put("starred", rs.getBoolean("starred"));
+                    long parentId = rs.getLong("parent_session_id");
+                    session.put("parent_session_id", rs.wasNull() ? null : parentId);
                     session.put("last_message_preview", safeString(rs.getString("last_message_preview")));
                     session.put("create_time", toInstant(rs.getTimestamp("create_time")));
                     session.put("update_time", toInstant(rs.getTimestamp("update_time")));
@@ -599,6 +601,125 @@ public class LanguagePackQaServiceImpl implements LanguagePackQaService {
         Object updateRaw = row.get("update_time");
         Instant updated = updateRaw instanceof Timestamp ts ? ts.toInstant() : null;
         return new SessionUsage(used, limit, modelName, updated);
+    }
+
+    private static final int COMPACT_KEEP_RECENT = 6;
+    private static final String COMPACT_SYSTEM_PROMPT =
+            "请把以下对话历史浓缩为一段简洁摘要（不超过 300 字），保留关键概念、代码片段和学生理解水平描述。" +
+            "输出 JSON 格式: {\"summary\": \"摘要内容\"}";
+
+    @Override
+    public Map<String, Object> compactSession(String username, Long sessionId) {
+        Long ownedSessionId = requireOwnedSessionId(username, sessionId);
+
+        List<Map<String, Object>> messages = jdbcTemplate.queryForList(
+                "SELECT id, role, content FROM language_pack_chat_message WHERE session_id = ? ORDER BY id ASC",
+                ownedSessionId
+        );
+
+        if (messages.size() <= COMPACT_KEEP_RECENT) {
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("compacted", false);
+            result.put("message", "消息数量不足，无需压缩");
+            return result;
+        }
+
+        int cutoff = messages.size() - COMPACT_KEEP_RECENT;
+        List<Map<String, Object>> oldMessages = messages.subList(0, cutoff);
+
+        StringBuilder dialogueText = new StringBuilder();
+        for (Map<String, Object> msg : oldMessages) {
+            String role = String.valueOf(msg.get("role"));
+            String content = String.valueOf(msg.get("content"));
+            dialogueText.append("[").append(role).append("] ").append(content).append("\n");
+        }
+
+        String summary;
+        try {
+            Map<String, Object> compactResult = aiModelGateway.callForJson(COMPACT_SYSTEM_PROMPT, dialogueText.toString());
+            Object summaryObj = compactResult.get("summary");
+            summary = summaryObj instanceof String s ? s : String.valueOf(summaryObj);
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "压缩失败: " + e.getMessage());
+        }
+
+        List<Long> oldIds = oldMessages.stream()
+                .map(m -> ((Number) m.get("id")).longValue())
+                .toList();
+
+        jdbcTemplate.update(
+                "DELETE FROM language_pack_chat_message WHERE id IN (" +
+                String.join(",", oldIds.stream().map(String::valueOf).toList()) +
+                ")"
+        );
+
+        jdbcTemplate.update(
+                """
+                INSERT INTO language_pack_chat_message(session_id, role, content, create_time)
+                VALUES (?, 'system', ?, now())
+                """,
+                ownedSessionId,
+                summary.strip()
+        );
+
+        jdbcTemplate.update(
+                "UPDATE language_pack_chat_session SET compact_count = compact_count + 1, update_time = now() WHERE id = ?",
+                ownedSessionId
+        );
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("compacted", true);
+        result.put("removed_count", oldIds.size());
+        return result;
+    }
+
+    @Override
+    public Map<String, Object> forkSession(String username, Long sessionId, Long fromMessageId) {
+        Long ownedSessionId = requireOwnedSessionId(username, sessionId);
+
+        Map<String, Object> sourceSession = jdbcTemplate.queryForMap(
+                "SELECT language_pack_id, status FROM language_pack_chat_session WHERE id = ?",
+                ownedSessionId
+        );
+        Long languagePackId = ((Number) sourceSession.get("language_pack_id")).longValue();
+        Long userId = requireUserId(username);
+
+        Long newSessionId = jdbcTemplate.queryForObject(
+                """
+                INSERT INTO language_pack_chat_session(user_id, language_pack_id, status, parent_session_id, fork_from_message_id, create_time, update_time)
+                VALUES (?, ?, 'active', ?, ?, now(), now())
+                RETURNING id
+                """,
+                Long.class,
+                userId, languagePackId, ownedSessionId, fromMessageId
+        );
+
+        String whereClause = fromMessageId != null
+                ? "WHERE session_id = ? AND id <= ?"
+                : "WHERE session_id = ?";
+        Object[] params = fromMessageId != null
+                ? new Object[]{ownedSessionId, fromMessageId}
+                : new Object[]{ownedSessionId};
+
+        jdbcTemplate.update(
+                "INSERT INTO language_pack_chat_message(session_id, role, content, answer_json, create_time) " +
+                "SELECT ?, role, content, answer_json, create_time FROM language_pack_chat_message " +
+                whereClause + " ORDER BY id ASC",
+                concatParams(newSessionId, params)
+        );
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("session_id", newSessionId);
+        result.put("language_pack_id", languagePackId);
+        result.put("forked_from", ownedSessionId);
+        return result;
+    }
+
+    private static Object[] concatParams(Object first, Object[] rest) {
+        Object[] result = new Object[1 + rest.length];
+        result[0] = first;
+        System.arraycopy(rest, 0, result, 1, rest.length);
+        return result;
     }
 
     private Map<String, Object> getSessionRow(Long sessionId, Long userId) {

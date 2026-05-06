@@ -16,6 +16,7 @@ SYSTEM_PROMPT = """你是面向非计算机专业 Python 初学者的 AI 导学�
 - 如果用户消息中含有 @card:<id> 或 @last_xxx，必须明确引用对应卡片的内容
 - 如果用户消息中含有 @courseware:<id>，必须基于「用户引用的课件原文」段落作答，并在文末以「（参考课件第 X 页）」形式标注页码
 - 不要凭空编造没看到的卡片或课件内容
+- 旁证课件仅作补充背景，不允许直接引用旁证课件的具体页码；只能引用用户显式 @courseware 的主课件页码
 - 输出 JSON 格式，字段: content, history(数组，每项含 role 和 content), referenced_card_ids(数组，仅包含你真实引用过的 card_id)"""
 
 
@@ -38,25 +39,31 @@ def _format_card_refs(label: str, cards: list[dict]) -> str:
 
 
 def _format_courseware_refs(coursewares: list[dict]) -> str:
-    """Render the user-referenced courseware chunks as a labelled context block.
+    """Render courseware chunks with primary / side-evidence labelling.
 
-    Each courseware bundle (one @courseware:<lpId> resolves to one bundle) contains
-    several page-level chunks. We bound the per-chunk text to keep the LLM prompt
-    tight (~600 chars per chunk) and skip empty / malformed entries silently.
+    The first bundle is the user's explicitly @courseware-referenced pack (primary);
+    any additional bundles are side-evidence (旁证) that provide supplementary context
+    but should NOT be cited by page number in the response.
     """
     if not coursewares:
         return ""
     sections: list[str] = []
-    for bundle in coursewares:
+    for idx, bundle in enumerate(coursewares):
         if not isinstance(bundle, dict):
             continue
         lp_id = bundle.get("language_pack_id")
         pack_name = bundle.get("pack_name") or ""
         chunks = bundle.get("chunks") or []
+
+        if idx == 0:
+            label = f"用户引用的课件 #{lp_id} · {pack_name}"
+        else:
+            label = f"旁证课件 #{lp_id} · {pack_name}"
+
         if not isinstance(chunks, list) or not chunks:
-            sections.append(f"【用户引用的课件 #{lp_id} · {pack_name}】（检索结果为空，可如实告知用户）")
+            sections.append(f"==== {label} ====\n（检索结果为空，可如实告知用户）")
             continue
-        lines: list[str] = [f"【用户引用的课件 #{lp_id} · {pack_name}】"]
+        lines: list[str] = [f"==== {label} ===="]
         for chunk in chunks:
             if not isinstance(chunk, dict):
                 continue

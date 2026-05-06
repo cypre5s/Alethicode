@@ -467,6 +467,87 @@ public class TutorWorkflowController {
         return ResponseEntity.ok(ApiResponse.success(body));
     }
 
+    @PostMapping("/{sessionId}/compact")
+    @RateLimiter(name = "tutorWorkflow")
+    public ResponseEntity<ApiResponse<Object>> compactSession(
+            @PathVariable String sessionId,
+            Authentication authentication
+    ) {
+        Long userId = extractUserId(authentication);
+        if (!projectionService.isSessionOwnedByUser(sessionId, userId)) {
+            return fail403("Session not owned by current user");
+        }
+        if (activeRuns.containsKey(sessionId)) {
+            return fail409("Session already has an active run");
+        }
+
+        Optional<Map<String, Object>> sessionOpt = projectionService.getSession(sessionId);
+        if (sessionOpt.isEmpty()) {
+            return fail404("Session not found");
+        }
+
+        Map<String, Object> session = sessionOpt.get();
+        String threadId = (String) session.get("thread_id");
+        Long problemId = toLong(session.get("problem_id"));
+        String language = (String) session.get("language");
+        if (language == null || language.isBlank()) {
+            language = projectionService.getSessionLanguage(sessionId).orElse(null);
+        }
+        if (language == null) {
+            return fail422("language is required");
+        }
+
+        String runId = "run_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        String previousRun = activeRuns.putIfAbsent(sessionId, runId);
+        if (previousRun != null) {
+            return fail409("Session already has an active run");
+        }
+
+        Map<String, Object> runResult;
+        try {
+            runResult = graphClient.createRun(
+                    sessionId, threadId, userId, problemId, language, "COMPACT", Map.of()
+            ).block(GRAPH_CALL_TIMEOUT);
+        } catch (Exception e) {
+            activeRuns.remove(sessionId, runId);
+            return fail503Redacted("compact", e);
+        }
+
+        if (runResult == null || runResult.get("run_id") == null) {
+            activeRuns.remove(sessionId, runId);
+            return fail503Redacted("compact", new IllegalStateException("tutor-graph returned invalid run response"));
+        }
+
+        String actualRunId = (String) runResult.get("run_id");
+        if (!actualRunId.equals(runId)) {
+            activeRuns.put(sessionId, actualRunId);
+        }
+
+        projectionService.markRunQueued(sessionId, actualRunId);
+        webSocketHandler.subscribeToRunEvents(sessionId, actualRunId);
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("compacted", true);
+        body.put("run_id", actualRunId);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.success(body));
+    }
+
+    @PostMapping("/{sessionId}/fork")
+    @RateLimiter(name = "tutorWorkflow")
+    public ResponseEntity<ApiResponse<Object>> forkSession(
+            @PathVariable String sessionId,
+            @RequestBody Map<String, Object> request,
+            Authentication authentication
+    ) {
+        Long userId = extractUserId(authentication);
+        if (!projectionService.isSessionOwnedByUser(sessionId, userId)) {
+            return fail403("Session not owned by current user");
+        }
+        Long fromMessageId = toLong(request.get("fromMessageId"));
+        Map<String, Object> result = internalAITutorToolService.forkSession(sessionId, fromMessageId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(result));
+    }
+
     @PostMapping("/{sessionId}/interrupt-responses")
     @RateLimiter(name = "tutorWorkflow")
     public ResponseEntity<ApiResponse<Object>> respondInterrupt(

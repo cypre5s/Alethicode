@@ -377,6 +377,8 @@
       @parsons-reset="handleParsonsReset"
       @parsons-walkthrough-submit="handleParsonsWalkthroughSubmit"
       @parsons-walkthrough-continue="handleParsonsWalkthroughContinue"
+      @compact-session="handleCompactSession"
+      @fork-session="handleForkSession"
     />
 
     <!-- Learning Twin 面板 -->
@@ -1590,6 +1592,34 @@
           console.error('[workflow] clear failed', err)
           this.$error('清空对话失败，请重试')
         })
+      },
+      handleCompactSession () {
+        if (!this.workflowSessionId) return
+        api.tutorWorkflowCompactSession(this.workflowSessionId)
+          .then(() => {
+            this.$success('上下文已压缩')
+            this.loadConversation()
+          })
+          .catch(err => {
+            console.error('[workflow] compact failed', err)
+            this.$error('压缩失败，请重试')
+          })
+      },
+      handleForkSession () {
+        if (!this.workflowSessionId) return
+        api.tutorWorkflowForkSession(this.workflowSessionId, {})
+          .then(res => {
+            const data = res.data || res
+            const newSessionId = data.session_id
+            if (newSessionId) {
+              this.$success('会话已分叉')
+              this.$router.push({ name: 'problem-detail', params: { problemID: this.problem.id }, query: { session: newSessionId } })
+            }
+          })
+          .catch(err => {
+            console.error('[workflow] fork failed', err)
+            this.$error('分叉失败，请重试')
+          })
       },
       handleLearningTwinAction (actionLabel) {
         this.agentPanelVisible = true

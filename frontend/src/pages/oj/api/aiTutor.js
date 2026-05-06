@@ -102,6 +102,12 @@ export default {
   tutorWorkflowRespondInterrupt(sessionId, data) {
     return ajax(`ai/tutor-workflow-sessions/${sessionId}/interrupt-responses`, 'post', { data })
   },
+  tutorWorkflowCompactSession(sessionId) {
+    return ajax(`ai/tutor-workflow-sessions/${sessionId}/compact`, 'post')
+  },
+  tutorWorkflowForkSession(sessionId, data) {
+    return ajax(`ai/tutor-workflow-sessions/${sessionId}/fork`, 'post', { data })
+  },
 
   submitCodeSnapshot(data) {
     return ajax('ai/code-snapshot', 'post', { data })
