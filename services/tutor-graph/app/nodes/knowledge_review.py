@@ -1,4 +1,4 @@
-"""Knowledge review node — short KC review without changing phase."""
+"""生成不改变阶段的 KC 短复习节点。"""
 
 from __future__ import annotations
 
@@ -13,6 +13,8 @@ SYSTEM_PROMPT = """你是面向非计算机专业 Python 初学者的 AI 导学�
 要求：
 - 不进入 QA citation 协议
 - 不回答与当前题无关的泛问题
+- review_content 末尾必须引用相关课件章节（例："可回顾第四章·流程自动化 第38页"）
+- review_content 最后以一个引导思考的问句结尾，帮助学生深入理解该知识点
 - 输出 JSON 格式，字段: review_content (string), related_kcs (array of string KC names, 禁止输出纯数字 id), courseware_refs (array of object), practice_suggestions (array of string)
 - related_kcs 里每个元素必须是**字符串形式的 KC 名称或编号**（例：\"range-边界\"、\"KC-880 列表切片\"），即使上游提供的是数字 id，也要转成带语义的字符串
 - 若回顾内容适合可视化，可额外输出:

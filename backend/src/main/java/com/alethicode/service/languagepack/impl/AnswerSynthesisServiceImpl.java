@@ -149,6 +149,7 @@ public class AnswerSynthesisServiceImpl implements AnswerSynthesisService {
                 2. 进行日常闲聊，并自然地引导回编程学习话题；
                 3. 课件中有相关内容时，在回答中自然提及课件页的内容；
                 4. 只拒答与 OJ 判题、题目提交、完整题解直接相关的请求。
+                5. 回答末尾以一个启发性问题结尾，引导学生进一步思考（例如"你觉得……会怎样？"或"如果……该怎么做？"）。
                 输出必须是 JSON 对象，包含：answer_markdown, insufficient_evidence。
                 - answer_markdown：回答正文（Markdown 格式）。
                 - insufficient_evidence：布尔值。仅当问题是 OJ 判题相关请求且必须拒答时设为 true，其余一律 false。

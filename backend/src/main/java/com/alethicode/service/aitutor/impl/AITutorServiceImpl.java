@@ -930,8 +930,10 @@ public class AITutorServiceImpl {
                 你是一位编程学习助手。学生在做 Python 编程题时犯了错误，现在需要你帮他生成一段简短的学习反思。
                 要求：
                 - 用第一人称（"我"）
-                - 2-3句话，不超过100字
+                - 3-4句话，不超过120字
                 - 包含：错误原因总结 + 下次如何避免
+                - 如果能关联到课件知识点，在末尾提示"可回顾课件相关章节"
+                - 最后以一个引导思考的问句结尾，帮助学生深入理解
                 - 语气友好、鼓励，适合编程初学者
                 只返回 JSON: {"reflection": "反思文本"}
                 """;
@@ -2064,8 +2066,7 @@ public class AITutorServiceImpl {
         } catch (DateTimeParseException exception) {
             throw com.alethicode.exception.BusinessExceptions.fromLegacy("error", "Invalid before_date format, expected YYYY-MM-DD");
         }
-        // Submissions submitted strictly before the day after snapshotDate are included,
-        // i.e. everything up to and including 23:59:59 on snapshotDate.
+        // 统计 snapshotDate 当日 23:59:59 之前的所有提交。
         final Long finalUserId = userId;
         Map<String, Object> masteryMap = new LinkedHashMap<>();
         jdbcTemplate.query(
@@ -2116,7 +2117,6 @@ public class AITutorServiceImpl {
             throw com.alethicode.exception.BusinessExceptions.fromLegacy("error", "Invalid kc_id");
         }
 
-        // 1. Load KC metadata from ai_knowledge_component
         Map<String, Object> kcMeta;
         try {
             kcMeta = jdbcTemplate.queryForObject(
@@ -2140,7 +2140,6 @@ public class AITutorServiceImpl {
             throw com.alethicode.exception.BusinessExceptions.fromLegacy("error", "KC not found");
         }
 
-        // 2. Load related problems via ai_problem_kc_mapping with submission stats
         List<Map<String, Object>> problems = jdbcTemplate.query(
                 """
                 select p.id as problem_id, p._id as display_id, p.title,
@@ -2164,7 +2163,7 @@ public class AITutorServiceImpl {
                     long acceptedCount = rs.getLong("accepted_count");
                     detail.put("submission_count", submitCount);
                     detail.put("accepted_count", acceptedCount);
-                    // user_result: AC = passed, WA = attempted but not passed, null = not attempted
+                    // user_result 只表达通过、尝试未通过、未尝试三种状态。
                     Object userResult = rs.getObject("user_result");
                     if (userResult != null) {
                         detail.put("user_result", "AC");
@@ -2180,7 +2179,6 @@ public class AITutorServiceImpl {
                 languagePackId
         );
 
-        // 3. Compute mastery from related problems
         long totalSubmissions = problems.stream().mapToLong(p -> longValue(p.get("submission_count"))).sum();
         long totalAccepted = problems.stream().mapToLong(p -> longValue(p.get("accepted_count"))).sum();
         double mastery = totalSubmissions == 0 ? 0.0 : totalAccepted * 1.0 / totalSubmissions;
@@ -2192,7 +2190,6 @@ public class AITutorServiceImpl {
         masteryData.put("p_mastery", mastery);
         masteryData.put("update_count", totalSubmissions);
 
-        // 4. Build response matching StarMapDetailPanel.vue expected structure
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("kc", kcMeta);
         payload.put("mastery", masteryData);
