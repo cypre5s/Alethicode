@@ -31,3 +31,4 @@ export {
 export * from './classroom'
 export * from './languagepack'
 export * from './review'
+export * from './career'

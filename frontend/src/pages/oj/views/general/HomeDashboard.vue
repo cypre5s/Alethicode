@@ -70,6 +70,8 @@
           </template>
         </section>
 
+        <CareerProgressCard />
+
         <section v-if="weeklySummary && weeklySummary.total_errors > 0" class="weekly-section weekly-section--main">
           <h3 class="section-heading">本周错题概况</h3>
           <div class="weekly-card">
@@ -190,6 +192,7 @@
   import api from '@oj/api'
   import { encodeRouteCtx } from '@/utils/urlCipher'
   import { getCharacter, getSpritePath } from '../problem/characterConfig'
+  import CareerProgressCard from '@oj/components/career/CareerProgressCard.vue'
 
   const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六']
   const MONTHS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
@@ -268,7 +271,7 @@
 
   export default {
     name: 'HomeDashboard',
-    components: {},
+    components: { CareerProgressCard },
     data () {
       return {
         heroLineOverride: '',

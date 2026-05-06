@@ -21,7 +21,7 @@
 | 1 | `feat(career-db): 扩展 user_profile 并新建 career_major_dictionary（V83）+ problem_domain_variant（V85）` | 本地完成（待 push） | `d00091d` | V83/V85 SQL + CHANGELOG + 本进度文档同 commit |
 | 2 | `feat(aitutor-cardtype): 扩展 4 个新 CardType 与 ReflectionServiceImpl 对应 critic rubric` | 本地完成（待 push） | `7ee640b` | CardType +4 + ReflectionServiceImpl 4 case rubric + ReflectionServiceImplTest 6 用例 |
 | 3 | `feat(career-bridging): 里程碑式 Why 报告生成 + Rollout/Reflection 接入` | 本地完成（待 push） | 见 git log | V84 + service + controller + DTO + 8 单测 |
-| 4 | `feat(career-bridging-ui): CareerProfilePage 与主页 CareerProgressCard` | 待开始 | — | — |
+| 4 | `feat(career-bridging-ui): CareerProfilePage 与主页 CareerProgressCard` | 本地完成（待 push） | 见 git log | 3 Vue + 1 API + 路由 + 主页卡片嵌入 |
 | 5 | `feat(coding-lens): 受约束 LLM 题面重写 + critic 防语义漂移` | 待开始 | — | — |
 | 6 | `feat(coding-lens-ui): DomainLensToggle 与教师后台只读视图` | 待开始 | — | — |
 | 7 | `feat(career-db): V86 新建 career_micro_project 与 career_path_node 及种子数据` | 待开始 | — | — |
@@ -132,6 +132,53 @@ push 阻塞）；进度仅靠隔离 DB 的 SQL dry-run 提供证据。
 - `mvn -q compile`：0 错误，确认 CardType 新增 4 个枚举值没有破坏任何
   其它 switch（项目内多个 switch 都用 default 兜底，安全）
 
+## todo 3：Career Bridging service + controller + V84（本地完成，待 push）
+
+### 已落地
+- `backend/src/main/resources/db/migration/V84__career_bridging.sql`：
+  新建 `career_bridging_milestone`（5 类 type 枚举登记表）+ `career_bridging_report`
+  （Why 报告，挂在 milestone 上）；3 个索引 + UNIQUE(user_id, type, ref) + 处理
+  NULL ref 用应用层 `IS NOT DISTINCT FROM` 校验。
+- `backend/src/main/java/com/alethicode/config/AlethicodeProperties.java`：
+  扩展 `getCareer().getBridging()` 配置（`enabled` 默认 true、`treatmentRate`
+  默认 0.5），关闭时服务层 fail fast 抛 `ResponseStatusException(503)`，符合
+  AGENTS.md 「fail fast」原则。
+- `backend/src/main/java/com/alethicode/service/career/bridging/`：
+  - `MilestoneType` enum（5 个 code，与 V84 取值集对齐）
+  - `CareerBridgingReport` record（V84 行投影 + traceId + Instant createdAt）
+  - `CareerBridgingPrompts`（plan 3.3 节 SYSTEM 文本 + `MilestoneContext`
+    record + `userPrompt` 拼装）
+  - `CareerBridgingService` 接口（`ensureProfile` / `recordMilestone` /
+    `generateForMilestone` / `recentReports` + `EnrollmentResult` record）
+  - `CareerBridgingServiceImpl`：UPDATE user_profile（NOT_FOUND 时 fail fast）
+    + 字典存在性 fail fast + milestone 三元组幂等 + A/B 分组（control 直接
+    consume / treatment 调 LLM + Reflection + persist）+ trace_id 32 字符
+- `backend/src/main/java/com/alethicode/dto/request/CareerProfileRequest.java`：
+  PUT body schema（`major_code` / `career_intent` / `auto_generate` 默认 true）
+- `backend/src/main/java/com/alethicode/dto/response/`：
+  `CareerEnrollmentResponse` / `CareerMajorOption` / `CareerProfileView`
+- `backend/src/main/java/com/alethicode/controller/CareerController.java`：
+  5 端点 GET majors / GET profile / PUT profile / POST milestones/{id}/reports
+  / GET reports；未登录返回 `error-permission-denied`，资源属主校验下沉到
+  service。`auto_generate=true` 在 PUT 内部直接级联 generateForMilestone（
+  失败仅 warn 不阻塞 profile 写入，前端可后续手动重试 POST）。
+- `backend/src/test/java/com/alethicode/service/career/bridging/CareerBridgingServiceImplTest.java`：
+  8 用例 mock JdbcTemplate + 真实 RolloutPolicyService + 真实 AlethicodeProperties
+  覆盖 ensureProfile 首次 / 重复 / 未知 major / 缺 user_profile 行 4 路径，
+  recordMilestone 未知 type / 已存在 reuse 2 路径，generateForMilestone
+  control 不调 LLM / treatment 完整链路 2 路径。
+
+### 验证
+- `mvn -Dtest='CareerBridgingServiceImplTest' test`：8/8 全过、0 failure 0 error
+- `mvn -q compile`：0 错误，所有依赖（含 LearnerProfileProjector / AlethicodeProperties
+  扩展）一致
+
+### 已知中间状态
+- 本机有另一并行 agent（IDE / background process）也在写 Career Bridging 文件，
+  本会话 Write 工具与对方修改互相覆盖过几次：本次 commit 时已稳定到「对方
+  Service / Impl / Prompts / Properties / 3 个 response DTO + 我的 Request
+  / Controller / Test / V84 SQL」的合并版本，编译与单测都过。
+
 ## 验证记录
 
 | 时间 | 操作 | 结果 |
@@ -142,6 +189,8 @@ push 阻塞）；进度仅靠隔离 DB 的 SQL dry-run 提供证据。
 | 2026-05-06 | `mvn -Dtest='ReflectionServiceImplTest' test` | ✓ 6/6 全过、0 failure 0 error |
 | 2026-05-06 | `mvn -q compile` | ✓ 0 错误，CardType +4 不破坏任何 switch |
 | 2026-05-06 | todo 2 `feat(aitutor-cardtype): ...` 本地 commit | ✓ CardType + ReflectionServiceImpl + 单测 + CHANGELOG + progress 同 commit |
+| 2026-05-06 | `mvn -Dtest='CareerBridgingServiceImplTest' test` | ✓ 8/8 全过、0 failure 0 error |
+| 2026-05-06 | todo 3 `feat(career-bridging): ...` 本地 commit | ✓ V84 + service + 5 endpoints + 4 DTO + 8 单测 + AlethicodeProperties + CHANGELOG + progress 同 commit |
 
 ## 严格约束清单（每个后续 todo 都要遵守）
 

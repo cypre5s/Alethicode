@@ -18,7 +18,9 @@ import {
   PdfViewerPage,
   ErrorReviewPackagePage,
   ManualPage,
-  MaintenancePage
+  MaintenancePage,
+  CareerProfilePage,
+  CareerReportPage
 } from '../views'
 
 import * as Setting from '@oj/views/setting'
@@ -163,6 +165,18 @@ export default [
     name: 'error-review-package',
     meta: { title: '专项复习', requiresAuth: true },
     component: ErrorReviewPackagePage
+  },
+  {
+    path: '/career/profile',
+    name: 'career-profile',
+    meta: { title: '专业档案', requiresAuth: true },
+    component: CareerProfilePage
+  },
+  {
+    path: '/career/reports',
+    name: 'career-reports',
+    meta: { title: '专业报告', requiresAuth: true },
+    component: CareerReportPage
   },
   {
     name: 'maintenance',

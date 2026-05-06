@@ -15,6 +15,17 @@
 - 2026-05-06 **[新增/DTO]** `CareerProfileRequest` / `CareerEnrollmentResponse` / `CareerProfileView` / `CareerMajorOption` 四个 record。
 - 2026-05-06 **[新增/测试]** `CareerBridgingServiceImplTest` 8 个用例全过：首次填专业触发 milestone、重复填不重复插入、blank major 422、未注册 major 422、missing user_profile 404、null MilestoneType 422、control 组消费不调 LLM、treatment 组完整链路验证。
 
+### Career Bridging Closure todo 4：CareerProfilePage + CareerProgressCard + CareerReportPage
+
+> **背景**：plan 3.5 节定义前端组件。
+
+- 2026-05-06 **[新增/前端 API]** `api/career.js`：5 个方法（getCareerProfile / updateCareerProfile / getCareerMajors / generateCareerReport / getCareerReports），注册到 `api.js` 统一导出。
+- 2026-05-06 **[新增/页面]** `CareerProfilePage.vue`（填/改专业 + 学习目标，提交后展示首份 Why 报告）、`CareerReportPage.vue`（报告列表，按时间倒序，含 citations 来源标签）。
+- 2026-05-06 **[新增/组件]** `CareerProgressCard.vue`（主页常驻聚合卡片，未填专业时展示 CTA，已填时展示专业名 + 最近报告标题 + 「查看全部报告」入口）。
+- 2026-05-06 **[路由]** `routes.js` 新增 `/career/profile`（requiresAuth）与 `/career/reports`（requiresAuth）。
+- 2026-05-06 **[主页]** `HomeDashboard.vue` 在「继续学习」卡片之后嵌入 `CareerProgressCard`。
+- 2026-05-06 **[验证]** `npx vite build` 通过。
+
 ### 判题机 AI 深度融合 Phase 0：上游源码 fork 落库 + 工程化壳层
 
 > **背景**：实施 plan `判题机_ai_深度融合_5b02a47b.plan.md`。当前判题机是外部 Docker 镜像 `registry.cn-hongkong.aliyuncs.com/oj-image/judge:1.6.1`，源码不在仓库，无法做任何 AI / 流式 / 教学化扩展。Phase 0 把上游 [`QingdaoU/JudgeServer@b28aa56`](https://github.com/QingdaoU/JudgeServer/commit/b28aa56) 与 [`QingdaoU/Judger@d19a6dc`](https://github.com/QingdaoU/Judger/commit/d19a6dc)（newnew 分支） fork 落库到 `services/judge-server/`，从此判题机源码项目内可控；后续 6 个 Phase 在本目录内追加 worker pool / diagnosis / explain / streaming / metrics / trace / safety 能力。本批改动严格遵循「业务端契约向后兼容、AI 不进入 verdict 裁决路径、判题机源码自包含」三条不可妥协约束，不动 `backend/`、`frontend/`、其他 `services/`、`contracts/` 任何代码；deploy 默认仍使用上游镜像，开发模式启动不依赖本地判题机。
