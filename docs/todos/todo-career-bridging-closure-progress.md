@@ -34,7 +34,7 @@
 | 13 | `feat(career-bridging): project_completed 触发报告重激活` | 本地完成（待 push） | `00092ca` | studio 接口扩 markCompletedByJudgeProblem + JudgeCompletedEventListener 接入 + 5 新单测（15 总计） |
 | 14 | `feat(career-rollout): 4 个 experiment_id 接入 RolloutPolicyService 与评测扩展` | 本地完成（待 push） | `c22b5d5` | studio + path 接入 evaluate；rollback abort；rollout_mode 真实记录；2 新单测 |
 | 15 | `feat(career-admin): 教师锁定/考试模式与用户级关闭面板` | 本地完成（待 push） | `d9dc007` | DomainLens locked 覆盖任意 major + V88 + CareerPreferenceService + Vue 面板 + 4 service 入口短路 + 6 新单测 |
-| 16 | `docs(career): README/PROJECT/CHANGELOG/docs/plans 全量同步` | 本地完成（待 push） | `cf3a4f6` | README + PROJECT 加 Career Bridging Closure 章节，progress 文档收口 |
+| 16 | `docs(career): README/PROJECT/CHANGELOG/docs/plans 全量同步` | 本地完成（待 push） | `b76d5f3`（amend 后） | README + PROJECT 加 Career Bridging Closure 章节，progress 文档收口 |
 
 ## Phase 0：切到 main（本地完成）
 
