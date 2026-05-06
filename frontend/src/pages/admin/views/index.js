@@ -12,7 +12,6 @@ import SecretsSystemPaths from './general/SecretsSystemPaths.vue'
 import SecretsInfra from './general/SecretsInfra.vue'
 import BetaFeedback from './general/BetaFeedback.vue'
 import UsageStats from './general/UsageStats.vue'
-import DomainLensAdmin from './career/DomainLensAdmin.vue'
 import Problem from './problem/Problem.vue'
 import ProblemList from './problem/ProblemList.vue'
 import Login from './general/Login.vue'
@@ -23,5 +22,5 @@ export {
   Announcement, User, JudgeServer, Problem, ProblemList, Login, Home, PruneTestCase, ProblemImportOrExport,
   AIVariantReview, KCManagement, LanguagePackInit,
   SecretsAiConfig, ObservabilityDashboard, SystemMonitor, SecretsSystemPaths, SecretsInfra,
-  BetaFeedback, UsageStats, DomainLensAdmin
+  BetaFeedback, UsageStats
 }

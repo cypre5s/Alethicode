@@ -14,8 +14,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * AI 题测试用例落盘助手（Phase 3 抽离自 ErrorReviewPackageService，
- * todo 11 起提升可见性供 Career Project Studio 复用）。
+ * AI 题测试用例落盘助手（Phase 3 抽离自 ErrorReviewPackageService）。
  * 把 N 条 {input, output} 写入 {testCaseDir}/{testCaseId}/，并生成 OJ runtime 期望的 info 元数据。
  */
 @Component

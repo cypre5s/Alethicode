@@ -89,26 +89,6 @@ public class ReflectionServiceImpl implements ReflectionService {
                     2. 教学适切性：建议难度是否合理递进
                     3. schema 完整性：字段是否齐全
                     4. 逻辑相关性：迁移方向是否与当前题目知识点存在学习路径关联""";
-            case CAREER_BRIDGING -> """
-                    1. 事实一致性：报告所有事实声明（专业用途、代表性 use_case、KC 缺口）必须能映射到 evidence 中的 major_dictionary / learner_state / learning_pack；不得编造统计数据、公司名、薪资数字
-                    2. citations 完整性：use_cases 与 next_step_md 中的具体声明必须有对应 citations 条目（source/ref 双字段非空），无 citations 的事实声明视为不通过
-                    3. 教学适切性：语言面向非 CS 初学者，避免黑话；保持 Why 层定位，不给完整代码段
-                    4. 答案泄露检测：不得在 next_step_md 给出可直接 AC 的 Python 代码或解题步骤""";
-            case DOMAIN_VARIANT -> """
-                    1. IO schema 不变：rewritten_sample_input / rewritten_sample_output 必须与原 sample_input / sample_output 在数据类型、维度、范围上完全一致
-                    2. 测试样例语义不偏移：根据重写后的 narrative 反推 sample_input → sample_output 的映射规则，必须与原题等价（求和仍是求和、最大值仍是最大值、隐含算法不变）
-                    3. 重写边界合规：仅允许改标题 / 描述故事背景 / 变量名 / 举例所用具体词汇；禁止改 IO 协议、禁止改测试样例语义、禁止改隐含算法
-                    4. verification 自报告：output 必须含 verification.input_schema_unchanged 与 verification.semantics_unchanged 两个布尔字段，任一为 false 必须 abort（critic 不通过）""";
-            case MICRO_PROJECT_BRIEF -> """
-                    1. 专业相关性：题目场景必须紧密匹配 evidence 中的 major_code 与 seed_use_cases，不得退化为通用斐波那契 / 九九乘法表类题
-                    2. KC 对齐：required KC 集合必须 ⊆ evidence 中 mastered_kcs；不得引入未掌握的 KC
-                    3. 可解性自验证标记：output 必须含 reference_solution.code 与 test_cases ≥ 5（含至少 1 组边界 + 1 组反例）；reference_solution 必须仅依赖 Python 标准库
-                    4. 教学适切性：估计完成时长 30-90 分钟，难度匹配初学者；不给完整答题导航""";
-            case CAREER_PATH_NODE -> """
-                    1. 事实一致性：why_md 中关于 KC 在该专业用处的描述，必须能映射到 evidence 中的 major_dictionary.seed_use_cases 或 learning_pack；不得编造行业实例
-                    2. 教学适切性：面向非 CS 初学者，描述 KC 与专业目标的学习路径关联
-                    3. schema 完整性：包含 kc_code / parent_kc_code / why_md / typical_use_cases；typical_use_cases 来自 evidence
-                    4. 范围合规：仅描述 KC 与专业的桥接，不给出代码、不引入超出本 KC 的解题步骤""";
             default -> """
                     1. 事实一致性：内容是否与 evidence 一致
                     2. 教学适切性：语言是否适合初学者

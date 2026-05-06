@@ -18,12 +18,7 @@ import {
   PdfViewerPage,
   ErrorReviewPackagePage,
   ManualPage,
-  MaintenancePage,
-  CareerProfilePage,
-  CareerReportPage,
-  MicroProjectListPage,
-  MicroProjectDetailPage,
-  CareerPreferencesPanel
+  MaintenancePage
 } from '../views'
 
 import * as Setting from '@oj/views/setting'
@@ -130,12 +125,6 @@ export default [
         path: 'account',
         meta: { requiresAuth: true, title: 'Account Settings' },
         component: Setting.AccountSetting
-      },
-      {
-        name: 'career-setting',
-        path: 'career',
-        meta: { requiresAuth: true, title: 'Career 模块设置' },
-        component: CareerPreferencesPanel
       }
     ]
   },
@@ -174,30 +163,6 @@ export default [
     name: 'error-review-package',
     meta: { title: '专项复习', requiresAuth: true },
     component: ErrorReviewPackagePage
-  },
-  {
-    path: '/career/profile',
-    name: 'career-profile',
-    meta: { title: '专业档案', requiresAuth: true },
-    component: CareerProfilePage
-  },
-  {
-    path: '/career/reports',
-    name: 'career-reports',
-    meta: { title: '专业报告', requiresAuth: true },
-    component: CareerReportPage
-  },
-  {
-    path: '/career/studio',
-    name: 'career-studio',
-    meta: { title: '微项目工作室', requiresAuth: true },
-    component: MicroProjectListPage
-  },
-  {
-    path: '/career/studio/projects/:projectId',
-    name: 'career-project-detail',
-    meta: { title: '微项目详情', requiresAuth: true },
-    component: MicroProjectDetailPage
   },
   {
     name: 'maintenance',

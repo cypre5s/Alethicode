@@ -1,8 +1,5 @@
 package com.alethicode.service.classroom;
 
-import com.alethicode.service.career.bridging.CareerMilestoneEventListener;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -12,15 +9,10 @@ import java.util.Map;
 @Service
 public class LearnerCourseProgressService {
 
-    private static final Logger log = LoggerFactory.getLogger(LearnerCourseProgressService.class);
-
     private final JdbcTemplate jdbcTemplate;
-    private final CareerMilestoneEventListener careerMilestoneEventListener;
 
-    public LearnerCourseProgressService(JdbcTemplate jdbcTemplate,
-                                        CareerMilestoneEventListener careerMilestoneEventListener) {
+    public LearnerCourseProgressService(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
-        this.careerMilestoneEventListener = careerMilestoneEventListener;
     }
 
     public Map<String, Object> getOrCreateProgress(Long userId, Long languagePackId) {
@@ -38,13 +30,6 @@ public class LearnerCourseProgressService {
             VALUES (?, ?)
             ON CONFLICT (user_id, language_pack_id) DO NOTHING
             """, userId, languagePackId);
-
-        try {
-            careerMilestoneEventListener.onLanguagePackEntered(userId, languagePackId);
-        } catch (RuntimeException e) {
-            log.warn("career milestone chapter_entered hook failed for user={}, lp={}: {}",
-                    userId, languagePackId, e.toString());
-        }
 
         return jdbcTemplate.queryForMap("""
             SELECT * FROM learner_course_progress

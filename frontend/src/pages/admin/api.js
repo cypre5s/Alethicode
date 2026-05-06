@@ -173,21 +173,6 @@ export default {
   getAiInfraOverview() {
     return ajax('admin/ai/infra/overview', 'get')
   },
-  getCodingLensVariants(major, limit = 50) {
-    const params = { limit }
-    if (major) {
-      params.major = major
-    }
-    return ajax('coding-lens/variants', 'get', { params })
-  },
-  lockCodingLensVariant(variantId) {
-    return ajax(`coding-lens/variants/${variantId}/lock`, 'post')
-  },
-  runCareerEvaluation(limit = 100) {
-    return ajax('admin/ai/evaluations/career', 'post', {
-      params: { limit }
-    })
-  },
   getPromptVariants(agentKey) {
     return ajax('admin/ai/prompt-variants', 'get', {
       params: { agent_key: agentKey }

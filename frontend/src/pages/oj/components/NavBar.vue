@@ -23,15 +23,6 @@
         <ElIcon><School /></ElIcon>
         班级
       </ElMenuItem>
-      <ElSubMenu index="/career">
-        <template #title>
-          <ElIcon><Compass /></ElIcon>
-          专业学习
-        </template>
-        <ElMenuItem index="/career/profile">专业档案</ElMenuItem>
-        <ElMenuItem index="/career/studio">微项目</ElMenuItem>
-        <ElMenuItem index="/career/reports">专业报告</ElMenuItem>
-      </ElSubMenu>
       <ElMenuItem index="/guide">
         <ElIcon><Reading /></ElIcon>
         新手指南
@@ -125,7 +116,7 @@
 
 <script>
   import { mapGetters, mapActions } from 'vuex'
-  import { Grid, ArrowDown, Bell, School, ChatLineSquare, Message, Notebook, Reading, QuestionFilled, Compass } from '@element-plus/icons-vue'
+  import { Grid, ArrowDown, Bell, School, ChatLineSquare, Message, Notebook, Reading, QuestionFilled } from '@element-plus/icons-vue'
   import login from '@oj/views/user/Login'
   import register from '@oj/views/user/Register'
   import BetaFeedbackButton from '@oj/components/BetaFeedbackButton.vue'
@@ -153,7 +144,6 @@
       Notebook,
       Reading,
       QuestionFilled,
-      Compass,
       BetaFeedbackButton
     },
     data () {

@@ -6,6 +6,7 @@
 
 ### 前端体验优化
 
+- 2026-05-06 **[重构/模块下线]** 按统一下线策略删除 Career 前后端全部功能：移除后端 `Career*` / `CodingLens*` / `DomainLens*` 相关 controller、service、dto 与测试，移除前端 Career 页面、路由、导航、API 与管理端 Domain Lens 入口；同时清理 `CardType`、`EvalDimension` 与配置中的 Career 残留定义。
 - 2026-05-06 **[重构/Career 路径下线]** 前后端安全删除 Career 学习路径模块：移除后端 `CareerPathController` 与 `service.career.path` 全部实现及对应单测；前端移除 `api/career.js` 的 `getCareerPath` 调用，避免残留访问 `/api/career/path`。
 - 2026-05-06 **[调整/Career 设置迁移]** Career「模块设置」入口统一迁移至 `/setting/profile`，复用 `CareerPreferencesPanel` 并保持设置页视觉风格一致；导航层移除原 `/career/preferences` 入口，减少信息分散。
 - 2026-05-06 **[重组/数据洞察]** 管理后台「使用统计」与「AI 助教工作台」按视角重组：「学生学习数据」只保留注册/活跃/提交/AC 率/痛点/反馈等纯学生指标，移除 AI 覆盖率、AI 辅导调用、诊断 hit 率、AI 卡片分布；「AI 助教工作台」接收这些 AI 指标（覆盖率 + 诊断 hit 率），与响应时间、失败率、Agent 维度、评测质量组成完整的 AI 系统运维视图。

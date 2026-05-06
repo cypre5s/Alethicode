@@ -6,7 +6,6 @@ import {
   Announcement, Home, JudgeServer, Login,
   Problem, ProblemList, User, PruneTestCase, ProblemImportOrExport,
   AIVariantReview, KCManagement,
-  DomainLensAdmin,
   LanguagePackInit,
   SecretsAiConfig, ObservabilityDashboard, SystemMonitor, SecretsSystemPaths, SecretsInfra,
   BetaFeedback, UsageStats
@@ -73,11 +72,6 @@ const router = createRouter({
           path: '/ai-variant-review',
           name: 'ai-variant-review',
           component: AIVariantReview
-        },
-        {
-          path: '/domain-lens',
-          name: 'domain-lens-admin',
-          component: DomainLensAdmin
         },
         {
           path: '/kc-management',

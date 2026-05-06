@@ -242,11 +242,7 @@ const CARD_TYPE_LABELS = {
   transfer_problem: '迁移练习',
   knowledge_review: '知识回顾',
   ai_reply: '对话回复',
-  visualize: '可视化',
-  career_bridging: '职业桥接',
-  domain_variant: '专业题面',
-  micro_project_brief: '微项目',
-  career_path_node: '学习路径'
+  visualize: '可视化'
 }
 
 export default {

@@ -14,11 +14,7 @@ public enum CardType {
     KNOWLEDGE_REVIEW("knowledge_review", "knowledge_review"),
     AI_REPLY("ai_reply", "chat"),
     VISUALIZE("visualize", "visualize"),
-    PARSONS_PROBLEM("parsons_problem", "parsons"),
-    CAREER_BRIDGING("career_bridging", "career_bridging"),
-    DOMAIN_VARIANT("domain_variant", "domain_variant"),
-    MICRO_PROJECT_BRIEF("micro_project_brief", "micro_project_brief"),
-    CAREER_PATH_NODE("career_path_node", "career_path_node");
+    PARSONS_PROBLEM("parsons_problem", "parsons");
 
     private final String messageType;
     private final String outputKey;

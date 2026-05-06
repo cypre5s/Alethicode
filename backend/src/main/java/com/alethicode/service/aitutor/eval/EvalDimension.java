@@ -12,11 +12,7 @@ public enum EvalDimension {
     GUIDANCE_QUALITY("引导质量", "是否给出逐步引导而非直接答案"),
     KC_ALIGNMENT("KC 对齐", "related_kcs 是否与题目知识点一致"),
     COMPREHENSIBILITY("可理解性", "语言是否清晰、初学者能读懂"),
-    ENCOURAGEMENT("鼓励性", "是否包含合适的情感支持"),
-    CAREER_GROUNDING("Career Bridging 证据扎根", "Why 报告事实声明是否具备 citations 与可追溯证据"),
-    DOMAIN_DRIFT("Coding Lens 语义漂移", "专业化题面是否保持 IO schema 与样例语义不变"),
-    PROJECT_SOLVABILITY("Project Studio 可解性", "微项目是否具备通过 Judge Server 自验证的标准题目"),
-    PATH_UNLOCK_CONSISTENCY("Career Path 解锁一致性", "路径节点父子关系与 mastery 解锁阈值是否一致");
+    ENCOURAGEMENT("鼓励性", "是否包含合适的情感支持");
 
     private final String label;
     private final String description;
