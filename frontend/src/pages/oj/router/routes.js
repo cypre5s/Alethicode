@@ -23,7 +23,8 @@ import {
   CareerReportPage,
   CareerPathPage,
   CareerStudioPage,
-  CareerProjectDetailPage
+  CareerProjectDetailPage,
+  CareerPreferencesPanel
 } from '../views'
 
 import * as Setting from '@oj/views/setting'
@@ -198,6 +199,12 @@ export default [
     name: 'career-project-detail',
     meta: { title: '微项目详情', requiresAuth: true },
     component: CareerProjectDetailPage
+  },
+  {
+    path: '/career/preferences',
+    name: 'career-preferences',
+    meta: { title: 'Career 模块设置', requiresAuth: true },
+    component: CareerPreferencesPanel
   },
   {
     name: 'maintenance',

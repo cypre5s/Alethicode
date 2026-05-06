@@ -46,5 +46,11 @@ export default {
   },
   getStudioProject (projectId) {
     return ajax(`career/studio/projects/${projectId}`, 'get')
+  },
+  getCareerPreferences () {
+    return ajax('career/preferences', 'get')
+  },
+  updateCareerPreferences (prefs) {
+    return ajax('career/preferences', 'put', { data: prefs })
   }
 }

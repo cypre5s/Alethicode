@@ -32,8 +32,8 @@
 | 11 | `feat(career-studio): 微项目生成与 reference solution 真判题自验证` | 本地完成（待 push） | `8a8ae7b` | studio 服务 + 真判题自验证 + 4 endpoints + 11 单测 |
 | 12 | `feat(career-studio-ui): 项目详情、CodeMirror 复用与作品集卡片导出` | 本地完成（待 push） | `24199e8` | CareerStudioPage + CareerProjectDetailPage + 4 API + 2 路由 + Markdown 卡片导出 |
 | 13 | `feat(career-bridging): project_completed 触发报告重激活` | 本地完成（待 push） | `00092ca` | studio 接口扩 markCompletedByJudgeProblem + JudgeCompletedEventListener 接入 + 5 新单测（15 总计） |
-| 14 | `feat(career-rollout): 4 个 experiment_id 接入 RolloutPolicyService 与评测扩展` | 本地完成（待 push） | 见 git log | studio + path 接入 evaluate；rollback abort；rollout_mode 真实记录；2 新单测 |
-| 15 | `feat(career-admin): 教师锁定/考试模式与用户级关闭面板` | 待开始 | — | — |
+| 14 | `feat(career-rollout): 4 个 experiment_id 接入 RolloutPolicyService 与评测扩展` | 本地完成（待 push） | `c22b5d5` | studio + path 接入 evaluate；rollback abort；rollout_mode 真实记录；2 新单测 |
+| 15 | `feat(career-admin): 教师锁定/考试模式与用户级关闭面板` | 本地完成（待 push） | 见 git log | DomainLens locked 覆盖任意 major + V88 + CareerPreferenceService + Vue 面板 + 4 service 入口短路 + 6 新单测 |
 | 16 | `docs(career): README/PROJECT/CHANGELOG/docs/plans 全量同步` | 待开始 | — | — |
 
 ## Phase 0：切到 main（本地完成）
@@ -244,6 +244,10 @@ push 阻塞）；进度仅靠隔离 DB 的 SQL dry-run 提供证据。
 | 2026-05-06 | todo 14 `mvn -Dtest='ReflectionServiceImplTest,CareerBridgingServiceImplTest,DomainLensServiceImplTest,CareerPathServiceImplTest,CareerMilestoneEventListenerTest,MicroProjectStudioServiceImplTest' test` | ✓ 54/54 全过（path 7 + studio 16 + 其它 31） |
 | 2026-05-06 | todo 14 `mvn -q compile && mvn -q test-compile` | ✓ 0 错误 |
 | 2026-05-06 | todo 14 `feat(career-rollout): 4 experiment_id 全部接入 RolloutPolicyService` 本地 commit | ✓ Studio + Path evaluate 接入 + rollout_mode 真实记录 + 2 新单测 + CHANGELOG + progress 同 commit |
+| 2026-05-06 | todo 15 `mvn -Dtest='...,CareerPreferenceServiceImplTest' test` | ✓ 60/60 全过（旧 54 + 新 6） |
+| 2026-05-06 | todo 15 `mvn -q compile && mvn -q test-compile` | ✓ 0 错误 |
+| 2026-05-06 | todo 15 `npm run typecheck && npx vite build` | ✓ 0 错误，PWA precache 255 entries / 19568.81 KiB |
+| 2026-05-06 | todo 15 `feat(career-admin): 教师锁定考试覆盖 + 用户级 4 模块关闭面板` 本地 commit | ✓ V88 + CareerPreferenceService + Vue + 4 service 短路 + 6 新单测 + CHANGELOG + progress 同 commit |
 
 ## todo 10：KC 毕业 + 章节进入里程碑触发器（本地完成，待 push）
 
@@ -390,6 +394,31 @@ push 阻塞）；进度仅靠隔离 DB 的 SQL dry-run 提供证据。
 - **可观测**：`career_micro_project.rollout_mode` 与
   `career_bridging_report.rollout_mode` 形成统一指标视图，
   `select rollout_mode, count(*) ...` 可直接出灰度分布
+
+## todo 15：教师锁定/考试模式 + 用户级关闭面板（本地完成，待 push）
+
+### 已落地
+
+- `DomainLensServiceImpl.findOrGenerate` 加 `findLockedVariant`：
+  `lockForExam` 后任意 major 请求都返回锁定 variant（考试公平）
+- `V88__career_user_preferences.sql`（V87 让位给 chat composer plan）：
+  扩展 user_profile 4 个 BOOLEAN 列
+- `CareerPreferenceService` 接口 + Impl + 4 个常量 MODULE_*
+- `CareerPreferenceController`：GET / PUT `/api/career/preferences`
+- 4 个 service 入口短路（CareerBridging / Path / Studio
+  service 内部 + Coding Lens controller 层）
+- 前端：`CareerPreferencesPanel.vue` + `getCareerPreferences` /
+  `updateCareerPreferences` API + `/career/preferences` 路由
+- 单测：`CareerPreferenceServiceImplTest` 6 用例 +
+  3 个 service 测试加 mock 同步
+
+### 强约束遵守
+
+- **不新建用户档案表**：仅扩展 user_profile（plan 0 节）
+- **DomainLens 短路放 controller**：DomainLens service 不接 userId
+  参数，hook 放 controller 层
+- **不破坏 review 修复批契约**：CareerBridging.ensureProfile 与
+  recordMilestone 不加偏好检查（保持 career 学生注册入口可用）
 
 ## 严格约束清单（每个后续 todo 都要遵守）
 

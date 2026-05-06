@@ -78,6 +78,8 @@ class MicroProjectStudioServiceImplTest {
     private LanguagePackProblemJudgeCheckService judgeCheckService;
     @Mock
     private RolloutPolicyService rolloutPolicyService;
+    @Mock
+    private com.alethicode.service.career.preference.CareerPreferenceService preferenceService;
 
     private ObjectMapper objectMapper;
     private MicroProjectStudioServiceImpl service;
@@ -88,10 +90,12 @@ class MicroProjectStudioServiceImplTest {
         // 默认 baseline 决策；rollback 测试单独覆盖
         lenient().when(rolloutPolicyService.evaluate(eq("career_micro_project"), anyString(), any()))
                 .thenReturn(new RolloutDecision("baseline", "default", Map.of()));
+        // 默认未关闭模块；disabled 测试单独覆盖（todo 15）
+        lenient().when(preferenceService.isModuleDisabled(anyLong(), anyString())).thenReturn(false);
         service = new MicroProjectStudioServiceImpl(
                 jdbcTemplate, objectMapper, aiModelGateway, reflectionService,
                 masteryService, careerBridgingService, testCaseWriter, judgeCheckService,
-                rolloutPolicyService);
+                rolloutPolicyService, preferenceService);
     }
 
     // ---------- recommendForUser ----------

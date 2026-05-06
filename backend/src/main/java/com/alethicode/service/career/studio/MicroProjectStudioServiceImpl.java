@@ -10,6 +10,8 @@ import com.alethicode.service.aitutor.rollout.RolloutDecision;
 import com.alethicode.service.aitutor.rollout.RolloutPolicyService;
 import com.alethicode.service.career.bridging.CareerBridgingService;
 import com.alethicode.service.career.bridging.MilestoneType;
+import com.alethicode.service.career.preference.CareerPreferenceService;
+import com.alethicode.service.career.preference.CareerPreferenceServiceImpl;
 import com.alethicode.service.languagepack.impl.JudgeCheckResult;
 import com.alethicode.service.languagepack.impl.LanguagePackProblemJudgeCheckService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -75,6 +77,7 @@ public class MicroProjectStudioServiceImpl implements MicroProjectStudioService 
     private final AiProblemTestCaseWriter testCaseWriter;
     private final LanguagePackProblemJudgeCheckService judgeCheckService;
     private final RolloutPolicyService rolloutPolicyService;
+    private final CareerPreferenceService preferenceService;
 
     public MicroProjectStudioServiceImpl(
             JdbcTemplate jdbcTemplate,
@@ -85,7 +88,8 @@ public class MicroProjectStudioServiceImpl implements MicroProjectStudioService 
             CareerBridgingService careerBridgingService,
             AiProblemTestCaseWriter testCaseWriter,
             LanguagePackProblemJudgeCheckService judgeCheckService,
-            RolloutPolicyService rolloutPolicyService
+            RolloutPolicyService rolloutPolicyService,
+            CareerPreferenceService preferenceService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
@@ -96,6 +100,7 @@ public class MicroProjectStudioServiceImpl implements MicroProjectStudioService 
         this.testCaseWriter = testCaseWriter;
         this.judgeCheckService = judgeCheckService;
         this.rolloutPolicyService = rolloutPolicyService;
+        this.preferenceService = preferenceService;
     }
 
     @Override
@@ -118,6 +123,10 @@ public class MicroProjectStudioServiceImpl implements MicroProjectStudioService 
     @Override
     @Transactional
     public Optional<CareerMicroProject> generate(long userId, String majorCode, List<String> kcCodes) {
+        if (preferenceService.isModuleDisabled(userId, CareerPreferenceServiceImpl.MODULE_CAREER_STUDIO)) {
+            log.info("micro project skipped (user-level disabled): user={}", userId);
+            return Optional.empty();
+        }
         RolloutDecision decision = rolloutPolicyService.evaluate(
                 EXPERIMENT_ID, "user:" + userId, Map.of());
         if ("rollback".equals(decision.rolloutMode())) {

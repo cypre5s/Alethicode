@@ -49,6 +49,8 @@ class CareerPathServiceImplTest {
     private CareerBridgingService careerBridgingService;
     @Mock
     private RolloutPolicyService rolloutPolicyService;
+    @Mock
+    private com.alethicode.service.career.preference.CareerPreferenceService preferenceService;
 
     private ObjectMapper objectMapper;
     private CareerPathServiceImpl service;
@@ -59,8 +61,11 @@ class CareerPathServiceImplTest {
         // 默认 baseline 决策；个别测试可覆盖为 rollback
         lenient().when(rolloutPolicyService.evaluate(eq("career_path"), anyString(), any()))
                 .thenReturn(new RolloutDecision("baseline", "default", java.util.Map.of()));
+        // 默认未关闭模块；rollback / disabled 测试单独覆盖（todo 15）
+        lenient().when(preferenceService.isModuleDisabled(anyLong(), anyString())).thenReturn(false);
         service = new CareerPathServiceImpl(
-                jdbcTemplate, objectMapper, masteryService, careerBridgingService, rolloutPolicyService);
+                jdbcTemplate, objectMapper, masteryService, careerBridgingService, rolloutPolicyService,
+                preferenceService);
     }
 
     @Test

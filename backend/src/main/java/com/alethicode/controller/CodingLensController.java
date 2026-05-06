@@ -3,6 +3,8 @@ package com.alethicode.controller;
 import com.alethicode.dto.response.ApiResponse;
 import com.alethicode.service.career.lens.DomainLensService;
 import com.alethicode.service.career.lens.ProblemDomainVariant;
+import com.alethicode.service.career.preference.CareerPreferenceService;
+import com.alethicode.service.career.preference.CareerPreferenceServiceImpl;
 import com.alethicode.util.AuthUserResolver;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -30,9 +32,12 @@ import java.util.Optional;
 public class CodingLensController {
 
     private final DomainLensService domainLensService;
+    private final CareerPreferenceService preferenceService;
 
-    public CodingLensController(DomainLensService domainLensService) {
+    public CodingLensController(DomainLensService domainLensService,
+                                CareerPreferenceService preferenceService) {
         this.domainLensService = domainLensService;
+        this.preferenceService = preferenceService;
     }
 
     @GetMapping("/problems/{problemId}")
@@ -41,7 +46,12 @@ public class CodingLensController {
             @RequestParam(name = "major") String majorCode,
             Authentication authentication
     ) {
-        requireUserId(authentication);
+        long userId = requireUserId(authentication);
+        // 用户级关闭面板：学生在「我的」面板里关闭 coding_lens 后，本端点
+        // 不再触发 LLM 生成，直接返回 variant_not_available（前端展示原版题面）
+        if (preferenceService.isModuleDisabled(userId, CareerPreferenceServiceImpl.MODULE_CODING_LENS)) {
+            return ApiResponse.error("variant_not_available", null);
+        }
         Optional<ProblemDomainVariant> variant = domainLensService.findOrGenerate(problemId, majorCode);
         return variant.<ApiResponse<ProblemDomainVariant>>map(ApiResponse::success)
                 .orElseGet(() -> ApiResponse.error("variant_not_available", null));

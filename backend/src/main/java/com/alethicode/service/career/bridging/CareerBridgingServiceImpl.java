@@ -10,6 +10,8 @@ import com.alethicode.service.aitutor.profile.LearnerState;
 import com.alethicode.service.aitutor.reflection.ReflectionResult;
 import com.alethicode.service.aitutor.reflection.ReflectionService;
 import com.alethicode.service.aitutor.rollout.RolloutPolicyService;
+import com.alethicode.service.career.preference.CareerPreferenceService;
+import com.alethicode.service.career.preference.CareerPreferenceServiceImpl;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -66,6 +68,7 @@ public class CareerBridgingServiceImpl implements CareerBridgingService {
     private final ReflectionService reflectionService;
     private final RolloutPolicyService rolloutPolicyService;
     private final LearnerProfileProjector learnerProfileProjector;
+    private final CareerPreferenceService preferenceService;
 
     public CareerBridgingServiceImpl(
             JdbcTemplate jdbcTemplate,
@@ -74,7 +77,8 @@ public class CareerBridgingServiceImpl implements CareerBridgingService {
             AiModelGateway aiModelGateway,
             ReflectionService reflectionService,
             RolloutPolicyService rolloutPolicyService,
-            LearnerProfileProjector learnerProfileProjector
+            LearnerProfileProjector learnerProfileProjector,
+            CareerPreferenceService preferenceService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
@@ -83,6 +87,7 @@ public class CareerBridgingServiceImpl implements CareerBridgingService {
         this.reflectionService = reflectionService;
         this.rolloutPolicyService = rolloutPolicyService;
         this.learnerProfileProjector = learnerProfileProjector;
+        this.preferenceService = preferenceService;
     }
 
     @Override
@@ -141,6 +146,11 @@ public class CareerBridgingServiceImpl implements CareerBridgingService {
     @Transactional
     public Optional<CareerBridgingReport> generateForMilestone(long userId, long milestoneId) {
         ensureEnabled();
+        if (preferenceService.isModuleDisabled(userId, CareerPreferenceServiceImpl.MODULE_CAREER_BRIDGING)) {
+            log.info("career bridging skipped (user-level disabled): user={}, milestone={}",
+                    userId, milestoneId);
+            return Optional.empty();
+        }
         MilestoneRow milestone = loadMilestone(userId, milestoneId);
         if (milestone == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND,

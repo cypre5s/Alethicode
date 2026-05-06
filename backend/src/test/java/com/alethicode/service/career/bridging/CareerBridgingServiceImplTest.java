@@ -68,6 +68,8 @@ class CareerBridgingServiceImplTest {
     private LearnerProfileProjector learnerProfileProjector;
     @Mock
     private RolloutPolicyService rolloutPolicyService;
+    @Mock
+    private com.alethicode.service.career.preference.CareerPreferenceService preferenceService;
 
     private ObjectMapper objectMapper;
     private AlethicodeProperties properties;
@@ -79,9 +81,15 @@ class CareerBridgingServiceImplTest {
         properties = new AlethicodeProperties();
         properties.getCareer().getBridging().setEnabled(true);
         properties.getCareer().getBridging().setTreatmentRate(0.5);
+        // 默认未关闭模块；个别测试可覆盖（todo 15）
+        org.mockito.Mockito.lenient().when(
+                preferenceService.isModuleDisabled(org.mockito.ArgumentMatchers.anyLong(),
+                        org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(false);
         service = new CareerBridgingServiceImpl(
                 jdbcTemplate, objectMapper, properties,
-                aiModelGateway, reflectionService, rolloutPolicyService, learnerProfileProjector);
+                aiModelGateway, reflectionService, rolloutPolicyService, learnerProfileProjector,
+                preferenceService);
     }
 
     // ---------- ensureProfile ----------

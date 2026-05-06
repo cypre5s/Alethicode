@@ -5,6 +5,8 @@ import com.alethicode.service.aitutor.rollout.RolloutDecision;
 import com.alethicode.service.aitutor.rollout.RolloutPolicyService;
 import com.alethicode.service.career.bridging.CareerBridgingService;
 import com.alethicode.service.career.bridging.MilestoneType;
+import com.alethicode.service.career.preference.CareerPreferenceService;
+import com.alethicode.service.career.preference.CareerPreferenceServiceImpl;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -35,26 +37,33 @@ public class CareerPathServiceImpl implements CareerPathService {
     private final MasteryService masteryService;
     private final CareerBridgingService careerBridgingService;
     private final RolloutPolicyService rolloutPolicyService;
+    private final CareerPreferenceService preferenceService;
 
     public CareerPathServiceImpl(
             JdbcTemplate jdbcTemplate,
             ObjectMapper objectMapper,
             MasteryService masteryService,
             CareerBridgingService careerBridgingService,
-            RolloutPolicyService rolloutPolicyService
+            RolloutPolicyService rolloutPolicyService,
+            CareerPreferenceService preferenceService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
         this.masteryService = masteryService;
         this.careerBridgingService = careerBridgingService;
         this.rolloutPolicyService = rolloutPolicyService;
+        this.preferenceService = preferenceService;
     }
 
     @Override
     public CareerPathView buildView(long userId, String majorCode) {
+        String majorNameZh = loadMajorNameZh(majorCode);
+        if (preferenceService.isModuleDisabled(userId, CareerPreferenceServiceImpl.MODULE_CAREER_PATH)) {
+            log.info("career path skipped (user-level disabled): user={}", userId);
+            return new CareerPathView(majorCode, majorNameZh, List.of());
+        }
         RolloutDecision decision = rolloutPolicyService.evaluate(
                 EXPERIMENT_ID, "user:" + userId, Map.of());
-        String majorNameZh = loadMajorNameZh(majorCode);
         if ("rollback".equals(decision.rolloutMode())) {
             log.info("career path rolled back for user={}, major={}, reason={}",
                     userId, majorCode, decision.reason());

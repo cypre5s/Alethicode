@@ -63,6 +63,15 @@ public class DomainLensServiceImpl implements DomainLensService {
 
     @Override
     public Optional<ProblemDomainVariant> findOrGenerate(long problemId, String majorCode) {
+        // 考试模式（plan 4.4 节 + todo 15）：教师 lockForExam 之后，任意 major 的
+        // 请求都强制返回锁定 variant，确保所有学生看到同一份题面，避免不公平。
+        ProblemDomainVariant lockedVariant = findLockedVariant(problemId);
+        if (lockedVariant != null) {
+            log.debug("coding lens locked variant override for problem={}, requestedMajor={}, lockedMajor={}",
+                    problemId, majorCode, lockedVariant.majorCode());
+            return Optional.of(lockedVariant);
+        }
+
         ProblemDomainVariant cached = findCached(problemId, majorCode);
         if (cached != null) {
             return Optional.of(cached);
@@ -158,6 +167,32 @@ public class DomainLensServiceImpl implements DomainLensService {
                 problemId
         );
         log.info("coding lens invalidated {} unlocked variants for problem={}", deleted, problemId);
+    }
+
+    /**
+     * 查找该题目是否存在任意 locked variant（教师锁定考试模式）。
+     * 命中即覆盖请求 major，让所有学生看同一份。
+     */
+    private ProblemDomainVariant findLockedVariant(long problemId) {
+        try {
+            return jdbcTemplate.queryForObject("""
+                    select id, problem_id, major_code, title, description_md,
+                           sample_input_text, sample_output_text,
+                           domain_metaphor::text as domain_metaphor_json,
+                           semantic_drift_score, reflection_passed, locked_for_exam,
+                           generated_at, validated_by
+                    from problem_domain_variant
+                    where problem_id = ?
+                      and locked_for_exam = true
+                      and reflection_passed = true
+                    order by generated_at desc
+                    limit 1
+                    """,
+                    this::mapVariantRow,
+                    problemId);
+        } catch (EmptyResultDataAccessException ignored) {
+            return null;
+        }
     }
 
     private ProblemDomainVariant findCached(long problemId, String majorCode) {
