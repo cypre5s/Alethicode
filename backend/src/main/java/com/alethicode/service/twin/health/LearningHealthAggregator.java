@@ -75,9 +75,9 @@ public class LearningHealthAggregator {
                   SELECT DISTINCT DATE(create_time) AS d FROM submission WHERE user_id = ? ORDER BY d DESC
                 ),
                 numbered AS (
-                  SELECT d, d - (ROW_NUMBER() OVER (ORDER BY d DESC) * INTERVAL '1 day') AS grp FROM dates
+                  SELECT d, d - (ROW_NUMBER() OVER (ORDER BY d DESC))::INTEGER * INTERVAL '1 day' AS grp FROM dates
                 )
-                SELECT COUNT(*)::INTEGER FROM numbered WHERE grp = (SELECT grp FROM numbered ORDER BY d DESC LIMIT 1)
+                SELECT COUNT(*)::INTEGER FROM numbered WHERE grp = (SELECT grp FROM numbered LIMIT 1)
                 """, Integer.class, userId);
             freq.put("streak_days", streak != null ? streak : 0);
         } catch (Exception e) {
@@ -104,7 +104,7 @@ public class LearningHealthAggregator {
 
     private List<Map<String, Object>> aggregateDueReviews(Long userId) {
         return jdbcTemplate.query("""
-            SELECT rp.id AS package_id, rp.error_taxonomy, rp.fsrs_due_at, rp.fsrs_state
+            SELECT rp.id AS package_id, rp.title, rp.fsrs_due_at, rp.fsrs_state
             FROM ai_error_review_package rp
             WHERE rp.user_id = ? AND rp.fsrs_due_at <= NOW() + INTERVAL '7 days'
               AND rp.fsrs_state IS NOT NULL
@@ -112,8 +112,8 @@ public class LearningHealthAggregator {
             LIMIT 5
             """, (rs, rowNum) -> {
             Map<String, Object> row = new LinkedHashMap<>();
-            row.put("package_id", rs.getString("package_id"));
-            row.put("title", rs.getString("error_taxonomy"));
+            row.put("package_id", rs.getLong("package_id"));
+            row.put("title", rs.getString("title"));
             Timestamp ts = rs.getTimestamp("fsrs_due_at");
             row.put("fsrs_due_at", ts != null ? ts.toInstant().toString() : null);
             row.put("fsrs_state", rs.getString("fsrs_state"));
