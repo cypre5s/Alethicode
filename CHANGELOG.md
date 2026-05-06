@@ -4,6 +4,21 @@
 
 ## [Unreleased] - 2026-05-06
 
+### Career Bridging Closure todo 14：4 个 experiment_id 接入 RolloutPolicyService + 评测扩展
+
+> **背景**：plan 9 节定义 Career Bridging Closure 4 模块的灰度治理：每个模块用一个独立 `experiment_id` 接入 `RolloutPolicyService`，通过 `sys_options` 一刀切下发 rollback / dark_launch / gray / baseline 决策。本 todo 把剩下 2 个未接入的 experiment_id 串通：
+> - ✅ `career_bridging_v1`（todo 3 已接入 `assignAbTest`，control/treatment 二分）
+> - ✅ `coding_lens`（todo 5 已接入 `evaluate`，rollback 不生成）
+> - 🆕 `career_micro_project`（本 todo）：Studio `generate` 入口 evaluate，rollback 直接 abort 不调 LLM
+> - 🆕 `career_path`（本 todo）：Path `buildView` 入口 evaluate，rollback 返回空 nodes
+
+- 2026-05-06 **[新增/灰度]** `MicroProjectStudioServiceImpl`：构造器注入 `RolloutPolicyService`；`generate` 开头调 `evaluate("career_micro_project", "user:" + userId, Map.of())`；rollback ⇒ 直接 `Optional.empty()` 不调 LLM、不真判题、不落库；其它 mode 正常流程，落库时把 `decision.rolloutMode()` 写入 `career_micro_project.rollout_mode`（替换硬编码 "baseline"）。
+- 2026-05-06 **[新增/灰度]** `CareerPathServiceImpl`：构造器注入 `RolloutPolicyService`；`buildView` 在 `loadMajorNameZh` 之后、`loadPathNodes` 之前调 `evaluate("career_path", "user:" + userId, Map.of())`；rollback ⇒ 返回 `CareerPathView(majorCode, majorNameZh, [])` 不查 path_node 不查 mastery；其它 mode 正常流程。
+- 2026-05-06 **[扩展/单测]** `MicroProjectStudioServiceImplTest` 新增 1 用例（共 16）：`generateReturnsEmptyWhenRolloutRollback` 验证 rollback 决策时 0 LLM 调用、0 真判题。`CareerPathServiceImplTest` 新增 1 用例（共 7）：`buildViewReturnsEmptyNodesWhenRolloutRollback` 验证 rollback 时 0 path_node 查询。两个 setUp 内默认 stub 为 `RolloutDecision("baseline", "default", Map.of())`，避免每个测试重复 stub。
+- 2026-05-06 **[强约束/灰度统一]** 4 个 experiment_id 现在全部走同一份 `RolloutPolicyService`，运维一次性配 `ai.rollout.force-mode` `sys_options` 即可同时下发到 Career Bridging / Coding Lens / Project Studio / Career Path 4 个模块。`career_bridging_v1` 保留 `assignAbTest` 的 control/treatment 二分（A/B 实验比 evaluate 更细），其它 3 个走 `evaluate` 的 baseline / gray / dark_launch / rollback 4 态。
+- 2026-05-06 **[可观测]** `MicroProjectStudioServiceImpl` 落库时 `rollout_mode` 列记录真实决策（baseline / gray / dark_launch），不再硬编码 "baseline"；运维可按 `select rollout_mode, count(*) from career_micro_project group by 1` 统计 4 模块灰度分布，与 `career_bridging_report.rollout_mode` 形成统一指标视图。
+- 2026-05-06 **[验证]** `mvn -Dtest='ReflectionServiceImplTest,CareerBridgingServiceImplTest,DomainLensServiceImplTest,CareerPathServiceImplTest,CareerMilestoneEventListenerTest,MicroProjectStudioServiceImplTest' test`：54/54 全过（旧 52 + 新 2 rollback 用例）；`mvn -q compile && mvn -q test-compile`：0 错误。
+
 ### Career Bridging Closure todo 13：project_completed 触发 Career Bridging 报告重激活
 
 > **背景**：plan 5.4 节定义微项目通过后的「Why 报告重激活」——学生提交微项目对应 problem 走标准 SubmissionService → AC（finalResult=0）⇒ 自动写 PROJECT_COMPLETED 里程碑 + 立即触发 Career Bridging Why 报告生成（与 enrollment 路径同语义，control 组返回 empty 不写报告，treatment 组写一份「项目通过的 Why」报告）。本 todo 把 JudgeCompletedEvent → micro project markCompleted → generateForMilestone 全链路接通。

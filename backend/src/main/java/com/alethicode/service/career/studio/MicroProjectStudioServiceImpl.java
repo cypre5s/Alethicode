@@ -6,6 +6,8 @@ import com.alethicode.service.aitutor.profile.MasteryService;
 import com.alethicode.service.aitutor.reflection.ReflectionResult;
 import com.alethicode.service.aitutor.reflection.ReflectionService;
 import com.alethicode.service.aitutor.review.AiProblemTestCaseWriter;
+import com.alethicode.service.aitutor.rollout.RolloutDecision;
+import com.alethicode.service.aitutor.rollout.RolloutPolicyService;
 import com.alethicode.service.career.bridging.CareerBridgingService;
 import com.alethicode.service.career.bridging.MilestoneType;
 import com.alethicode.service.languagepack.impl.JudgeCheckResult;
@@ -61,6 +63,8 @@ public class MicroProjectStudioServiceImpl implements MicroProjectStudioService 
     private static final int DEFAULT_TIME_LIMIT_MS = 3000;
     private static final int DEFAULT_MEMORY_LIMIT_MB = 256;
     private static final String REFERENCE_LANGUAGE = "Python3";
+    /** plan 9 节灰度 4 个 experiment_id 之一：Studio 每次 generate 走 evaluate，rollback 直接 abort。 */
+    private static final String EXPERIMENT_ID = "career_micro_project";
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
@@ -70,6 +74,7 @@ public class MicroProjectStudioServiceImpl implements MicroProjectStudioService 
     private final CareerBridgingService careerBridgingService;
     private final AiProblemTestCaseWriter testCaseWriter;
     private final LanguagePackProblemJudgeCheckService judgeCheckService;
+    private final RolloutPolicyService rolloutPolicyService;
 
     public MicroProjectStudioServiceImpl(
             JdbcTemplate jdbcTemplate,
@@ -79,7 +84,8 @@ public class MicroProjectStudioServiceImpl implements MicroProjectStudioService 
             MasteryService masteryService,
             CareerBridgingService careerBridgingService,
             AiProblemTestCaseWriter testCaseWriter,
-            LanguagePackProblemJudgeCheckService judgeCheckService
+            LanguagePackProblemJudgeCheckService judgeCheckService,
+            RolloutPolicyService rolloutPolicyService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
@@ -89,6 +95,7 @@ public class MicroProjectStudioServiceImpl implements MicroProjectStudioService 
         this.careerBridgingService = careerBridgingService;
         this.testCaseWriter = testCaseWriter;
         this.judgeCheckService = judgeCheckService;
+        this.rolloutPolicyService = rolloutPolicyService;
     }
 
     @Override
@@ -111,6 +118,14 @@ public class MicroProjectStudioServiceImpl implements MicroProjectStudioService 
     @Override
     @Transactional
     public Optional<CareerMicroProject> generate(long userId, String majorCode, List<String> kcCodes) {
+        RolloutDecision decision = rolloutPolicyService.evaluate(
+                EXPERIMENT_ID, "user:" + userId, Map.of());
+        if ("rollback".equals(decision.rolloutMode())) {
+            log.info("micro project rolled back for user={}, major={}, reason={}",
+                    userId, majorCode, decision.reason());
+            return Optional.empty();
+        }
+
         Map<String, Object> majorRow = loadMajorRow(majorCode);
         Map<String, Object> evidence = new LinkedHashMap<>();
         evidence.put("major_dictionary", majorRow);
@@ -146,7 +161,8 @@ public class MicroProjectStudioServiceImpl implements MicroProjectStudioService 
             return Optional.empty();
         }
 
-        return Optional.of(persistProject(userId, majorCode, kcCodes, problemSchema, referenceCode, testCases));
+        return Optional.of(persistProject(userId, majorCode, kcCodes, problemSchema, referenceCode, testCases,
+                decision.rolloutMode()));
     }
 
     @Override
@@ -275,7 +291,8 @@ public class MicroProjectStudioServiceImpl implements MicroProjectStudioService 
     private CareerMicroProject persistProject(long userId, String majorCode, List<String> kcCodes,
                                               Map<String, Object> problemSchema,
                                               String referenceCode,
-                                              List<Map<String, Object>> testCases) {
+                                              List<Map<String, Object>> testCases,
+                                              String rolloutMode) {
         String title = truncate(stringOf(problemSchema.getOrDefault("title", "微项目")), 255);
         String briefMd = stringOf(problemSchema.getOrDefault("description_md", ""));
         String inputDescription = stringOf(problemSchema.getOrDefault("input_description", ""));
@@ -290,10 +307,10 @@ public class MicroProjectStudioServiceImpl implements MicroProjectStudioService 
                 sampleInput, sampleOutput, referenceCode, testCases);
 
         long projectId = persistMicroProjectRow(
-                userId, majorCode, title, briefMd, kcJson, judgeProblemId, traceId);
+                userId, majorCode, title, briefMd, kcJson, judgeProblemId, rolloutMode, traceId);
 
-        log.info("micro project generated: id={}, judge_problem={}, user={}, major={}, trace={}",
-                projectId, judgeProblemId, userId, majorCode, traceId);
+        log.info("micro project generated: id={}, judge_problem={}, user={}, major={}, mode={}, trace={}",
+                projectId, judgeProblemId, userId, majorCode, rolloutMode, traceId);
         return new CareerMicroProject(projectId, userId, majorCode, title, briefMd, judgeProblemId,
                 "recommended", null, Instant.now(), null);
     }
@@ -366,14 +383,15 @@ public class MicroProjectStudioServiceImpl implements MicroProjectStudioService 
     }
 
     private long persistMicroProjectRow(long userId, String majorCode, String title, String briefMd,
-                                        String kcJson, long judgeProblemId, String traceId) {
+                                        String kcJson, long judgeProblemId,
+                                        String rolloutMode, String traceId) {
         KeyHolder keyHolder = new GeneratedKeyHolder();
         jdbcTemplate.update(connection -> {
             PreparedStatement ps = connection.prepareStatement("""
                     insert into career_micro_project(
                         user_id, major_code, title, brief_md, related_kcs,
                         status, judge_problem_id, rollout_mode, trace_id
-                    ) values (?, ?, ?, ?, cast(? as jsonb), 'recommended', ?, 'baseline', ?)
+                    ) values (?, ?, ?, ?, cast(? as jsonb), 'recommended', ?, ?, ?)
                     """, new String[]{"id"});
             ps.setLong(1, userId);
             ps.setString(2, majorCode);
@@ -381,7 +399,8 @@ public class MicroProjectStudioServiceImpl implements MicroProjectStudioService 
             ps.setString(4, briefMd);
             ps.setString(5, kcJson);
             ps.setLong(6, judgeProblemId);
-            ps.setString(7, traceId);
+            ps.setString(7, rolloutMode);
+            ps.setString(8, traceId);
             return ps;
         }, keyHolder);
         Number key = keyHolder.getKey();

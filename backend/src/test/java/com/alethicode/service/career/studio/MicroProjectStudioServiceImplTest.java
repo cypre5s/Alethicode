@@ -6,6 +6,8 @@ import com.alethicode.service.aitutor.profile.MasteryService;
 import com.alethicode.service.aitutor.reflection.ReflectionResult;
 import com.alethicode.service.aitutor.reflection.ReflectionService;
 import com.alethicode.service.aitutor.review.AiProblemTestCaseWriter;
+import com.alethicode.service.aitutor.rollout.RolloutDecision;
+import com.alethicode.service.aitutor.rollout.RolloutPolicyService;
 import com.alethicode.service.career.bridging.CareerBridgingService;
 import com.alethicode.service.career.bridging.MilestoneType;
 import com.alethicode.service.career.studio.MicroProjectStudioService.CareerMicroProject;
@@ -74,6 +76,8 @@ class MicroProjectStudioServiceImplTest {
     private AiProblemTestCaseWriter testCaseWriter;
     @Mock
     private LanguagePackProblemJudgeCheckService judgeCheckService;
+    @Mock
+    private RolloutPolicyService rolloutPolicyService;
 
     private ObjectMapper objectMapper;
     private MicroProjectStudioServiceImpl service;
@@ -81,9 +85,13 @@ class MicroProjectStudioServiceImplTest {
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper();
+        // 默认 baseline 决策；rollback 测试单独覆盖
+        lenient().when(rolloutPolicyService.evaluate(eq("career_micro_project"), anyString(), any()))
+                .thenReturn(new RolloutDecision("baseline", "default", Map.of()));
         service = new MicroProjectStudioServiceImpl(
                 jdbcTemplate, objectMapper, aiModelGateway, reflectionService,
-                masteryService, careerBridgingService, testCaseWriter, judgeCheckService);
+                masteryService, careerBridgingService, testCaseWriter, judgeCheckService,
+                rolloutPolicyService);
     }
 
     // ---------- recommendForUser ----------
@@ -116,6 +124,20 @@ class MicroProjectStudioServiceImplTest {
     }
 
     // ---------- generate ----------
+
+    @Test
+    void generateReturnsEmptyWhenRolloutRollback() {
+        long userId = 7L;
+        String major = "biology";
+        when(rolloutPolicyService.evaluate(eq("career_micro_project"), eq("user:7"), any()))
+                .thenReturn(new RolloutDecision("rollback", "policy off", Map.of()));
+
+        Optional<CareerMicroProject> result = service.generate(userId, major, List.of("variables"));
+
+        assertThat(result).isEmpty();
+        verify(aiModelGateway, never()).callForJson(anyString(), anyString(), anyString());
+        verify(judgeCheckService, never()).executeReferenceSolution(anyString(), anyString(), any(), anyInt(), anyInt());
+    }
 
     @Test
     void generateReturnsEmptyWhenCriticRejects() {

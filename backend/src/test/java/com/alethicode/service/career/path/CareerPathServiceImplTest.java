@@ -1,6 +1,8 @@
 package com.alethicode.service.career.path;
 
 import com.alethicode.service.aitutor.profile.MasteryService;
+import com.alethicode.service.aitutor.rollout.RolloutDecision;
+import com.alethicode.service.aitutor.rollout.RolloutPolicyService;
 import com.alethicode.service.career.bridging.CareerBridgingService;
 import com.alethicode.service.career.bridging.MilestoneType;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -45,6 +47,8 @@ class CareerPathServiceImplTest {
     private MasteryService masteryService;
     @Mock
     private CareerBridgingService careerBridgingService;
+    @Mock
+    private RolloutPolicyService rolloutPolicyService;
 
     private ObjectMapper objectMapper;
     private CareerPathServiceImpl service;
@@ -52,8 +56,11 @@ class CareerPathServiceImplTest {
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper();
+        // 默认 baseline 决策；个别测试可覆盖为 rollback
+        lenient().when(rolloutPolicyService.evaluate(eq("career_path"), anyString(), any()))
+                .thenReturn(new RolloutDecision("baseline", "default", java.util.Map.of()));
         service = new CareerPathServiceImpl(
-                jdbcTemplate, objectMapper, masteryService, careerBridgingService);
+                jdbcTemplate, objectMapper, masteryService, careerBridgingService, rolloutPolicyService);
     }
 
     @Test
@@ -80,6 +87,21 @@ class CareerPathServiceImplTest {
         assertThatThrownBy(() -> service.buildView(1L, "ghost"))
                 .isInstanceOfSatisfying(ResponseStatusException.class, e ->
                         assertThat(e.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
+    }
+
+    @Test
+    void buildViewReturnsEmptyNodesWhenRolloutRollback() {
+        String major = "biology";
+        stubMajorName(major, "生物");
+        when(rolloutPolicyService.evaluate(eq("career_path"), eq("user:7"), any()))
+                .thenReturn(new RolloutDecision("rollback", "policy off", java.util.Map.of()));
+
+        CareerPathView view = service.buildView(7L, major);
+
+        assertThat(view.majorCode()).isEqualTo(major);
+        assertThat(view.nodes()).isEmpty();
+        verify(jdbcTemplate, never()).query(argThat(sqlContains("from career_path_node")),
+                any(RowMapper.class), any());
     }
 
     @Test

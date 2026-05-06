@@ -1,6 +1,8 @@
 package com.alethicode.service.career.path;
 
 import com.alethicode.service.aitutor.profile.MasteryService;
+import com.alethicode.service.aitutor.rollout.RolloutDecision;
+import com.alethicode.service.aitutor.rollout.RolloutPolicyService;
 import com.alethicode.service.career.bridging.CareerBridgingService;
 import com.alethicode.service.career.bridging.MilestoneType;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -25,27 +27,39 @@ public class CareerPathServiceImpl implements CareerPathService {
     private static final double UNLOCK_PARENT_THRESHOLD = 0.7;
     private static final double UNLOCK_SELF_THRESHOLD = 0.5;
     private static final double IN_PROGRESS_THRESHOLD = 0.3;
+    /** plan 9 节灰度 4 个 experiment_id 之一：Path buildView 走 evaluate，rollback 直接返回空节点。 */
+    private static final String EXPERIMENT_ID = "career_path";
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
     private final MasteryService masteryService;
     private final CareerBridgingService careerBridgingService;
+    private final RolloutPolicyService rolloutPolicyService;
 
     public CareerPathServiceImpl(
             JdbcTemplate jdbcTemplate,
             ObjectMapper objectMapper,
             MasteryService masteryService,
-            CareerBridgingService careerBridgingService
+            CareerBridgingService careerBridgingService,
+            RolloutPolicyService rolloutPolicyService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
         this.masteryService = masteryService;
         this.careerBridgingService = careerBridgingService;
+        this.rolloutPolicyService = rolloutPolicyService;
     }
 
     @Override
     public CareerPathView buildView(long userId, String majorCode) {
+        RolloutDecision decision = rolloutPolicyService.evaluate(
+                EXPERIMENT_ID, "user:" + userId, Map.of());
         String majorNameZh = loadMajorNameZh(majorCode);
+        if ("rollback".equals(decision.rolloutMode())) {
+            log.info("career path rolled back for user={}, major={}, reason={}",
+                    userId, majorCode, decision.reason());
+            return new CareerPathView(majorCode, majorNameZh, List.of());
+        }
         List<PathNodeRow> rows = loadPathNodes(majorCode);
         if (rows.isEmpty()) {
             return new CareerPathView(majorCode, majorNameZh, List.of());

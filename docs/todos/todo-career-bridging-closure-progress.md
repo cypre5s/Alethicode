@@ -31,8 +31,8 @@
 | 10 | `feat(career-bridging): 串通 KC 毕业与章节进入两类里程碑触发` | 本地完成（待 push） | `ca511c3` | listener 重建 + JudgeCompletedEventListener / LearnerCourseProgressService 接入 + 10 单测 |
 | 11 | `feat(career-studio): 微项目生成与 reference solution 真判题自验证` | 本地完成（待 push） | `8a8ae7b` | studio 服务 + 真判题自验证 + 4 endpoints + 11 单测 |
 | 12 | `feat(career-studio-ui): 项目详情、CodeMirror 复用与作品集卡片导出` | 本地完成（待 push） | `24199e8` | CareerStudioPage + CareerProjectDetailPage + 4 API + 2 路由 + Markdown 卡片导出 |
-| 13 | `feat(career-bridging): project_completed 触发报告重激活` | 本地完成（待 push） | 见 git log | studio 接口扩 markCompletedByJudgeProblem + JudgeCompletedEventListener 接入 + 5 新单测（15 总计） |
-| 14 | `feat(career-rollout): 4 个 experiment_id 接入 RolloutPolicyService 与评测扩展` | 待开始 | — | — |
+| 13 | `feat(career-bridging): project_completed 触发报告重激活` | 本地完成（待 push） | `00092ca` | studio 接口扩 markCompletedByJudgeProblem + JudgeCompletedEventListener 接入 + 5 新单测（15 总计） |
+| 14 | `feat(career-rollout): 4 个 experiment_id 接入 RolloutPolicyService 与评测扩展` | 本地完成（待 push） | 见 git log | studio + path 接入 evaluate；rollback abort；rollout_mode 真实记录；2 新单测 |
 | 15 | `feat(career-admin): 教师锁定/考试模式与用户级关闭面板` | 待开始 | — | — |
 | 16 | `docs(career): README/PROJECT/CHANGELOG/docs/plans 全量同步` | 待开始 | — | — |
 
@@ -241,6 +241,9 @@ push 阻塞）；进度仅靠隔离 DB 的 SQL dry-run 提供证据。
 | 2026-05-06 | todo 13 `mvn -Dtest='MicroProjectStudioServiceImplTest' test` | ✓ 15/15 全过（旧 11 + 新 4 重激活/markCompletedByJudgeProblem） |
 | 2026-05-06 | todo 13 `mvn -Dtest='ReflectionServiceImplTest,CareerBridgingServiceImplTest,DomainLensServiceImplTest,CareerPathServiceImplTest,CareerMilestoneEventListenerTest,MicroProjectStudioServiceImplTest' test` | ✓ 52/52 全过 |
 | 2026-05-06 | todo 13 `feat(career-bridging): project_completed 触发报告重激活` 本地 commit | ✓ markCompletedByJudgeProblem + reactivateBridgingReport + JudgeCompletedEventListener 接入 + CHANGELOG + progress 同 commit |
+| 2026-05-06 | todo 14 `mvn -Dtest='ReflectionServiceImplTest,CareerBridgingServiceImplTest,DomainLensServiceImplTest,CareerPathServiceImplTest,CareerMilestoneEventListenerTest,MicroProjectStudioServiceImplTest' test` | ✓ 54/54 全过（path 7 + studio 16 + 其它 31） |
+| 2026-05-06 | todo 14 `mvn -q compile && mvn -q test-compile` | ✓ 0 错误 |
+| 2026-05-06 | todo 14 `feat(career-rollout): 4 experiment_id 全部接入 RolloutPolicyService` 本地 commit | ✓ Studio + Path evaluate 接入 + rollout_mode 真实记录 + 2 新单测 + CHANGELOG + progress 同 commit |
 
 ## todo 10：KC 毕业 + 章节进入里程碑触发器（本地完成，待 push）
 
@@ -354,6 +357,39 @@ push 阻塞）；进度仅靠隔离 DB 的 SQL dry-run 提供证据。
   AC 时一次性记账，未走 submitted/failed 中间态
 - **fail-fast 保留**：listener 仅捕获通用 Exception 落 warn；service 仅
   吞 NOT_FOUND（语义等价于「另一线程已标完」）
+
+## todo 14：4 个 experiment_id 接入 RolloutPolicyService（本地完成，待 push）
+
+### 4 个 experiment_id 现状
+
+| experiment_id | 接入点 | 决策粒度 | 落地 commit |
+|---|---|---|---|
+| `career_bridging_v1` | `CareerBridgingServiceImpl.generateForMilestone` | A/B `assignAbTest` (control/treatment) | todo 3 |
+| `coding_lens` | `DomainLensServiceImpl.findOrGenerate` | `evaluate` (rollback 不生成) | todo 5 |
+| `career_micro_project` | `MicroProjectStudioServiceImpl.generate` | `evaluate` (rollback abort) | todo 14 |
+| `career_path` | `CareerPathServiceImpl.buildView` | `evaluate` (rollback 返回空 nodes) | todo 14 |
+
+### 已落地
+
+- `MicroProjectStudioServiceImpl`：构造器注入 `RolloutPolicyService`；
+  `generate` 开头 `evaluate("career_micro_project", "user:"+userId, Map.of())`；
+  rollback ⇒ 0 LLM、0 真判题、0 写库；落库时 `rollout_mode` 写真实
+  decision.rolloutMode()（替换硬编码 "baseline"）
+- `CareerPathServiceImpl`：构造器注入 `RolloutPolicyService`；
+  `buildView` evaluate；rollback ⇒ 返回空 nodes 不查 mastery
+- `MicroProjectStudioServiceImplTest` + `CareerPathServiceImplTest`：
+  setUp 默认 stub baseline，新增 rollback 测试用例（16 + 7）
+
+### 强约束遵守
+
+- **统一灰度入口**：4 模块都走同一份 RolloutPolicyService，运维一次性配
+  `ai.rollout.force-mode` `sys_options` 即可同时下发
+- **`assignAbTest` 与 `evaluate` 语义不重叠**：前者是 A/B 实验细粒度，后者是
+  4 态灰度门控；CareerBridging 同时走 evaluate（默认通过）+ assignAbTest
+  （记录 control/treatment）的设计未变更
+- **可观测**：`career_micro_project.rollout_mode` 与
+  `career_bridging_report.rollout_mode` 形成统一指标视图，
+  `select rollout_mode, count(*) ...` 可直接出灰度分布
 
 ## 严格约束清单（每个后续 todo 都要遵守）
 
