@@ -38,6 +38,9 @@ export default {
     }
   },
   async created () {
+    // 主页常驻 widget，故意 silent：profile/reports 失败不弹 toast 干扰其它卡片。
+    // 失败时 visible=false，整个卡片不渲染，不影响主页其它内容；用户去
+    // /career/profile 页面手动操作时由那一页给明确错误提示。
     try {
       const res = await api.getCareerProfile()
       this.profile = res.data.data
@@ -49,7 +52,7 @@ export default {
           this.latestTitle = reports[0].title
         }
       }
-    } catch { /* silent */ }
+    } catch { /* by-design silent，理由见上 */ }
   }
 }
 </script>

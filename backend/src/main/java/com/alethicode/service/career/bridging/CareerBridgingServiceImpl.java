@@ -322,7 +322,7 @@ public class CareerBridgingServiceImpl implements CareerBridgingService {
         String title = truncate(llmTitle.isBlank() ? "Career Bridging" : llmTitle, TITLE_MAX_LEN);
         String contentMd = renderContentMarkdown(output);
         String citationsJson = serializeCitations(output.get("citations"));
-        String reportKind = "milestone";
+        String reportKind = ReportKind.MILESTONE.code();
 
         KeyHolder keyHolder = new GeneratedKeyHolder();
         jdbcTemplate.update(connection -> {
@@ -541,6 +541,9 @@ public class CareerBridgingServiceImpl implements CareerBridgingService {
             Object parsed = objectMapper.readValue(raw, Object.class);
             return parsed instanceof List<?> list ? new ArrayList<>((List<Object>) list) : List.of();
         } catch (Exception e) {
+            // LLM 输出/DB JSONB 列偶有非法 JSON：用 List.of() 保持本次报告生成可继续，
+            // 但需要可追溯，避免静默吞错（AGENTS.md fail-fast：明确边界 + 留可观测）
+            log.debug("parseJsonArray fallback to empty: raw={}, reason={}", abbreviate(raw, 80), e.toString());
             return List.of();
         }
     }
@@ -553,8 +556,15 @@ public class CareerBridgingServiceImpl implements CareerBridgingService {
             return objectMapper.readValue(raw, new TypeReference<List<Map<String, Object>>>() {
             });
         } catch (Exception e) {
+            log.debug("parseJsonArrayOfMaps fallback to empty: raw={}, reason={}",
+                    abbreviate(raw, 80), e.toString());
             return List.of();
         }
+    }
+
+    private static String abbreviate(String value, int maxLength) {
+        if (value == null) return "";
+        return value.length() <= maxLength ? value : value.substring(0, maxLength) + "...";
     }
 
     private void ensureEnabled() {

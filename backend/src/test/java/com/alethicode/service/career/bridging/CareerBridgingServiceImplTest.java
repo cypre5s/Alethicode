@@ -66,8 +66,9 @@ class CareerBridgingServiceImplTest {
     private ReflectionService reflectionService;
     @Mock
     private LearnerProfileProjector learnerProfileProjector;
-
+    @Mock
     private RolloutPolicyService rolloutPolicyService;
+
     private ObjectMapper objectMapper;
     private AlethicodeProperties properties;
     private CareerBridgingServiceImpl service;
@@ -75,7 +76,6 @@ class CareerBridgingServiceImplTest {
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper();
-        rolloutPolicyService = new RolloutPolicyService();
         properties = new AlethicodeProperties();
         properties.getCareer().getBridging().setEnabled(true);
         properties.getCareer().getBridging().setTreatmentRate(0.5);
@@ -163,11 +163,12 @@ class CareerBridgingServiceImplTest {
 
     @Test
     void generateForMilestoneControlGroupConsumesWithoutCallingLlm() {
-        long userId = pickUserIdForGroup("control");
+        long userId = 100L;
         long milestoneId = 1L;
 
         stubLoadMilestone(userId, milestoneId, "enrollment", null);
         stubLoadUserMajor(userId, "biology");
+        stubAbTestAssignment(userId, "control");
 
         Optional<CareerBridgingReport> report = service.generateForMilestone(userId, milestoneId);
 
@@ -180,13 +181,14 @@ class CareerBridgingServiceImplTest {
 
     @Test
     void generateForMilestoneTreatmentGroupCallsLlmAndPersistsReport() {
-        long userId = pickUserIdForGroup("treatment");
+        long userId = 200L;
         long milestoneId = 2L;
 
         stubLoadMilestone(userId, milestoneId, "enrollment", "biology");
         stubLoadUserMajor(userId, "biology");
         stubLoadMajorDictionaryRow("biology");
         stubLoadRecentPackTitles(userId, List.of("Python 入门"));
+        stubAbTestAssignment(userId, "treatment");
         when(learnerProfileProjector.project(eq(userId), eq(null), any(), eq(null)))
                 .thenReturn(emptyLearnerState());
 
@@ -218,15 +220,9 @@ class CareerBridgingServiceImplTest {
 
     // ---------- helpers ----------
 
-    private long pickUserIdForGroup(String group) {
-        for (long candidate = 1L; candidate < 5000L; candidate++) {
-            AbTestAssignment a = rolloutPolicyService.assignAbTest(
-                    "career_bridging_v1", candidate, 0.5);
-            if (group.equals(a.group())) {
-                return candidate;
-            }
-        }
-        throw new IllegalStateException("无法在 1-5000 范围内找到 " + group + " 组 userId");
+    private void stubAbTestAssignment(long userId, String group) {
+        lenient().when(rolloutPolicyService.assignAbTest(eq("career_bridging_v1"), eq(userId), eq(0.5)))
+                .thenReturn(new AbTestAssignment("career_bridging_v1", userId, group, 0.0));
     }
 
     private void stubMajorExists(String code, boolean exists) {

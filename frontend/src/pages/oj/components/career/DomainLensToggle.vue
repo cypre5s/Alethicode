@@ -17,6 +17,7 @@
 
 <script>
 import api from '@oj/api'
+import { notify } from '@/utils/notifications'
 
 export default {
   name: 'DomainLensToggle',
@@ -33,13 +34,15 @@ export default {
     }
   },
   async created () {
+    // profile 加载失败时静默：toggle 仅在 majorCode 非空时显示，
+    // 拿不到 profile 等于「没填专业」，按钮不显示是预期降级路径
     try {
       const res = await api.getCareerProfile()
       const d = res.data.data
       if (d && d.major_code) {
         this.majorCode = d.major_code
       }
-    } catch { /* silent */ }
+    } catch { /* expected: no profile / 401, button stays hidden */ }
   },
   methods: {
     async toggle () {
@@ -55,8 +58,14 @@ export default {
           this.variant = res.data.data
           this.showVariant = true
           this.$emit('variant-loaded', this.variant)
+        } else {
+          // 后端返回 success 但 data=null：variant_not_available（rollback / critic 拒绝）
+          notify.warning('专业化版本暂时不可用，已保留原题')
         }
-      } catch { /* silent — variant not available, stay on original */ }
+      } catch {
+        // 用户的明确动作（点击切换）失败必须提示，否则按钮看起来「点了没反应」
+        notify.warning('专业化版本加载失败，请稍后再试')
+      }
       this.loading = false
     }
   }

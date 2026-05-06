@@ -227,6 +227,8 @@ push 阻塞）；进度仅靠隔离 DB 的 SQL dry-run 提供证据。
 | 2026-05-06 | code review 修复批 `mvn -Dtest='ReflectionServiceImplTest,CareerBridgingServiceImplTest,DomainLensServiceImplTest,CareerPathServiceImplTest' test` | ✓ 27/27 全过（旧 14 + 新增 13）、0 failure 0 error |
 | 2026-05-06 | code review 修复批 `mvn -q compile` | ✓ 0 错误（含 untracked `MicroProjectStudioServiceImpl` 编译修复） |
 | 2026-05-06 | code review 修复批 `npm run typecheck` + `npx vite build` | ✓ 0 错误，PWA precache 249 entries / 19521.22 KiB 正常生成 |
+| 2026-05-06 | code review 🟢 Low 项清理批 单测复跑 | ✓ 27/27 仍全过；mock RolloutPolicyService 替换暴力枚举后无 flake |
+| 2026-05-06 | code review 🟢 Low 项清理批 `npm run typecheck` + `npx vite build` | ✓ 0 错误 |
 
 ## 严格约束清单（每个后续 todo 都要遵守）
 

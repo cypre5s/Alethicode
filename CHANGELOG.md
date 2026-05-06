@@ -4,6 +4,17 @@
 
 ## [Unreleased] - 2026-05-06
 
+### Career Bridging Closure code review 🟢 Low 项清理批
+
+> **背景**：在 🔴/🟠/🟡 修复批之后，继续清理 review 报告里的 🟢 Low 项，全部是非阻塞的 polishing：测试鲁棒性 / 可观测性 / 命名一致性 / javadoc 标占位 / 用户感知 toast。`#14 evidence 序列化 helper` 评估后取消（3 处 fallback 不同 + 含 untracked 文件，AGENTS.md「最小完整方案、外科手术式」收益不抵成本）。
+
+- 2026-05-06 **[测试鲁棒性]** `CareerBridgingServiceImplTest` 把 `RolloutPolicyService` 由「真实实例 + 1-5000 暴力枚举找落点」改为 Mockito `@Mock`，新增 `stubAbTestAssignment(userId, group)` helper。控制 / 治疗组测试现在直接 stub 返回值，`RolloutPolicyService` 实现一旦改不会让本测试变红。
+- 2026-05-06 **[可观测性]** `CareerBridgingServiceImpl.parseJsonArray` / `parseJsonArrayOfMaps` 在 fallback 到空集合前补 `log.debug` + 80 字符截断的原文，符合 AGENTS.md「fail-fast：明确边界 + 留可观测」；不抛错保留 LLM 报告生成可继续，但运维侧能看到非法 JSON 的痕迹。
+- 2026-05-06 **[命名一致性]** 新建 `ReportKind` 枚举（当前仅 `MILESTONE("milestone")`），替换 `CareerBridgingServiceImpl#persistReport` 里硬编码的 `"milestone"` 字符串；plan todo 13 后续接入 `project_completed` 重激活报告时只需新增枚举值，避免散落字符串。
+- 2026-05-06 **[文档/javadoc]** `DomainLensServiceImpl.extractDriftScore` 补 javadoc 明标 placeholder 性质（当前仅按 `verification.drift_explanation` 是否非空粗略给 0.05 / 0.0），并指明 plan todo 14 接入真实 drift 算法的替换路径，避免后续读代码误以为是真实算法。
+- 2026-05-06 **[用户感知]** `DomainLensToggle.vue` 在「点击切到我专业版」失败时调 `notify.warning`：variant_not_available 提示「专业化版本暂时不可用，已保留原题」、catch 提示「专业化版本加载失败，请稍后再试」；`CareerProgressCard.vue` 主页常驻 widget 保持 silent 但补注释说明「by-design silent」。
+- 2026-05-06 **[验证]** `mvn -Dtest='ReflectionServiceImplTest,CareerBridgingServiceImplTest,DomainLensServiceImplTest,CareerPathServiceImplTest' test`：27/27 全过；`npm run typecheck` + `npx vite build`：0 错误，PWA precache 249 entries / 19521.22 KiB 正常生成。
+
 ### Career Bridging Closure code review 修复批
 
 > **背景**：用户对 `career-bridging-closure_e71ce32e.plan.md` 已完成的 11 个 commit 做 code review，发现两条阻塞性契约不一致、Coding Lens 教师锁定缺角色校验、3 个 Vue 页面 v-html LLM 内容存在 XSS 面、`CareerMilestoneEventListener` 是 0 调用方死代码、`CareerController` 重复实现 service 同语义、`ReflectionResult.passed` 字段语义在 maxRounds=1 时分裂。本批 commit 严格按 AGENTS.md「外科手术式」一次性修复 🔴/🟠 项与部分 🟡 项，未触达 plan 已交付的语义边界。

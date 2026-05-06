@@ -255,6 +255,16 @@ public class DomainLensServiceImpl implements DomainLensService {
         );
     }
 
+    /**
+     * 从 LLM verification 块抽取「测试样例语义偏移度」的占位评分（plan 4.1 节）。
+     *
+     * <p>当前是 placeholder：仅根据 {@code verification.drift_explanation} 是否
+     * 非空粗略给 0.05 / 0.0；不是真实的 drift 计算（真正的 drift score 需要
+     * 跑 sample IO 等价对照）。该列写入 V85 表 {@code semantic_drift_score}
+     * 给运维监控使用，0.05 仅作为「LLM 自报告有可解释偏移迹象」的提示信号。
+     *
+     * <p>plan todo 14 接入 RolloutPolicyService 后会被真实 drift 算法替换。
+     */
     private Double extractDriftScore(Map<String, Object> output) {
         Object verification = output.get("verification");
         if (verification instanceof Map<?, ?> vMap) {
