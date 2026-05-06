@@ -15,6 +15,10 @@
 - 2026-05-06 **[新增/DTO]** `CareerProfileRequest` / `CareerEnrollmentResponse` / `CareerProfileView` / `CareerMajorOption` 四个 record。
 - 2026-05-06 **[新增/测试]** `CareerBridgingServiceImplTest` 8 个用例全过：首次填专业触发 milestone、重复填不重复插入、blank major 422、未注册 major 422、missing user_profile 404、null MilestoneType 422、control 组消费不调 LLM、treatment 组完整链路验证。
 
+### Career Bridging Closure todo 7：V86 career_path_node + career_micro_project + 种子
+
+- 2026-05-06 **[新增/V86]** `V86__career_path_and_micro_project.sql`：新建 `career_micro_project`（微项目表，含 judge_problem_id 关联 problem）+ `career_path_node`（专业 × KC 路径节点，DAG 结构）+ 2 个索引 + 60 行种子数据（12 专业 × 5 核心 KC 的线性 DAG）。
+
 ### Career Bridging Closure todo 6：DomainLensToggle 与教师后台
 
 - 2026-05-06 **[新增/组件]** `DomainLensToggle.vue`：题目页顶部切换器，自动检测学生已填专业后显示；点击「我专业版」调 Coding Lens API，点击「切回原版」emit variant-cleared。

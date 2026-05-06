@@ -221,6 +221,8 @@ push 阻塞）；进度仅靠隔离 DB 的 SQL dry-run 提供证据。
 | 2026-05-06 | todo 2 `feat(aitutor-cardtype): ...` 本地 commit | ✓ CardType + ReflectionServiceImpl + 单测 + CHANGELOG + progress 同 commit |
 | 2026-05-06 | `mvn -Dtest='CareerBridgingServiceImplTest' test` | ✓ 8/8 全过、0 failure 0 error |
 | 2026-05-06 | todo 3 `feat(career-bridging): ...` 本地 commit | ✓ V84 + service + 5 endpoints + 4 DTO + 8 单测 + AlethicodeProperties + CHANGELOG + progress 同 commit |
+| 2026-05-06 | `wc -l V86 + grep INSERT 种子计数` | ✓ 256 行、60 条种子（12 专业 × 5 KC 节点） |
+| 2026-05-06 | todo 7 `feat(career-db): V86 + path 种子` 本地 commit | ✓ V86 SQL + CHANGELOG + progress 同 commit |
 
 ## 严格约束清单（每个后续 todo 都要遵守）
 
