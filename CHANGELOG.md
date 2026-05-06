@@ -15,6 +15,14 @@
 - 2026-05-06 **[新增/DTO]** `CareerProfileRequest` / `CareerEnrollmentResponse` / `CareerProfileView` / `CareerMajorOption` 四个 record。
 - 2026-05-06 **[新增/测试]** `CareerBridgingServiceImplTest` 8 个用例全过：首次填专业触发 milestone、重复填不重复插入、blank major 422、未注册 major 422、missing user_profile 404、null MilestoneType 422、control 组消费不调 LLM、treatment 组完整链路验证。
 
+### Career Bridging Closure todo 5：Coding Lens 受约束 LLM 题面重写
+
+> **背景**：plan 4 节定义「Domain-Aware Coding Lens」——按学生专业重写题面叙事，但严格保持 IO schema 不变 + 测试样例语义不偏移。
+
+- 2026-05-06 **[新增/服务]** `com.alethicode.service.career.lens` 包：`DomainLensService`（接口 3 方法：findOrGenerate / lockForExam / invalidate）+ `DomainLensServiceImpl`（缓存命中 → rollout 决策 → LLM 生成 → Reflection critic(DOMAIN_VARIANT) → 写库；critic 不通过则不写库返回 empty）+ `ProblemDomainVariant` 投影 record + `DomainLensPrompts`（system prompt 强约束 IO 不变 + 自检 verification + abort 机制）。
+- 2026-05-06 **[新增/REST]** `CodingLensController`（`/api/coding-lens/*`）2 个端点：`GET /problems/{id}?major=code`（获取专业化变体）、`POST /variants/{id}/lock`（教师考试锁定）。
+- 2026-05-06 **[验证]** mvn compile 通过。
+
 ### Career Bridging Closure todo 4：CareerProfilePage + CareerProgressCard + CareerReportPage
 
 > **背景**：plan 3.5 节定义前端组件。

@@ -22,7 +22,7 @@
 | 2 | `feat(aitutor-cardtype): 扩展 4 个新 CardType 与 ReflectionServiceImpl 对应 critic rubric` | 本地完成（待 push） | `7ee640b` | CardType +4 + ReflectionServiceImpl 4 case rubric + ReflectionServiceImplTest 6 用例 |
 | 3 | `feat(career-bridging): 里程碑式 Why 报告生成 + Rollout/Reflection 接入` | 本地完成（待 push） | 见 git log | V84 + service + controller + DTO + 8 单测 |
 | 4 | `feat(career-bridging-ui): CareerProfilePage 与主页 CareerProgressCard` | 本地完成（待 push） | 见 git log | 3 Vue + 1 API + 路由 + 主页卡片嵌入 |
-| 5 | `feat(coding-lens): 受约束 LLM 题面重写 + critic 防语义漂移` | 待开始 | — | — |
+| 5 | `feat(coding-lens): 受约束 LLM 题面重写 + critic 防语义漂移` | 本地完成（待 push） | 见 git log | service + controller + prompt |
 | 6 | `feat(coding-lens-ui): DomainLensToggle 与教师后台只读视图` | 待开始 | — | — |
 | 7 | `feat(career-db): V86 新建 career_micro_project 与 career_path_node 及种子数据` | 待开始 | — | — |
 | 8 | `feat(career-path): 拓扑排序 + 解锁判断 + GraphRAG why_md 增强` | 待开始 | — | — |
