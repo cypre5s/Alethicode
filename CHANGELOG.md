@@ -4,6 +4,15 @@
 
 ## [Unreleased] - 2026-05-06
 
+### Career Bridging Closure todo 2：CardType + ReflectionServiceImpl critic rubric
+
+> **背景**：plan 3.4 节要求扩展 4 个新 CardType（`CAREER_BRIDGING` / `DOMAIN_VARIANT` / `MICRO_PROJECT_BRIEF` / `CAREER_PATH_NODE`），并在 `ReflectionServiceImpl.buildCriticSystemPrompt` 为这 4 类各加一组 4 维 rubric。`DOMAIN_VARIANT` 是其中最严格的——必须强制 IO schema 不变 + 测试样例语义不偏移 + verification 自报告 + 任一字段为 false 必须 abort，是 Coding Lens 模块"判题不动"承诺的代码层守门员。本批 commit 落地 enum + rubric + 6 个单测的合约。
+
+- 2026-05-06 **[变更/aitutor-cardtype]** `backend/src/main/java/com/alethicode/service/aitutor/contract/CardType.java`：在原 11 个枚举末尾追加 4 个新值 `CAREER_BRIDGING("career_bridging", "career_bridging")` / `DOMAIN_VARIANT("domain_variant", "domain_variant")` / `MICRO_PROJECT_BRIEF("micro_project_brief", "micro_project_brief")` / `CAREER_PATH_NODE("career_path_node", "career_path_node")`，messageType / outputKey 全 snake_case 与原 enum 命名风格一致；现有 11 个枚举与所有引用 0 改动，不引入兼容层。
+- 2026-05-06 **[变更/aitutor-reflection]** `backend/src/main/java/com/alethicode/service/aitutor/reflection/ReflectionServiceImpl.java#buildCriticSystemPrompt`：switch 表达式新增 4 个 case，每个 case 给出针对该 CardType 的 4 维 rubric，明确以下契约——`CAREER_BRIDGING`（事实必须可映射 `major_dictionary` / `learner_state` / `learning_pack`、citations 完整性、Why 层不允许给代码）、`DOMAIN_VARIANT`（IO schema 不变 + 测试样例语义不偏移 + 重写边界仅限 narrative + verification 自报告 abort 机制）、`MICRO_PROJECT_BRIEF`（专业相关性 + KC ⊆ mastered_kcs + Python 标准库 + reference_solution + 测试样例 ≥ 5 含边界与反例）、`CAREER_PATH_NODE`（why_md 来自 `major_dictionary.seed_use_cases`、不引入超出本 KC 的代码或解题步骤）。原 3 个 case（`ERROR_DIAGNOSIS` / `FADED_EXAMPLE` / `POST_AC`）与 default 兜底 0 改动。
+- 2026-05-06 **[新增/test]** `backend/src/test/java/com/alethicode/service/aitutor/reflection/ReflectionServiceImplTest.java`：6 用例。(1)-(4) 4 个 rubric 关键短语合约：用 Mockito ArgumentCaptor 抓 `AiModelGateway.callForJson` 收到的 system prompt，断言关键短语必须出现（特别 DOMAIN_VARIANT 必须包含 `IO schema 不变` / `测试样例语义不偏移` / `input_schema_unchanged` / `semantics_unchanged` / `abort` 5 个关键 token）；(5) critic pass=true 时 1 轮直接返回、`passed=true` `roundsUsed=1`；(6) critic 第一轮失败 → refine → 第二轮 pass，`passed=false` `roundsUsed=2`，共 3 次 LLM 调用（critic1 + refine1 + critic2）。
+- 2026-05-06 **[验证/单测]** `mvn -Dtest='ReflectionServiceImplTest' test`：6/6 全过、0 failure 0 error；`mvn -q compile`：0 错误，CardType 新增 4 个枚举值不破坏任何 switch（项目内多个 switch 都有 default 兜底）。
+
 ### Career Bridging Closure 启动：plan 切 main 主线 + Phase 1 数据基线（V83 + V85）
 
 > **背景**：实施 plan `career-bridging-closure_e71ce32e.plan.md`，围绕「专业 × 编程」主题对非 CS 学生补全平台缺失的 Why / How（内容侧）/ What / Map 四层闭环（4 个新模块：Career Bridging / Coding Lens / Project Studio / Career Path Map）。本批 commit 完成 plan 的 phase0（切 main 工作流）+ phase1 第 1 个功能 commit（V83 + V85 数据基线，4 个模块共享的「学生专业 + 专业字典 + 题面变体」表结构）。判题不动、Judge Server 协议不动、IO schema 不动；LLM 调用一律走 `AiModelGateway.callForJson`（已下线 ReAct 路径不再启用）。

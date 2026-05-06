@@ -18,8 +18,9 @@
 | # | commit message | 状态 | 本地 sha | 备注 |
 |---|---|---|---|---|
 | 0 | `docs(agents): 同步本轮工作准则修订` | 本地完成（待 push） | `8d8fede` | sprint 分支 35 commit ff-merge 至 main 已落本地 |
-| 1 | `feat(career-db): 扩展 user_profile 并新建 career_major_dictionary（V83）+ problem_domain_variant（V85）` | 本地完成（待 push） | 见 git log | V83/V85 SQL + CHANGELOG + 本进度文档同 commit |
-| 2 | `feat(aitutor-cardtype): 扩展 4 个新 CardType 与 ReflectionServiceImpl 对应 critic rubric` | 进行中 | — | 紧接 todo 1 落地 |
+| 1 | `feat(career-db): 扩展 user_profile 并新建 career_major_dictionary（V83）+ problem_domain_variant（V85）` | 本地完成（待 push） | `d00091d` | V83/V85 SQL + CHANGELOG + 本进度文档同 commit |
+| 2 | `feat(aitutor-cardtype): 扩展 4 个新 CardType 与 ReflectionServiceImpl 对应 critic rubric` | 本地完成（待 push） | 见 git log | CardType +4 + ReflectionServiceImpl 4 case rubric + ReflectionServiceImplTest 6 用例 |
+| 3 | `feat(career-bridging): 里程碑式 Why 报告生成 + Rollout/Reflection 接入` | 进行中 | — | 依赖 V84 迁移（plan 后续 phase） |
 | 3 | `feat(career-bridging): 里程碑式 Why 报告生成 + Rollout/Reflection 接入` | 待开始 | — | 依赖 V84 迁移（plan 后续 phase） |
 | 4 | `feat(career-bridging-ui): CareerProfilePage 与主页 CareerProgressCard` | 待开始 | — | — |
 | 5 | `feat(coding-lens): 受约束 LLM 题面重写 + critic 防语义漂移` | 待开始 | — | — |
@@ -109,20 +110,28 @@ main 代码层面已被 Revert 抵消、不含 l99 的迁移文件，但 dev DB 
 本次会话默认选 **方案 3**：本地不重置 dev DB；远端 CI 暂时也不会跑（因
 push 阻塞）；进度仅靠隔离 DB 的 SQL dry-run 提供证据。
 
-## todo 2：CardType + ReflectionServiceImpl critic rubric（待开始）
+## todo 2：CardType + ReflectionServiceImpl critic rubric（本地完成，待 push）
 
-按 plan 3.4 节扩展 4 个 CardType：
-- `CAREER_BRIDGING("career_bridging", "career_bridging")`
-- `DOMAIN_VARIANT("domain_variant", "domain_variant")`
-- `MICRO_PROJECT_BRIEF("micro_project_brief", "micro_project_brief")`
-- `CAREER_PATH_NODE("career_path_node", "career_path_node")`
+### 已落地
+- `backend/src/main/java/com/alethicode/service/aitutor/contract/CardType.java`：
+  在 11 个原 enum 末尾追加 4 个新值：
+  - `CAREER_BRIDGING("career_bridging", "career_bridging")`
+  - `DOMAIN_VARIANT("domain_variant", "domain_variant")`
+  - `MICRO_PROJECT_BRIEF("micro_project_brief", "micro_project_brief")`
+  - `CAREER_PATH_NODE("career_path_node", "career_path_node")`
+- `backend/src/main/java/com/alethicode/service/aitutor/reflection/ReflectionServiceImpl.java`：
+  `buildCriticSystemPrompt` switch 新增 4 个 case，每个 4 维 rubric：
+  - `CAREER_BRIDGING`：事实必须可映射 evidence、citations 完整性、Why 层不给代码
+  - `DOMAIN_VARIANT`（最严）：IO schema 不变 + 测试样例语义不偏移 + verification 自报告 + abort 机制
+  - `MICRO_PROJECT_BRIEF`：专业相关性 + KC ⊆ mastered_kcs + Python 标准库 + reference_solution + ≥5 测试样例
+  - `CAREER_PATH_NODE`：why_md 来自 major_dictionary.seed_use_cases，不引入超出本 KC 的代码
+- `backend/src/test/java/com/alethicode/service/aitutor/reflection/ReflectionServiceImplTest.java`：
+  6 用例（4 个 rubric 关键短语合约 + 1 个 pass 直接返回 + 1 个 critic 失败后 refine 流程）
 
-并在 `ReflectionServiceImpl.buildCriticSystemPrompt` 的 switch 中追加这 4 类
-的 4 维 rubric（事实一致性 / 教学适切性 / schema 完整性 / 答案泄露 或
-语义不漂移），其中 `DOMAIN_VARIANT` 必须强约束 IO schema 与样例语义不变。
-
-测试：在 `ReflectionServiceImplTest` 增加单测，覆盖 4 个 CardType 的
-`buildCriticSystemPrompt` 输出包含各自 rubric 的关键短语。
+### 验证
+- `mvn -Dtest='ReflectionServiceImplTest' test`：6/6 全过、0 failure 0 error
+- `mvn -q compile`：0 错误，确认 CardType 新增 4 个枚举值没有破坏任何
+  其它 switch（项目内多个 switch 都用 default 兜底，安全）
 
 ## 验证记录
 
@@ -131,6 +140,9 @@ push 阻塞）；进度仅靠隔离 DB 的 SQL dry-run 提供证据。
 | 2026-05-06 | V83 + V85 在隔离 DB `alethicode_career_test_v83` 跑通 | ✓ 5 项断言全过、DB 已 drop |
 | 2026-05-06 | `git status` 在 main HEAD `8d8fede` | ✓ 工作树干净（除 V83/V85 + 本进度文档） |
 | 2026-05-06 | todo 1 `feat(career-db): ...` 本地 commit | ✓ V83/V85 SQL + CHANGELOG + progress 文档同 commit；`frontend/src/pages/oj/components/chat/composerStorage.js` 非本 plan 范围 untracked 残留（AI Tutor composer 草稿层，scope = tutor:/qa:），按 AGENTS.md 实施规范「不擅自删除遗留」原则保留 |
+| 2026-05-06 | `mvn -Dtest='ReflectionServiceImplTest' test` | ✓ 6/6 全过、0 failure 0 error |
+| 2026-05-06 | `mvn -q compile` | ✓ 0 错误，CardType +4 不破坏任何 switch |
+| 2026-05-06 | todo 2 `feat(aitutor-cardtype): ...` 本地 commit | ✓ CardType + ReflectionServiceImpl + 单测 + CHANGELOG + progress 同 commit |
 
 ## 严格约束清单（每个后续 todo 都要遵守）
 
