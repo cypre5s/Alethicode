@@ -1,7 +1,7 @@
 <template>
   <div class="em-container" role="region" aria-label="错误模式个人馆">
     <h2 class="em-title">我的错误博物馆</h2>
-    <p class="em-subtitle">把最让你印象深刻的错误收藏起来，每一个都是你成长的证明</p>
+    <p class="em-subtitle">钉选最有故事的错误，每一个都是成长的勋章</p>
 
     <div v-if="loading" class="em-skeleton">
       <el-skeleton :rows="3" animated />

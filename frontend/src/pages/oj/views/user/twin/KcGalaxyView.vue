@@ -5,8 +5,8 @@
     </div>
 
     <div v-else-if="error" class="kg-error" role="alert">
-      <p>星系暂时连接不上，可能是网络问题</p>
-      <button type="button" class="kg-retry-btn" @click="loadGalaxy">再试一次</button>
+      <p>加载星系图时出错</p>
+      <button type="button" class="kg-retry-btn" @click="loadGalaxy">重试</button>
     </div>
 
     <div v-else-if="nodes.length === 0" class="kg-empty">
@@ -20,8 +20,8 @@
           <line x1="40" y1="20" x2="36" y2="40" stroke="#0F4C81" stroke-width="1" opacity="0.2"/>
         </svg>
       </div>
-      <p class="kg-empty__text">你的知识星系正在形成中</p>
-      <router-link to="/problem" class="kg-empty__cta">做几道题点亮第一颗星 →</router-link>
+      <p class="kg-empty__text">还没有知识点数据</p>
+      <router-link to="/problem" class="kg-empty__cta">去做题解锁星系 →</router-link>
     </div>
 
     <template v-else>

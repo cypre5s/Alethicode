@@ -20,7 +20,7 @@
             <path d="M12 38c0-6.627 5.373-12 12-12s12 5.373 12 12" stroke="#0F4C81" stroke-width="2" fill="none"/>
           </svg>
         </div>
-        <p class="tp-empty__text">你的孪生正在慢慢认识你，多做几道题它就能描述你的学习风格了</p>
+        <p class="tp-empty__text">孪生还在了解你，再做几道题吧</p>
       </div>
     </template>
 

@@ -24,7 +24,7 @@ describe('L99 Sprint 07 — metacognitive prediction contract', () => {
 
   test('PredictBeforeCodeCard has skip option with gentle message', () => {
     const src = readSource('../../src/pages/oj/views/problem/PredictBeforeCodeCard.vue')
-    expect(src).toContain('先猜猜结果')
+    expect(src).toContain('研究表明先预测的人学得更快')
   })
 
   test('MetacognitiveMapView.vue exists and calls getMetacogMap', () => {

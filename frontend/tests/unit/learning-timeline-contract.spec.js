@@ -36,8 +36,8 @@ describe('L99 Sprint 01 — learning timeline contract', () => {
     expect(src).toContain('v-if="loading"')
     expect(src).toContain('v-else-if="error"')
     expect(src).toContain('v-else-if="events.length === 0"')
-    expect(src).toContain('将记录你的每一步学习足迹')
-    expect(src).toContain('开始第一道题')
+    expect(src).toContain('你还没有学习记录哦')
+    expect(src).toContain('去做第一道题')
   })
 
   test('LearningTimelineEvent.vue exists and has hover card', () => {

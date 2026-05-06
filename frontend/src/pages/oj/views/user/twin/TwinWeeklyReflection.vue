@@ -24,7 +24,7 @@
 
       <div class="tw-reflection">
         <h4 class="tw-reflection__title">周日冥想</h4>
-        <p class="tw-reflection__prompt">给自己 2 分钟安静的时间，回顾本周的学习，写下此刻的想法：</p>
+        <p class="tw-reflection__prompt">花 2 分钟回顾本周，写下你的感受和下周目标：</p>
         <textarea
           v-model="reflectionText"
           class="tw-reflection__textarea"

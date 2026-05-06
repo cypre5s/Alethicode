@@ -26,7 +26,7 @@ describe('L99 Sprint 02 — KC galaxy contract', () => {
     expect(src).toContain('v-if="loading"')
     expect(src).toContain('v-else-if="error"')
     expect(src).toContain('v-else-if="nodes.length === 0"')
-    expect(src).toContain('知识星系正在形成中')
+    expect(src).toContain('还没有知识点数据')
   })
 
   test('KcGalaxyView maps mastery to 4 color tiers', () => {

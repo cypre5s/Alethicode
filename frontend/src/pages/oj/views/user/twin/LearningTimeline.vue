@@ -34,8 +34,8 @@
     </div>
 
     <div v-else-if="error" class="lt-error" role="alert">
-      <p>时间轴暂时加载不了，可能是网络波动</p>
-      <button type="button" class="lt-retry-btn" @click="loadTimeline">再试一次</button>
+      <p>加载时间轴时出错</p>
+      <button type="button" class="lt-retry-btn" @click="loadTimeline">重试</button>
     </div>
 
     <div v-else-if="events.length === 0" class="lt-empty">
@@ -47,8 +47,8 @@
           <line x1="20" y1="40" x2="40" y2="40" stroke="#0F4C81" stroke-width="2" stroke-linecap="round" opacity="0.3"/>
         </svg>
       </div>
-      <p class="lt-empty__text">这里将记录你的每一步学习足迹</p>
-      <router-link to="/problem" class="lt-empty__cta">开始第一道题 →</router-link>
+      <p class="lt-empty__text">你还没有学习记录哦</p>
+      <router-link to="/problem" class="lt-empty__cta">去做第一道题 →</router-link>
     </div>
 
     <div v-else class="lt-events" role="list" aria-label="时间轴事件列表">

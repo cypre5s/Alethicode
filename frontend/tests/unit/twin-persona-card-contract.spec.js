@@ -19,7 +19,7 @@ describe('L99 Sprint 03 — twin persona card contract', () => {
     expect(src).toContain('v-if="loading"')
     expect(src).toContain('v-else-if="disabled"')
     expect(src).toContain('v-else-if="!summaryText"')
-    expect(src).toContain('正在慢慢认识你')
+    expect(src).toContain('孪生还在了解你，再做几道题吧')
   })
 
   test('TwinPersonaCard supports edit mode with textarea', () => {

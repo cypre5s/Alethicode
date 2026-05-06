@@ -33,7 +33,7 @@ describe('L99 Sprint 04 — error museum contract', () => {
     const src = readSource('../../src/pages/oj/views/user/twin/ErrorMuseumExhibit.vue')
     expect(src).toContain("name: 'ErrorMuseumExhibit'")
     expect(src).toContain('em-exhibit--empty')
-    expect(src).toContain('收藏一个难忘的错误')
+    expect(src).toContain('钉一个你的错误')
   })
 
   test('ErrorMuseumExhibit supports inline annotation editing', () => {
