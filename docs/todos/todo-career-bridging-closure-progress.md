@@ -27,7 +27,8 @@
 | 7 | `feat(career-db): V86 新建 career_micro_project 与 career_path_node 及种子数据` | 本地完成（待 push） | 见 git log | V86 SQL + 12 专业 × 5 节点 path 种子（60 行） |
 | 8 | `feat(career-path): 拓扑排序 + 解锁判断 + GraphRAG why_md 增强` | 本地完成（待 push） | 见 git log | service + controller |
 | 9 | `feat(career-path-ui): vue-mermaid 渲染的专业路径地图与缩略图嵌入` | 本地完成（待 push） | 见 git log | CareerPathPage + API + 路由 |
-| 10 | `feat(career-bridging): 串通 KC 毕业与章节进入两类里程碑触发` | 待开始 | — | — |
+| review | code review 修复批（🔴 #1 #2 / 🟠 #3-#7 / 🟡 #8 #9 #11） | 本地完成（待 push） | 见 git log | 前端 method/path 拉齐 + Coding Lens RBAC + Vue v-html → marked+DOMPurify + Career Controller 走 service + 死代码删除 + markNodeUnlocked 校验 + ReflectionResult 语义统一 + 新增 13 个单测 |
+| 10 | `feat(career-bridging): 串通 KC 毕业与章节进入两类里程碑触发` | 待开始（先前 commit ed25609 的死代码 listener 已在 review 修复批中清除） | — | — |
 | 11 | `feat(career-studio): 微项目生成与 reference solution 真判题自验证` | 待开始 | — | — |
 | 12 | `feat(career-studio-ui): 项目详情、CodeMirror 复用与作品集卡片导出` | 待开始 | — | — |
 | 13 | `feat(career-bridging): project_completed 触发报告重激活` | 待开始 | — | — |
@@ -223,6 +224,9 @@ push 阻塞）；进度仅靠隔离 DB 的 SQL dry-run 提供证据。
 | 2026-05-06 | todo 3 `feat(career-bridging): ...` 本地 commit | ✓ V84 + service + 5 endpoints + 4 DTO + 8 单测 + AlethicodeProperties + CHANGELOG + progress 同 commit |
 | 2026-05-06 | `wc -l V86 + grep INSERT 种子计数` | ✓ 256 行、60 条种子（12 专业 × 5 KC 节点） |
 | 2026-05-06 | todo 7 `feat(career-db): V86 + path 种子` 本地 commit | ✓ V86 SQL + CHANGELOG + progress 同 commit |
+| 2026-05-06 | code review 修复批 `mvn -Dtest='ReflectionServiceImplTest,CareerBridgingServiceImplTest,DomainLensServiceImplTest,CareerPathServiceImplTest' test` | ✓ 27/27 全过（旧 14 + 新增 13）、0 failure 0 error |
+| 2026-05-06 | code review 修复批 `mvn -q compile` | ✓ 0 错误（含 untracked `MicroProjectStudioServiceImpl` 编译修复） |
+| 2026-05-06 | code review 修复批 `npm run typecheck` + `npx vite build` | ✓ 0 错误，PWA precache 249 entries / 19521.22 KiB 正常生成 |
 
 ## 严格约束清单（每个后续 todo 都要遵守）
 

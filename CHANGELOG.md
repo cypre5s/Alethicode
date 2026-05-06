@@ -4,6 +4,21 @@
 
 ## [Unreleased] - 2026-05-06
 
+### Career Bridging Closure code review 修复批
+
+> **背景**：用户对 `career-bridging-closure_e71ce32e.plan.md` 已完成的 11 个 commit 做 code review，发现两条阻塞性契约不一致、Coding Lens 教师锁定缺角色校验、3 个 Vue 页面 v-html LLM 内容存在 XSS 面、`CareerMilestoneEventListener` 是 0 调用方死代码、`CareerController` 重复实现 service 同语义、`ReflectionResult.passed` 字段语义在 maxRounds=1 时分裂。本批 commit 严格按 AGENTS.md「外科手术式」一次性修复 🔴/🟠 项与部分 🟡 项，未触达 plan 已交付的语义边界。
+
+- 2026-05-06 **[修复/前端契约]** `frontend/src/pages/oj/api/career.js`：`updateCareerProfile` 由 POST 改为 PUT 与后端 `@PutMapping` 对齐；`generateCareerReport` 路径由 `career/milestones/{id}/generate` 改为 `career/milestones/{id}/reports` 与后端 `@PostMapping` 对齐。同步修正 `CareerEnrollmentResponse.java` javadoc 的路径描述，去掉同一语义双拼写。
+- 2026-05-06 **[安全/coding-lens]** `CodingLensController.lockForExam` 增加 `@PreAuthorize("hasRole('ADMIN'))`：与 `AdminLanguagePackController` 等管理端遵循同一 RBAC 范式，禁止普通学生通过 POST `/api/coding-lens/variants/{id}/lock` 锁定题面变体。
+- 2026-05-06 **[安全/前端 XSS]** `CareerProfilePage.vue` / `CareerReportPage.vue` 的 `renderMd` 改为复用项目现成的 `marked` + `@/utils/sanitize` (DOMPurify)，移除手写 `## / **` 替换；`CareerPathPage.vue` 把拼接 HTML 的 `buildDag` 重写为 Vue 模板渲染（`<template v-for="...">` + 静态 class），移除 `v-html`，从源头消除 LLM 输出落到 DOM 的 XSS 面。
+- 2026-05-06 **[重构/Career Controller]** `CareerController` 删除直接持有的 `JdbcTemplate` 字段、`listMajors` 与 `getProfile` 重复 SQL；全部委托给 `CareerBridgingService.listMajors()` / `findProfile(userId).orElse(EMPTY_PROFILE_VIEW)`；同时把 `auto_generate` 失败兜底改为只 catch 通用 `Exception`、对 `ResponseStatusException` 直接 rethrow，避免吞掉服务层抛出的 503 / 422 / 404 等明确业务错误。
+- 2026-05-06 **[fail-fast/career-path]** `CareerPathServiceImpl.markNodeUnlocked` 在写 milestone 前先校验 (majorCode, kcCode) 在 `career_path_node` 真实存在：blank 输入抛 422、不存在抛 404，避免任意字符串污染 `career_bridging_milestone.milestone_ref`。`CareerBridgingServiceImpl.loadRecentPackTitles` 删除 catch Exception 兜底，符合 AGENTS.md「fail fast，不写防御性掩盖问题逻辑」。
+- 2026-05-06 **[死代码清理]** 删除 `CareerMilestoneEventListener.java` —— 该文件由 commit `ed25609` 引入，但 `MasteryService` / `LanguagePackQaService` 没有任何调用方，`onMasteryUpdated` / `onChapterEntered` 全仓 0 引用。按 AGENTS.md「每一处改动都应能追溯到用户需求；如果做不到，应删除该改动」清理；待 plan todo 10 真正落地时再连同 caller 一起重写（避免主线累积死代码 + 3 处 catch Exception 静默吞错）。
+- 2026-05-06 **[语义/reflection]** `ReflectionResult.passed` 语义钉死为「最终一次 Critic 是否通过」（既包括第一次就过，也包括 N 轮 refine 后第 (N+1) 次 critic 通过）；`ReflectionServiceImpl` 循环内 pass 路径由 `round == 1` 改为 `true`，与循环外的 `finalPass` 路径含义统一；同步更新 javadoc 与 `ReflectionServiceImplTest.reflectAndRefineRefinesWhenCriticFailsThenAcceptsSecondPass` 用例期望值（`passed=true` 而非 `false`）。下游 `CareerBridgingServiceImpl#persistReport` / `DomainLensServiceImpl` 继续直接读 `reflection.passed()` 写入 DB 列 `reflection_passed`，语义不再分裂。「是否第一次就过」由 `roundsUsed == 1 && passed` 表达，无需新字段。
+- 2026-05-06 **[新增/单测]** 新建 `DomainLensServiceImplTest`（7 用例）：覆盖缓存命中跳过 LLM、rollback 决策返回 empty、LLM `abort=true` 不写库、critic 拒绝不写库、critic 通过写库 + 返回缓存行、`lockForExam` 不存在 variant 抛 404、`invalidate` 删除非锁定变体；新建 `CareerPathServiceImplTest`（6 用例）：空 path / 专业不存在 404 / mastery 三态阈值分类 / `markNodeUnlocked` 空白参数 422 / 不存在 path_node 404 / 合法 path_node 触发 milestone。
+- 2026-05-06 **[小修复/编译]** `MicroProjectStudioServiceImpl#generate` 把 try/catch 形式的 `kcJson` 提取到 `serializeKcs` helper，避免 lambda 引用非 effectively final 变量的编译失败（本机 mvn -q compile 触发，属 untracked 文件原有 bug，不在本 review 范围语义改动内，最小修复）。
+- 2026-05-06 **[验证]** `mvn -Dtest='ReflectionServiceImplTest,CareerBridgingServiceImplTest,DomainLensServiceImplTest,CareerPathServiceImplTest' test`：27/27 全过、0 failure 0 error。`mvn -q compile`：0 错误。`npm run typecheck` + `npx vite build`：0 错误，PWA precache 正常生成。
+
 ### Career Bridging Closure todo 7：V86 数据基线（career_micro_project + career_path_node 含 60 条种子）
 
 > **背景**：plan 2.4 节要求为 Career Path Map（todo 8/9）与 Project Studio（todo 11/12）建立共享数据基线——`career_micro_project` 把 Studio 生成的微项目挂到正常 `problem` 表的判题流（不绕过 Judge Server），`career_path_node` 把现有 KC 体系（V13 / V25 / V51）映射到「专业 × KC」桥接关系，作为 GraphRAG `why_md` 的稳定来源。本批 commit 是纯 SQL + 60 条人工种子，零 Java/Vue 改动。
