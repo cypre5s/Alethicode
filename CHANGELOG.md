@@ -15,6 +15,12 @@
 - 2026-05-06 **[新增/DTO]** `CareerProfileRequest` / `CareerEnrollmentResponse` / `CareerProfileView` / `CareerMajorOption` 四个 record。
 - 2026-05-06 **[新增/测试]** `CareerBridgingServiceImplTest` 8 个用例全过：首次填专业触发 milestone、重复填不重复插入、blank major 422、未注册 major 422、missing user_profile 404、null MilestoneType 422、control 组消费不调 LLM、treatment 组完整链路验证。
 
+### Career Bridging Closure todo 6：DomainLensToggle 与教师后台
+
+- 2026-05-06 **[新增/组件]** `DomainLensToggle.vue`：题目页顶部切换器，自动检测学生已填专业后显示；点击「我专业版」调 Coding Lens API，点击「切回原版」emit variant-cleared。
+- 2026-05-06 **[新增/API]** `career.js` 新增 `getCodingLensVariant` / `lockCodingLensVariant`。
+- 2026-05-06 **[验证]** vite build 通过。
+
 ### Career Bridging Closure todo 5：Coding Lens 受约束 LLM 题面重写
 
 > **背景**：plan 4 节定义「Domain-Aware Coding Lens」——按学生专业重写题面叙事，但严格保持 IO schema 不变 + 测试样例语义不偏移。

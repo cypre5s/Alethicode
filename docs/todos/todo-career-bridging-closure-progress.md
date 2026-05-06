@@ -23,8 +23,8 @@
 | 3 | `feat(career-bridging): 里程碑式 Why 报告生成 + Rollout/Reflection 接入` | 本地完成（待 push） | 见 git log | V84 + service + controller + DTO + 8 单测 |
 | 4 | `feat(career-bridging-ui): CareerProfilePage 与主页 CareerProgressCard` | 本地完成（待 push） | 见 git log | 3 Vue + 1 API + 路由 + 主页卡片嵌入 |
 | 5 | `feat(coding-lens): 受约束 LLM 题面重写 + critic 防语义漂移` | 本地完成（待 push） | 见 git log | service + controller + prompt |
-| 6 | `feat(coding-lens-ui): DomainLensToggle 与教师后台只读视图` | 待开始 | — | — |
-| 7 | `feat(career-db): V86 新建 career_micro_project 与 career_path_node 及种子数据` | 待开始 | — | — |
+| 6 | `feat(coding-lens-ui): DomainLensToggle 与教师后台只读视图` | 进行中（并行 agent） | — | — |
+| 7 | `feat(career-db): V86 新建 career_micro_project 与 career_path_node 及种子数据` | 本地完成（待 push） | 见 git log | V86 SQL + 12 专业 × 5 节点 path 种子（60 行） |
 | 8 | `feat(career-path): 拓扑排序 + 解锁判断 + GraphRAG why_md 增强` | 待开始 | — | — |
 | 9 | `feat(career-path-ui): vue-mermaid 渲染的专业路径地图与缩略图嵌入` | 待开始 | — | — |
 | 10 | `feat(career-bridging): 串通 KC 毕业与章节进入两类里程碑触发` | 待开始 | — | — |
@@ -178,6 +178,36 @@ push 阻塞）；进度仅靠隔离 DB 的 SQL dry-run 提供证据。
   本会话 Write 工具与对方修改互相覆盖过几次：本次 commit 时已稳定到「对方
   Service / Impl / Prompts / Properties / 3 个 response DTO + 我的 Request
   / Controller / Test / V84 SQL」的合并版本，编译与单测都过。
+
+## todo 7：V86 + path/studio 数据基线（本地完成，待 push）
+
+### 已落地
+- `backend/src/main/resources/db/migration/V86__career_path_and_micro_project.sql`：
+  - 新建 `career_micro_project` 表（学生 × 专业 × KC 集 → 微项目，13 列含
+    `judge_problem_id` 关联到 problem 表、`status` 8 状态枚举、`portfolio_card_uri`
+    作品集卡片 URI、`rollout_mode` / `trace_id` 灰度可观测）+ 2 索引
+    （`idx_micro_project_user_status` 学生进度页用、`idx_micro_project_judge_problem`
+    部分索引仅 judge_problem_id 非 null）
+  - 新建 `career_path_node` 表（专业 × KC 桥接关系，UNIQUE(major_code, kc_code)
+    防止同一专业同一 KC 重复 + 1 索引 `idx_career_path_node_major` 按
+    `(major_code, sort_order)` 排序）
+  - 落 12 个高占比专业 × 5 节点核心 KC 共 60 行种子（plan 2.4 节强约束：第一批
+    人工编辑，不允许 LLM 直接写入）：
+    - 5 节点 KC 链：`variables` → `data_types` → `collections` → `control_flow`
+      → `functions`，每个 KC 在不同专业有不同的 `why_md`（GraphRAG 解释来源）
+    - `typical_use_cases` 严格基于 V83 字典里该专业的 `seed_use_cases`，**不编造**
+
+### 验证
+- `wc -l V86`：256 行；`grep -c "INSERT INTO ... VALUES \| ('<major>'"`：60 行 INSERT
+  种子（12 专业 × 5 节点）验证通过
+
+### 强约束
+- `kc_code` 复用现有 KC 体系（V13 / V25 / V51 已建），**不引入新 KC**——只新增
+  「Domain × KC」桥接一层
+- `judge_problem_id` 关联到 problem 表，Studio 生成的题目作为正常 problem 流走
+  Judge Server 真判题（plan 0 节强约束：判题不动、Judge Server 协议不动）
+- 后续 LLM 辅助扩展 `career_path_node` 时**只能产出候选**，必须人审才入库
+  （plan 2.4 节强约束）
 
 ## 验证记录
 

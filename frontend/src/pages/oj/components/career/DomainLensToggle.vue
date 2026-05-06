@@ -1,0 +1,100 @@
+<template>
+  <div v-if="majorCode" class="domain-lens-toggle">
+    <button
+      class="lens-btn"
+      :class="{ active: showVariant }"
+      :disabled="loading"
+      @click="toggle"
+    >
+      <svg class="lens-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"/>
+        <path d="m21 21-4.3-4.3"/>
+      </svg>
+      {{ loading ? '加载中…' : (showVariant ? '切回原版' : '我专业版') }}
+    </button>
+  </div>
+</template>
+
+<script>
+import api from '@oj/api'
+
+export default {
+  name: 'DomainLensToggle',
+  props: {
+    problemId: { type: [Number, String], required: true }
+  },
+  emits: ['variant-loaded', 'variant-cleared'],
+  data () {
+    return {
+      majorCode: null,
+      showVariant: false,
+      loading: false,
+      variant: null
+    }
+  },
+  async created () {
+    try {
+      const res = await api.getCareerProfile()
+      const d = res.data.data
+      if (d && d.major_code) {
+        this.majorCode = d.major_code
+      }
+    } catch { /* silent */ }
+  },
+  methods: {
+    async toggle () {
+      if (this.showVariant) {
+        this.showVariant = false
+        this.$emit('variant-cleared')
+        return
+      }
+      this.loading = true
+      try {
+        const res = await api.getCodingLensVariant(this.problemId, this.majorCode)
+        if (res.data.data) {
+          this.variant = res.data.data
+          this.showVariant = true
+          this.$emit('variant-loaded', this.variant)
+        }
+      } catch { /* silent — variant not available, stay on original */ }
+      this.loading = false
+    }
+  }
+}
+</script>
+
+<style scoped>
+.domain-lens-toggle {
+  display: inline-block;
+}
+.lens-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid #c7d2fe;
+  border-radius: 8px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.lens-btn:hover:not(:disabled) {
+  background: #e0e7ff;
+  border-color: #a5b4fc;
+}
+.lens-btn.active {
+  background: #6366f1;
+  color: #fff;
+  border-color: #6366f1;
+}
+.lens-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.lens-icon {
+  flex-shrink: 0;
+}
+</style>

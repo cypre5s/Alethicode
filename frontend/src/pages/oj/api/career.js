@@ -21,5 +21,13 @@ export default {
   },
   getCareerReports (limit = 5) {
     return ajax('career/reports', 'get', { params: { limit } })
+  },
+  getCodingLensVariant (problemId, majorCode) {
+    return ajax(`coding-lens/problems/${problemId}`, 'get', {
+      params: { major: majorCode }
+    })
+  },
+  lockCodingLensVariant (variantId) {
+    return ajax(`coding-lens/variants/${variantId}/lock`, 'post')
   }
 }
