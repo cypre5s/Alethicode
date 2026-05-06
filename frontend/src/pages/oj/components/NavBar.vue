@@ -23,6 +23,15 @@
         <ElIcon><School /></ElIcon>
         班级
       </ElMenuItem>
+      <ElSubMenu index="/career">
+        <template #title>
+          <ElIcon><Compass /></ElIcon>
+          专业学习
+        </template>
+        <ElMenuItem index="/career/profile">专业档案</ElMenuItem>
+        <ElMenuItem index="/career/studio">微项目</ElMenuItem>
+        <ElMenuItem index="/career/reports">专业报告</ElMenuItem>
+      </ElSubMenu>
       <ElMenuItem index="/guide">
         <ElIcon><Reading /></ElIcon>
         新手指南
@@ -116,7 +125,7 @@
 
 <script>
   import { mapGetters, mapActions } from 'vuex'
-  import { Grid, ArrowDown, Bell, School, ChatLineSquare, Message, Notebook, Reading, QuestionFilled } from '@element-plus/icons-vue'
+  import { Grid, ArrowDown, Bell, School, ChatLineSquare, Message, Notebook, Reading, QuestionFilled, Compass } from '@element-plus/icons-vue'
   import login from '@oj/views/user/Login'
   import register from '@oj/views/user/Register'
   import BetaFeedbackButton from '@oj/components/BetaFeedbackButton.vue'
@@ -144,6 +153,7 @@
       Notebook,
       Reading,
       QuestionFilled,
+      Compass,
       BetaFeedbackButton
     },
     data () {
@@ -376,6 +386,32 @@
         font-size: 16px;
         vertical-align: middle;
       }
+    }
+
+    :deep(.el-sub-menu__title) {
+      font-weight: 500;
+      color: var(--text-secondary);
+      font-size: 15px;
+      height: 64px;
+      line-height: 64px;
+      border-bottom: 2px solid transparent;
+      transition: color 0.2s;
+
+      &:hover {
+        color: var(--primary-color);
+        background: transparent !important;
+      }
+
+      .el-icon {
+        margin-right: 6px;
+        font-size: 16px;
+        vertical-align: middle;
+      }
+    }
+
+    :deep(.el-sub-menu.is-active > .el-sub-menu__title) {
+      color: var(--primary-color);
+      border-bottom-color: var(--primary-color);
     }
 
     .nav-notebook {

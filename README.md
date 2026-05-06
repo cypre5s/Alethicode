@@ -27,40 +27,17 @@
 
 ---
 
-## 目录
-
-- [项目简介](#项目简介)
-- [核心特性](#核心特性)
-- [系统架构](#系统架构)
-- [技术栈](#技术栈)
-- [快速开始](#快速开始)
-- [本地开发](#本地开发)
-- [项目结构](#项目结构)
-- [配置参考](#配置参考)
-- [测试](#测试)
-- [部署](#部署)
-- [安全](#安全)
-- [可观测性](#可观测性)
-- [文档索引](#文档索引)
-- [路线图](#路线图)
-- [代码规范](#代码规范)
-- [更新日志](#更新日志)
-- [License](#license)
-- [致谢](#致谢)
-
----
-
 ## 项目简介
 
 **Alethicode** 是一个为 **非计算机专业 Python 初学者** 设计的智能在线评测系统（OJ），将传统 OJ 的自动判题能力与 AI 驱动的个性化教学辅导相融合。
 
 我们解决三个核心问题：
 
-1. **传统 OJ 对初学者太冷**：只给 AC/WA，不解释「为什么错」「怎么改」「下一步该学什么」。
-2. **市面 AI 教学产品离课堂太远**：脱离教师真实教学节奏、无法对接已有讲义/课件/学情。
-3. **教师无法低成本扩展教学规模**：备题、批改、答疑、个性化辅导都靠人力堆。
+1. **传统 OJ 对初学者太冷** — 只给 AC/WA，不解释「为什么错」「怎么改」「下一步该学什么」。
+2. **市面 AI 教学产品离课堂太远** — 脱离教师真实教学节奏、无法对接已有讲义/课件/学情。
+3. **教师无法低成本扩展教学规模** — 备题、批改、答疑、个性化辅导都靠人力堆。
 
-Alethicode 的回答是：把 **真实判题、AI 多 Agent 教学、课件 RAG、课堂协作、学情画像** 整合在同一个数据闭环里——学生的每一次提交都是真实的学习信号，AI 角色的每一句话都基于学生的真实历史。
+Alethicode 的回答：把 **真实判题、AI 多阶段教学、课件 RAG、课堂协作、学情画像、专业 × 编程闭环** 整合在同一个数据闭环里——学生的每一次提交都是真实的学习信号，AI 的每一句话都基于学生的真实历史。
 
 > 项目代号 *Alethicode*：**Aletheia**（希腊语「真理 / 不被遮蔽」）+ **Code**——让代码学习从遮蔽中走向澄明。
 
@@ -69,20 +46,21 @@ Alethicode 的回答是：把 **真实判题、AI 多 Agent 教学、课件 RAG�
 ## 核心特性
 
 | 模块 | 能力 | 状态 |
-| ----- | ------ | :--: |
+| ----- | ----- | :--: |
 | **在线评测** | Python3 / C / C++ / Java 实时判题，限流 + 防爬 + Judge Server 集群 | GA |
 | **AI 导学 FSM** | 7 阶段状态机：READING → IDEATING → SCAFFOLDING → CODING → ERROR_FEEDBACK → AC_REVIEW → TRANSFER | GA |
 | **EvidencePack + Reflection** | 单次 LLM 调用 + 检索证据 + Producer-Critic 自检（按 CardType 分维度评估） | GA |
-| **课件 RAG** | `@courseware:<lpId>` token 在对话内引用课件，关键词 + 向量混合检索（pgvector） | GA |
+| **课件 RAG** | `@courseware:<lpId>` / `@page:<lpId>:<n>` / `@kc:<id>` / `@notebook:<entryId>` 多类型引用，关键词 + 向量混合检索（pgvector） | GA |
+| **共享对话输入框** | `@` 菜单引用 + `/` 斜杠命令 + 键盘历史召回 + 草稿暂存 + token 用量条 + 上下文压缩 `/compact` + 会话分叉 `/fork` | GA |
 | **学习者画像** | KC 掌握度、misconception 追踪、学习记忆、frustration / confidence 代理指标 | GA |
 | **课堂协作** | WebSocket 实时编程、教师监控仪表盘、AI 自动出题 + 人审 | GA |
 | **学习者笔记本** | 错题归档、KC 视图、复盘对话 | GA |
 | **课件问答** | 学生对单个语言包的开放问答，grounded（带引用 + 拒答兜底） | GA |
+| **Career Bridging Closure** | 4 模块联动：Why 报告 / Coding Lens 专业化题面 / 微项目 Studio / 学习路径 Map；面向 12 个非 CS 专业，里程碑触发 + 真判题自验证 + 教师锁定 + 用户级关闭面板 | GA |
 | **视频生成** | LLM 分镜 → TTS → 渲染，4–7 镜头 / 45–90 秒讲解视频 | Beta |
 | **多模型 LLM 网关** | DeepSeek（生产）/ MiniMax-M2.7（备选），Spring AI 抽象层 | GA |
 | **可观测性** | Sentry/GlitchTip 错误追踪 + Micrometer + Prometheus + Jaeger + JaCoCo | GA |
 | **A/B 灰度 + Bandit** | 自研 RolloutPolicyService，支持按 user / KC / classroom 维度切流 | GA |
-| **Career Bridging Closure** | 4 模块联动（Why 报告 / 题面专业化 Lens / 微项目 Studio / 学习路径 Map）面向 12 个非 CS 专业，里程碑触发 + 真判题自验证 + 教师锁定 + 用户级关闭面板 | GA |
 | **TypeScript 渐进** | tsconfig + vue-tsc，新代码可逐文件迁移，旧 JS 不强约束 | Phase 1 |
 
 ---
@@ -107,8 +85,8 @@ Alethicode 的回答是：把 **真实判题、AI 多 Agent 教学、课件 RAG�
 │  │ Service  │ │ Service  │ │ Service  │ │  Memory + RAG +      │   │
 │  └──────────┘ └──────────┘ └──────────┘ │  Reflection)         │   │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ └──────────────────────┘   │
-│  │Classroom │ │LangPack  │ │ Video    │ ┌──────────────────────┐   │
-│  │ Service  │ │ Service  │ │ Job      │ │  AiModelGateway      │   │
+│  │Classroom │ │LangPack  │ │ Career   │ ┌──────────────────────┐   │
+│  │ Service  │ │ Service  │ │ Bridging │ │  AiModelGateway      │   │
 │  └──────────┘ └──────────┘ └──────────┘ │  (Spring AI 抽象)    │   │
 │                                         └──────────────────────┘   │
 └────────────┬───────────┬────────────┬──────────────┬───────────────┘
@@ -125,29 +103,29 @@ Alethicode 的回答是：把 **真实判题、AI 多 Agent 教学、课件 RAG�
                             └──────────────────────────────────────┘
 ```
 
-> 完整分层架构、调用流程、AI 导学子系统、语言包管线、课堂协作、数据库 ER 图，请见 **[`PROJECT.md`](./PROJECT.md)**（1000+ 行内部技术规格）。
+> 完整分层架构、调用流程、AI 导学子系统、语言包管线、课堂协作、数据库 ER 图，请见 **[`PROJECT.md`](./PROJECT.md)**。
 
 ---
 
 ## 技术栈
 
-### 后端 / Backend
+### 后端
 
 | 层 | 技术 |
 | ----- | ----- |
-| Runtime | Java 21（启用 Virtual Threads） |
+| Runtime | Java 21（Virtual Threads） |
 | Framework | Spring Boot 3.4.4 |
 | Web | Spring Web MVC + WebSocket（STOMP / 原生） |
 | Security | Spring Security 6 + Spring Session Data Redis |
-| Database | PostgreSQL 15+（含 `pgvector`）+ Flyway 38 个 versions |
+| Database | PostgreSQL 15+（含 `pgvector`）+ Flyway 84 个 versions |
 | ORM | Spring Data JPA + JdbcTemplate |
-| AI | Spring AI（Chat / Embedding / Tool）+ 自研 LayeredPrompt + Reflection |
-| Observability | Micrometer Tracing + OpenTelemetry OTLP + Sentry / GlitchTip + JaCoCo |
+| AI | Spring AI（Chat / Embedding / Tool）+ EvidencePack + Reflection |
 | Resilience | Resilience4j（熔断 / 限流 / 重试） |
+| Observability | Micrometer Tracing + OpenTelemetry OTLP + Sentry / GlitchTip + JaCoCo |
 | API Docs | springdoc-openapi（Swagger UI） |
 | Build | Maven |
 
-### 前端 / Frontend
+### 前端
 
 | 层 | 技术 |
 | ----- | ----- |
@@ -163,7 +141,7 @@ Alethicode 的回答是：把 **真实判题、AI 多 Agent 教学、课件 RAG�
 | Type System | TypeScript（渐进式，`vue-tsc --noEmit`） |
 | Test | Jest（单元）+ Playwright（E2E + 视觉回归） |
 
-### 微服务 / Microservices
+### 微服务
 
 | 服务 | 技术 | 端口 |
 | ------ | ----- | ----: |
@@ -171,7 +149,7 @@ Alethicode 的回答是：把 **真实判题、AI 多 Agent 教学、课件 RAG�
 | `alethicode-rag` | Python + FastAPI + pgvector + 通义 Embedding | 8200 |
 | Judge Server | 基于 [QingdaoU/Judger](https://github.com/QingdaoU/Judger) | 12358 |
 
-### 基础设施 / Infrastructure
+### 基础设施
 
 PostgreSQL · Redis · NATS · Temporal · Memgraph · Nginx · Docker Compose · GitHub Actions · Dependabot · Prometheus · Grafana · Jaeger · GlitchTip
 
@@ -210,11 +188,11 @@ cp deploy/.env.example   deploy/.env
 | 前端 | http://localhost:8080 |
 | 后端 API | http://localhost:8081 |
 | Swagger UI | http://localhost:8081/swagger-ui/index.html |
-| Grafana | http://localhost:3000  （`admin@localhost / admin`） |
+| Grafana | http://localhost:3000 （`admin@localhost / admin`） |
 | Jaeger | http://localhost:16686 |
 | Prometheus | http://localhost:9090 |
 
-> 默认管理员账号 / 演示账号见 `.local-credentials.md`（已 git-ignore，不入仓）。
+> `start.sh` 内置代理自适应：检测 `HTTP_PROXY`/`HTTPS_PROXY` 端口可达性，有代理走代理、没代理走直连，无需手动切换。
 
 ### Docker Compose 启动（推荐生产）
 
@@ -236,7 +214,7 @@ docker compose up -d
 cd backend
 cp .env.example .env
 mvn clean compile -DskipTests
-mvn spring-boot:run                      # 开发模式（热重载需配合 IDE）
+mvn spring-boot:run
 ```
 
 ### 前端
@@ -254,13 +232,13 @@ npm run lint                             # ESLint
 ```bash
 # tutor-graph (LangGraph FSM 工作流)
 cd services/tutor-graph
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8100
+python -m pip install -e ".[dev]"
+python -m pytest -q
 
 # alethicode-rag
 cd services/alethicode-rag
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8200
+python -m pip install -e ".[dev]"
+python -m pytest -q
 ```
 
 ---
@@ -269,53 +247,44 @@ uvicorn app.main:app --reload --port 8200
 
 ```
 Alethicode/
-├── backend/              # Spring Boot 后端（Java 21）
-│   ├── src/main/java/com/alethicode/
-│   │   ├── controller/   # REST 端点（30+ controller）
-│   │   ├── service/      # 业务服务（含 aitutor / classroom / languagepack 子系统）
-│   │   ├── dto/          # request / response DTO
-│   │   ├── entity/       # JPA 实体
-│   │   ├── middleware/   # SessionAuthFilter / CSRF / RateLimit
-│   │   └── config/       # SecurityConfig / WebSocketConfig / Properties
-│   └── src/main/resources/db/migration/   # Flyway V1..V38
+├── backend/                  # Spring Boot 后端（Java 21, 581 files, 52 controllers）
+│   ├── src/main/java/
+│   │   ├── controller/       # REST 端点（52 个 controller）
+│   │   ├── service/          # 业务服务（aitutor / classroom / languagepack / career 子系统）
+│   │   ├── dto/              # request / response DTO
+│   │   ├── entity/           # JPA 实体
+│   │   ├── middleware/       # SessionAuthFilter / CSRF / RateLimit
+│   │   └── config/           # SecurityConfig / WebSocketConfig / Properties
+│   └── src/main/resources/db/migration/   # Flyway V1..V91
 │
-├── frontend/             # Vue 3 + Vite 前端
-│   ├── src/pages/oj/     # 学生 OJ 端
-│   ├── src/pages/admin/  # 教师管理端
-│   ├── src/components/   # 通用组件
-│   ├── src/types/        # TypeScript 声明
-│   └── tests/            # Jest 单测 + Playwright E2E + 视觉回归
+├── frontend/                 # Vue 3 + Vite 前端（177 .vue, 103 .js）
+│   ├── src/pages/oj/         # 学生 OJ 端
+│   ├── src/pages/admin/      # 教师管理端
+│   ├── src/components/       # 通用组件
+│   ├── src/types/            # TypeScript 声明
+│   └── tests/                # Jest 单测 + Playwright E2E
 │
-├── services/             # Python 微服务
-│   ├── tutor-graph/      # LangGraph FSM 工作流（备线）
-│   └── alethicode-rag/   # 课件 RAG 服务
+├── services/                 # Python 微服务
+│   ├── tutor-graph/          # LangGraph FSM 工作流
+│   ├── alethicode-rag/       # 课件 RAG 服务
+│   └── judge-server/         # Judge Server
 │
-├── deploy/               # 生产部署
+├── deploy/                   # 生产部署
 │   ├── docker-compose.yml
-│   ├── nginx/            # 反向代理配置
-│   ├── observability/    # Prometheus / Grafana 配置
-│   └── chaos/            # Chaos engineering
+│   ├── nginx/                # 反向代理配置
+│   ├── observability/        # Prometheus / Grafana 配置
+│   └── chaos/                # Chaos engineering
 │
-├── contracts/            # API / 工作流合约（IDL）
-│   ├── tutor_workflow/
-│   └── nfk/              # NFK 评测合约
+├── contracts/                # API / 工作流合约
+├── docs/                     # 详细文档（ADR / plans / reports / todos）
+├── research/                 # 学术研究目录
+├── scripts/                  # 运维 / 数据脚本
+├── tools/                    # 开发工具
 │
-├── docs/                 # 详细文档
-│   ├── adr/              # Architecture Decision Records
-│   ├── plans/            # 设计稿（按日期归档）
-│   ├── reports/          # 评估报告 / 检查清单
-│   └── todos/            # 长期路线图（含 Agent + Harness 计划）
-│
-├── nfk/                  # NFK 实验目录（research）
-├── research/             # 学术研究目录
-├── scripts/              # 运维 / 数据脚本
-├── tools/                # 开发工具
-│
-├── start.sh              # 一键本地启动脚本（覆盖所有依赖服务）
-├── PROJECT.md            # 完整技术说明书（内部规范）
-├── AGENTS.md             # 协作 / 编码 / 命名规范
-├── CHANGELOG.md          # 中文变更日志
-└── README.md             # 本文档
+├── start.sh                  # 一键本地启动脚本（代理自适应 + 服务编排）
+├── PROJECT.md                # 完整技术说明书
+├── AGENTS.md                 # 协作 / 编码 / 命名规范
+└── CHANGELOG.md              # 中文变更日志
 ```
 
 ---
@@ -374,7 +343,7 @@ mvn jacoco:report                                   # 覆盖率报告 → target
 cd frontend
 npm test                                            # Jest 单测
 npm run test:coverage                               # 覆盖率
-npm run test:e2e:auth                               # Playwright E2E（需先 npm run setup:visual-libs）
+npm run test:e2e:auth                               # Playwright E2E
 npm run test:replacement:visual                     # 视觉回归
 ```
 
@@ -383,7 +352,7 @@ npm run test:replacement:visual                     # 视觉回归
 GitHub Actions：
 - **`ci.yml`**：后端 Maven test + JaCoCo artifact，前端 lint + typecheck + build
 - **`codeql`**：Java + JS/TS SAST
-- **Dependabot**：Maven / npm / pip / Actions / Docker 自动 PR（按生态分组，忽略 semver-major）
+- **Dependabot**：Maven / npm / pip / Actions / Docker 自动 PR
 
 ---
 
@@ -412,7 +381,7 @@ GitHub Actions：
   (+ pgvector)
 ```
 
-详细部署、扩缩容、灾备、压测、Chaos 演练流程，请见：
+详细部署、扩缩容、灾备、压测、Chaos 演练流程：
 
 - [`deploy/README.md`](./deploy/README.md) — Docker Compose 部署
 - [`deploy/loadtest/k6/README.md`](./deploy/loadtest/k6/README.md) — k6 压测脚本
@@ -433,8 +402,6 @@ GitHub Actions：
 | **IDOR** | 资源所有权校验（`userId` / `classroomId` / `sessionId` 强绑定） |
 | **凭证** | API Key 仅环境变量，Judge Token 返回前掩码，密码 BCrypt |
 | **依赖审计** | Dependabot + GitHub Security Advisories |
-
-历史安全修复明细见 [`CHANGELOG.md`](./CHANGELOG.md) 中标记 `[安全/...]` 的条目。
 
 ---
 
@@ -465,17 +432,16 @@ Application
 
 | 文档 | 内容 |
 | ----- | ----- |
-| [`PROJECT.md`](./PROJECT.md) | **完整技术说明书**：架构、API、数据库、AI 子系统（1000+ 行） |
-| [`AGENTS.md`](./AGENTS.md) | 协作约定、命名规范、方案规范、增强路线图 |
+| [`PROJECT.md`](./PROJECT.md) | 完整技术说明书：架构、API、数据库、AI 子系统 |
+| [`AGENTS.md`](./AGENTS.md) | 协作约定、命名规范、方案规范 |
 | [`CHANGELOG.md`](./CHANGELOG.md) | 中文变更日志（按 Keep a Changelog） |
 | [`docs/adr/`](./docs/adr/) | 架构决策记录（ADR） |
 | [`docs/plans/`](./docs/plans/) | 设计稿（按日期归档） |
-| [`docs/todos/todo-agent-harness/`](./docs/todos/todo-agent-harness/) | Agent + Harness 工程路线图（Phase 0.5 / 1 / 2 / 3 / 4+5） |
-| [`docs/todos/todo-career-bridging-closure-progress.md`](./docs/todos/todo-career-bridging-closure-progress.md) | Career Bridging Closure 16 个 commit 落地进度（专业 × 编程 4 模块闭环） |
+| [`docs/todos/todo-agent-harness/`](./docs/todos/todo-agent-harness/) | Agent + Harness 工程路线图 |
+| [`docs/todos/todo-career-bridging-closure-progress.md`](./docs/todos/todo-career-bridging-closure-progress.md) | Career Bridging Closure 落地进度 |
 | [`backend/README.md`](./backend/README.md) | 后端开发说明 |
 | [`deploy/README.md`](./deploy/README.md) | 部署运维说明 |
 | [`services/tutor-graph/README.md`](./services/tutor-graph/README.md) | tutor-graph 微服务 |
-| [`contracts/tutor_workflow/README.md`](./contracts/tutor_workflow/README.md) | 工作流合约 |
 | Swagger UI | http://localhost:8081/swagger-ui/index.html |
 
 ---
@@ -490,9 +456,7 @@ Application
 | **1** | Context Layering 与 Memory 升级 | In Progress |
 | **2** | RAG 治理与 QA Harness 升级 | Planning |
 | **3** | ToolContext 与工具治理 | Planning |
-| **4 + 5** | Harness 主体闭环与 HITL（Human-in-the-Loop） | Planning |
-
-`AGENTS.md` 的「Alethicode-Academy 增强路线图」描述游戏化教学（角色扮演 + 真实判题 + AI 导学 + 错误记忆）的 Phase A / B / C 计划。
+| **4 + 5** | Harness 主体闭环与 HITL | Planning |
 
 ---
 
@@ -517,17 +481,11 @@ API           路径 kebab-case（/api/language-pack-qa）
 Commit        Conventional Commits（feat / fix / chore / docs / test / refactor / perf / build / ci）
 ```
 
-**约束**：
-- 同一语义禁止多种拼写并存（如 `infoCard` / `InfoCard` / `inforCard` 三选一全链路统一）
-- 重命名必须全链路同步（定义、引用、导入路径、文档）后再结束任务
-- 不写防御性逻辑，failfast 优先；不引入兜底/降级逻辑造成业务偏移
-- 禁止过度设计，最短路径实现优先
-
 ---
 
 ## 更新日志
 
-完整中文变更日志见 **[`CHANGELOG.md`](./CHANGELOG.md)**（遵循 Keep a Changelog 思想）。
+完整中文变更日志见 **[`CHANGELOG.md`](./CHANGELOG.md)**。
 
 最新里程碑：
 
@@ -536,9 +494,9 @@ Commit        Conventional Commits（feat / fix / chore / docs / test / refactor
   - `/guide` 产品化重构 + 重置密码邮件链路
   - logout 真终止 session（HIGH 级安全加固）
   - Sentry/GlitchTip + JaCoCo + TS 渐进入口
-  - Parsons SQL 干扰项修复 + UX 优化
-  - 移除遗留多 Agent 架构，收敛到 `InternalAITutorTool` 单一入口
-  - 部署：start.sh Grafana 缓存、postgres `max_connections` 40→80、backend extra_hosts 文档化
+  - Career Bridging Closure 4 模块全量落地（12 专业 × 4 闭环）
+  - 共享对话输入框基础设施（`@` 引用 / `/` 命令 / 历史召回 / token 用量）
+  - 上下文压缩 `/compact` + 会话分叉 `/fork`
 
 ---
 
@@ -559,14 +517,12 @@ Copyright (c) 2017-present OnlineJudge
 
 ## 致谢
 
-- **[QingdaoU/OnlineJudge](https://github.com/QingdaoU/OnlineJudge)** — 提供 OJ 基线（判题协议、用户体系、提交记录骨架）
+- **[QingdaoU/OnlineJudge](https://github.com/QingdaoU/OnlineJudge)** — OJ 基线（判题协议、用户体系、提交记录骨架）
 - **[Spring AI](https://spring.io/projects/spring-ai)** — LLM / Embedding / Tool 抽象层
 - **[LangGraph](https://github.com/langchain-ai/langgraph)** — `tutor-graph` 工作流编排
 - **[pgvector](https://github.com/pgvector/pgvector)** — PostgreSQL 向量检索扩展
 - **[Element Plus](https://element-plus.org/)** — Vue 3 UI 组件库
 - **[Vite](https://vite.dev/)** / **[CodeMirror](https://codemirror.net/)** / **[ECharts](https://echarts.apache.org/)** / **[KaTeX](https://katex.org/)** / **[Mermaid](https://mermaid.js.org/)** — 前端核心生态
-
-> Alethicode 是一个开放、学术导向的工程实验平台。感谢每一位贡献者、合作教师与早期试用学生提供的反馈。
 
 ---
 

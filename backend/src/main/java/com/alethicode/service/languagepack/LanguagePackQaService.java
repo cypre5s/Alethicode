@@ -39,7 +39,22 @@ public interface LanguagePackQaService {
      */
     SessionUsage getSessionUsage(String username, Long sessionId);
 
+    /**
+     * 压缩会话历史：用 LLM 摘要替换最近 K 条之前的旧消息。
+     *
+     * @param username  当前用户名（鉴权）
+     * @param sessionId 会话 ID
+     * @return compacted=true 时含 removed_count；消息不足时 compacted=false
+     */
     Map<String, Object> compactSession(String username, Long sessionId);
 
+    /**
+     * 分叉会话：复制源会话的消息到新会话。
+     *
+     * @param username      当前用户名（鉴权）
+     * @param sessionId     源会话 ID
+     * @param fromMessageId 截止复制的消息 ID（null 表示复制全部）
+     * @return 新会话信息含 session_id、language_pack_id、forked_from
+     */
     Map<String, Object> forkSession(String username, Long sessionId, Long fromMessageId);
 }

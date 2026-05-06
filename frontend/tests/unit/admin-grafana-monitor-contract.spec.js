@@ -11,7 +11,7 @@ describe('admin AI observability dashboard contract', () => {
   test('system admin menu should expose observability and system monitor entries', () => {
     const source = readSource('../../src/pages/admin/components/SideMenu.vue')
 
-    expect(source).toContain('<el-menu-item index="/secrets/observability">AI 助教工作台</el-menu-item>')
+    expect(source).toContain('<el-menu-item index="/secrets/observability">辅导总控</el-menu-item>')
     expect(source).toContain('<el-menu-item index="/secrets/system-monitor">系统监控</el-menu-item>')
   })
 
@@ -31,7 +31,7 @@ describe('admin AI observability dashboard contract', () => {
   test('observability dashboard should focus on overview content only', () => {
     const source = readSource('../../src/pages/admin/views/general/ObservabilityDashboard.vue')
 
-    expect(source).toContain('title="AI 助教工作台"')
+    expect(source).toContain('title="辅导总控"')
     expect(source).toContain('核心指标')
     expect(source).toContain('Agent 维度表现')
     expect(source).toContain('质量失败桶')

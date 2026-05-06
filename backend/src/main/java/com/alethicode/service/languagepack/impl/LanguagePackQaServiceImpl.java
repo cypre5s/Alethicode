@@ -640,7 +640,7 @@ public class LanguagePackQaServiceImpl implements LanguagePackQaService {
             Object summaryObj = compactResult.get("summary");
             summary = summaryObj instanceof String s ? s : String.valueOf(summaryObj);
         } catch (Exception e) {
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "压缩失败: " + e.getMessage());
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "压缩失败: " + e.getMessage());
         }
 
         List<Long> oldIds = oldMessages.stream()

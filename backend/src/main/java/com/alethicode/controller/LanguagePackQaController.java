@@ -113,6 +113,7 @@ public class LanguagePackQaController {
         return ApiResponse.success(languagePackQaService.sendMessage(username(authentication), sessionId, request.content()));
     }
 
+    /** 压缩课件问答会话历史，用 LLM 摘要替换旧消息。 */
     @PostMapping({"/api/language-pack-qa/sessions/{sessionId}/compact", "/api/language-pack-qa/sessions/{sessionId}/compact/"})
     public ApiResponse<Map<String, Object>> compactSession(
             Authentication authentication,
@@ -121,6 +122,7 @@ public class LanguagePackQaController {
         return ApiResponse.success(languagePackQaService.compactSession(username(authentication), sessionId));
     }
 
+    /** 分叉课件问答会话，复制源 session 消息到新 session。 */
     @PostMapping({"/api/language-pack-qa/sessions/{sessionId}/fork", "/api/language-pack-qa/sessions/{sessionId}/fork/"})
     public ApiResponse<Map<String, Object>> forkSession(
             Authentication authentication,

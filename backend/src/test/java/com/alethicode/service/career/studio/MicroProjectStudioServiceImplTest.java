@@ -87,15 +87,16 @@ class MicroProjectStudioServiceImplTest {
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper();
-        // 默认 baseline 决策；rollback 测试单独覆盖
-        lenient().when(rolloutPolicyService.evaluate(eq("career_micro_project"), anyString(), any()))
-                .thenReturn(new RolloutDecision("baseline", "default", Map.of()));
+        // 默认 treatment 分组（plan 9：Studio treatment_rate=0.2，control 测试单独覆盖）
+        lenient().when(rolloutPolicyService.assignAbTest(eq("studio_v1"), anyLong(), eq(0.2)))
+                .thenAnswer(inv -> new RolloutPolicyService.AbTestAssignment(
+                        "studio_v1", inv.getArgument(1), "treatment", 0.0));
         // 默认未关闭模块；disabled 测试单独覆盖（todo 15）
         lenient().when(preferenceService.isModuleDisabled(anyLong(), anyString())).thenReturn(false);
         service = new MicroProjectStudioServiceImpl(
                 jdbcTemplate, objectMapper, aiModelGateway, reflectionService,
                 masteryService, careerBridgingService, testCaseWriter, judgeCheckService,
-                rolloutPolicyService, preferenceService);
+                rolloutPolicyService, preferenceService, new com.alethicode.config.AlethicodeProperties());
     }
 
     // ---------- recommendForUser ----------
@@ -130,11 +131,12 @@ class MicroProjectStudioServiceImplTest {
     // ---------- generate ----------
 
     @Test
-    void generateReturnsEmptyWhenRolloutRollback() {
+    void generateReturnsEmptyWhenAbTestControlGroup() {
         long userId = 7L;
         String major = "biology";
-        when(rolloutPolicyService.evaluate(eq("career_micro_project"), eq("user:7"), any()))
-                .thenReturn(new RolloutDecision("rollback", "policy off", Map.of()));
+        when(rolloutPolicyService.assignAbTest(eq("studio_v1"), eq(7L), eq(0.2)))
+                .thenReturn(new RolloutPolicyService.AbTestAssignment(
+                        "studio_v1", 7L, "control", 0.5));
 
         Optional<CareerMicroProject> result = service.generate(userId, major, List.of("variables"));
 

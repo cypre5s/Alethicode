@@ -1,0 +1,61 @@
+# Alethicode 判题机默认配置（占位）。
+#
+# Phase 0 阶段不引入任何 AI / worker pool / 限流等新行为，本文件仅记录后续
+# Phase 1-6 将逐步消费的配置键，方便 ops 提前知道未来环境变量空间，避免和
+# 上游 docker-compose 既有 env 冲突。
+#
+# 当前判题机的运行时配置仍然完全由环境变量提供（与上游 JudgeServer 一致）：
+#   TOKEN              判题机鉴权 token（由 backend SHA256 后比对）
+#   SERVICE_URL        判题机自描述 URL（用于心跳）
+#   BACKEND_URL        反向心跳目的端
+#   judger_debug       上游调试开关，"1" 时不清理工作目录
+#
+# 下面分组是 Phase 1+ 的预留配置，本文件是 ops 唯一索引。
+
+[worker_pool]
+# Phase 1：固定大小 worker pool，三级优先队列
+max_workers       = 0      # 0 = cpu_count()
+max_queue_depth   = 256
+priority_levels   = ["formal", "debug", "trace"]
+
+[diagnosis]
+# Phase 2：失败信号教学化（规则 + AI 兜底）
+enable            = true
+ai_fallback_enable = true
+ai_endpoint       = ""     # OpenAI 兼容 base URL，留空时关闭 AI 兜底
+ai_model          = ""
+ai_api_key_env    = "AI_DIAGNOSIS_API_KEY"
+rate_limit_per_sec = 5
+cache_ttl_seconds  = 600
+
+[explain]
+# Phase 3：失败 AI 解释端点 /explain
+enable            = true
+ai_endpoint       = ""
+ai_model          = ""
+ai_api_key_env    = "AI_EXPLAIN_API_KEY"
+rate_limit_per_sec = 2
+cache_ttl_seconds  = 900
+
+[scheduling]
+# Phase 3：ACM 首错短路
+default_rule_type = "ACM"  # 业务端可在 /judge 入参覆盖
+
+[metrics]
+# Phase 4：Prometheus exporter
+enable            = true
+path              = "/metrics"
+
+[trace]
+# Phase 5：sys.settrace 运行轨迹下沉
+enable            = true
+max_steps         = 2000
+cache_ttl_seconds = 300
+
+[safety]
+# Phase 6：AI 安全过滤（默认关）
+enable            = false
+ai_endpoint       = ""
+ai_model          = ""
+ai_api_key_env    = "AI_SAFETY_API_KEY"
+cache_ttl_seconds = 3600

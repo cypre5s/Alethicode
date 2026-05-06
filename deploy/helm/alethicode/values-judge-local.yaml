@@ -1,0 +1,23 @@
+# Helm overlay：把判题机镜像切到项目内 fork 构建的 alethicode/judge-server。
+#
+# 使用方式：
+#
+#   helm upgrade alethicode deploy/helm/alethicode \
+#     -f deploy/helm/alethicode/values.yaml \
+#     -f deploy/helm/alethicode/values-judge-local.yaml
+#
+# 默认 values.yaml 仍然使用上游 registry.cn-hongkong.aliyuncs.com/oj-image/judge:1.6.1，
+# 满足"开发模式启动暂时不要用本地判题机"的约束。本 overlay 仅在以下场景使用：
+#   - 需要验证项目内 fork 后的判题机镜像；
+#   - 需要让生产环境消费 Phase 1+ 在 services/judge-server/ 内累积的能力。
+#
+# 部署前必须先在 CI 或本地构建并 push：
+#   cd services/judge-server && make image
+#   docker tag alethicode/judge-server:dev <registry>/alethicode/judge-server:<tag>
+#   docker push <registry>/alethicode/judge-server:<tag>
+
+judge:
+  image:
+    repository: alethicode/judge-server
+    tag: dev
+    pullPolicy: IfNotPresent

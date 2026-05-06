@@ -1,9 +1,9 @@
 # Alethicode 项目技术说明书
 
 > **文档编号**：ALETH-SPEC-2026-001  
-> **版本**：v2.0  
-> **发布日期**：2026-04-02  
-> **系统版本**：2026.03-java-m2  
+> **版本**：v3.0  
+> **发布日期**：2026-05-06  
+> **系统版本**：2026.05-java-m3  
 > **分类**：内部技术文档（机密）
 
 ---
@@ -18,14 +18,17 @@
 6. [AI 导学助手架构](#六ai-导学助手架构)
 7. [语言包管线架构](#七语言包管线架构)
 8. [课堂协作架构](#八课堂协作架构)
-9. [数据库设计](#九数据库设计)
-10. [API 端点规范](#十api-端点规范)
-11. [安全架构](#十一安全架构)
-12. [部署架构](#十二部署架构)
-13. [配置参考](#十三配置参考)
-14. [开发指南](#十四开发指南)
-15. [附录](#十五附录)
-16. [Agent + Harness 工程路线图](#十六agent--harness-工程路线图)
+9. [Chat Composer 对话能力层](#九chat-composer-对话能力层)
+10. [微服务架构](#十微服务架构)
+11. [数据库设计](#十一数据库设计)
+12. [API 端点规范](#十二api-端点规范)
+13. [安全架构](#十三安全架构)
+14. [可观测性与运维](#十四可观测性与运维)
+15. [部署架构](#十五部署架构)
+16. [配置参考](#十六配置参考)
+17. [开发指南](#十七开发指南)
+18. [附录](#十八附录)
+19. [Agent + Harness 工程路线图](#十九agent--harness-工程路线图)
 
 ---
 
@@ -41,15 +44,19 @@ Alethicode 是一个面向 **非计算机专业 Python 初学者** 的智能在�
 ┌──────────────────────────────────────────────────────────────┐
 │                    Alethicode 系统指标                        │
 ├──────────────────┬───────────────────────────────────────────┤
-│ 后端源文件        │ 299 Java files                           │
-│ 前端组件          │ 96 Vue + 72 JS files                     │
-│ 数据库迁移        │ 38 Flyway versions                       │
-│ REST 端点         │ 150+ endpoints across 30+ controllers    │
-│ AI 卡片类型       │ 8 CardTypes                              │
-│ 工作流阶段        │ 7 Phases (FSM)                           │
-│ 教学 Agent        │ 5 specialized agents                     │
-│ 评估维度          │ 8 LLM-as-Judge dimensions                │
+│ 后端源文件        │ 320+ Java files                          │
+│ 前端组件          │ 110+ Vue + 85+ JS files                  │
+│ Python 微服务     │ tutor-graph + alethicode-rag + judge     │
+│ 数据库迁移        │ 91 Flyway versions (V1 – V91)            │
+│ REST 端点         │ 170+ endpoints across 35+ controllers    │
+│ AI 卡片类型       │ 11 CardTypes (含 4 Career)               │
+│ 工作流阶段        │ 7 Phases (FSM) + 17 ClientEvents         │
+│ 工作流引擎        │ Java FSM + LangGraph 双轨                │
+│ 教学 Agent 节点   │ 15 LangGraph nodes (含 compact)          │
+│ 评估维度          │ 12 LLM-as-Judge dimensions               │
+│ Career 专业       │ 12 majors × 4 模块闭环                   │
 │ 支持语言          │ Python3, C, C++, Java                    │
+│ 可观测性          │ Prometheus + Grafana + Jaeger + Langfuse  │
 └──────────────────┴───────────────────────────────────────────┘
 ```
 
@@ -96,11 +103,21 @@ Alethicode 是一个面向 **非计算机专业 Python 初学者** 的智能在�
 │   └──────────────────────────────────────────────────────────────┘     │
 │                              │                                         │
 │   ┌──────────────────────────┼───────────────────────────────────┐     │
+│   │               Microservice Layer (HTTP internal)              │     │
+│   │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │     │
+│   │  │ tutor-graph  │  │alethicode-rag│  │ judge-server │       │     │
+│   │  │ (LangGraph)  │  │ (LightRAG)   │  │ (sandbox)    │       │     │
+│   │  │  :8100       │  │  :8200       │  │  :12358      │       │     │
+│   │  └──────────────┘  └──────────────┘  └──────────────┘       │     │
+│   └──────────────────────────────────────────────────────────────┘     │
+│                              │                                         │
+│   ┌──────────────────────────┼───────────────────────────────────┐     │
 │   │                    Data Layer                                 │     │
-│   │  ┌──────────┐  ┌─────────┐  ┌──────────┐  ┌──────────┐     │     │
-│   │  │PostgreSQL│  │  Redis  │  │  File    │  │ External │     │     │
-│   │  │(pgvector)│  │(Session)│  │ Storage  │  │ LLM API  │     │     │
-│   │  └──────────┘  └─────────┘  └──────────┘  └──────────┘     │     │
+│   │  ┌──────────┐ ┌─────────┐ ┌──────────┐ ┌────────┐ ┌──────┐ │     │
+│   │  │PostgreSQL│ │  Redis  │ │ Memgraph │ │  NATS  │ │ LLM  │ │     │
+│   │  │(pgvector)│ │(Session)│ │ (Graph)  │ │(Judge) │ │ API  │ │     │
+│   │  │ :5432    │ │  :6379  │ │  :7687   │ │ :4222  │ │      │ │     │
+│   │  └──────────┘ └─────────┘ └──────────┘ └────────┘ └──────┘ │     │
 │   └──────────────────────────────────────────────────────────────┘     │
 │                         Application Layer                              │
 └────────────────────────────────────────────────────────────────────────┘
@@ -155,7 +172,7 @@ Client Request
 │                     Backend Tech Stack                       │
 ├─────────────────┬───────────────────────────────────────────┤
 │ Runtime         │ Java 21 (Virtual Threads)                  │
-│ Framework       │ Spring Boot 3.4.4                          │
+│ Framework       │ Spring Boot 3.5.12                         │
 │ Web             │ Spring Web MVC + WebSocket                 │
 │ Security        │ Spring Security 6.x                        │
 │ Session         │ Spring Session Data Redis                  │
@@ -199,15 +216,18 @@ Client Request
 ┌─────────────────────────────────────────────────────────────┐
 │                     AI / LLM Stack                           │
 ├─────────────────┬───────────────────────────────────────────┤
-│ LLM             │ DeepSeek（生产）/ MiniMax-M2.7（备选）     │
-│ Embedding       │ 阿里通义 text-embedding-v4                  │
-│ Prompt Layers   │ LayeredPromptBuilder（已下线）→ 现已收敛到   │
-│                 │ EvidencePack + LearnerProfile + Courseware  │
+│ LLM             │ DeepSeek v4-flash（生产）/ 可配置其他       │
+│ Embedding       │ 智谱 embedding-3 (dim=2048)                │
+│ Graph Storage   │ Memgraph (bolt) — LightRAG 知识图谱后端      │
+│ Prompt Layers   │ EvidencePack + LearnerProfile + Courseware   │
+│                 │ + 旁证课件区块化标记（Phase 3）              │
 │ Reflection      │ 自研 Producer-Critic (CardType 分维度)       │
-│ Workflow Engine │ Java FSM (Phase/Event) + tutor-graph        │
-│                 │ (LangGraph) 双轨；ReAct/Multi-Agent 已下线   │
-│ Evaluation      │ LLM-as-Judge (8 维度 rubric) + Red Team CI  │
-│ A/B Testing     │ 自研 RolloutPolicyService                   │
+│ Workflow Engine │ Java FSM (Phase/Event) + tutor-graph         │
+│                 │ (LangGraph 17 events, 15 nodes) 双轨         │
+│ Context Mgmt    │ /compact 上下文压缩 + /fork 会话分叉         │
+│ Evaluation      │ LLM-as-Judge (12 维度) + Career Eval Harness│
+│ A/B Testing     │ RolloutPolicyService（5 experiment_id）      │
+│ Observability   │ Langfuse tracing + Prometheus metrics        │
 │ Video Gen       │ LLM 分镜 + 外部 TTS/Render (可插拔)          │
 └─────────────────┴───────────────────────────────────────────┘
 ```
@@ -219,7 +239,7 @@ Client Request
 ### 4.1 后端包结构
 
 ```
-com.pytutor/
+com.alethicode/
 ├── config/                          # 配置
 │   ├── SecurityConfig               # 安全配置
 │   ├── AlethicodeProperties         # 业务配置
@@ -233,12 +253,16 @@ com.pytutor/
 │   ├── ProblemController            # /api/problems
 │   ├── SubmissionController         # /api/submission
 │   ├── AITutorController            # /api/ai/tutor/*, /api/ai/skill/*
-│   ├── AITutorWorkflowController    # /api/ai/workflow/*
+│   ├── TutorWorkflowController      # /api/ai/tutor-workflow-sessions/*
 │   ├── LanguagePackQaController     # /api/language-pack-qa/*
+│   ├── CareerController             # /api/career/profile, /api/career/preferences
+│   ├── CareerStudioController       # /api/career/studio/*
+│   ├── CodingLensController         # /api/coding-lens/*
 │   ├── AdminProblemController       # /api/admin/problems
 │   ├── AdminLanguagePackController  # /api/admin/language-packs/*
+│   ├── AdminCareerEvalController    # /api/admin/ai/evaluations/career
 │   ├── PublicAssetController        # /public/*
-│   └── classroom/                   # 课堂子控制器 (6 个)
+│   └── classroom/                   # 课堂子控制器 (7 个)
 │
 ├── service/
 │   ├── ai/                          # LLM gateway（多 provider 装配）
@@ -277,10 +301,16 @@ com.pytutor/
 │   │   ├── AnswerSynthesisService   #   答案合成
 │   │   └── impl/                    #   实现 (15+ 文件)
 │   │
+│   ├── career/                      # Career 3 模块子系统
+│   │   ├── bridging/               #   Why 报告 (CareerBridgingService)
+│   │   ├── lens/                   #   Coding Lens (DomainLensService)
+│   │   ├── studio/                 #   微项目工作室 (MicroProjectStudioService)
+│   │   └── preference/             #   模块开关 (CareerPreferenceService)
+│   │
 │   ├── impl/                        # 核心服务实现
-│   │   ├── AITutorWorkflowAdminServiceImpl  # 4300+ 行
-│   │   ├── ClassroomServiceImpl     #   4400+ 行
-│   │   └── SubmissionServiceImpl    #   2000+ 行
+│   │   ├── AITutorWorkflowAdminServiceImpl  # Java FSM 主链路
+│   │   ├── ClassroomServiceImpl     #   课堂 + 协作
+│   │   └── SubmissionServiceImpl    #   提交 + 判题分发
 │   │
 │   ├── classroom/                   # 课堂域服务
 │   ├── submission/                  # 提交域服务
@@ -320,6 +350,9 @@ com.pytutor/
 │   └── /classroom/:id/collab/:sessionId  ─── 协作编程
 ├── /language-packs         ─── 语言包目录
 ├── /language-pack-qa       ─── 课件问答 (需登录)
+├── /career                 ─── Career 概览 + 专业设置
+│   ├── /career/studio      ─── 微项目工作室
+│   └── /career/reports     ─── 专业报告
 ├── /review-package/:id     ─── 错误审查 (需登录)
 └── /*                      ─── 404
 ```
@@ -355,16 +388,15 @@ com.pytutor/
                └──────────────┘         └──────────────┘  └──────────────┘
 ```
 
-### 5.2 Career Bridging Closure（专业 × 编程 4 模块闭环）
+### 5.2 Career Bridging Closure（专业 × 编程 3 模块闭环）
 
-为 12 个非 CS 专业（生物 / 化学 / 医学 / 药学 / 临床医学 / 工商管理 / 经济 / 金融 / 统计 / 心理 / 机械工程 / 土木工程）补齐 Why / How / What / Map 四层闭环，**判题不动、Judge Server 协议不动、IO schema 不动**。
+为 12 个非 CS 专业（生物 / 化学 / 医学 / 药学 / 临床医学 / 工商管理 / 经济 / 金融 / 统计 / 心理 / 机械工程 / 土木工程）补齐 Why / How / What 三层闭环，**判题不动、Judge Server 协议不动、IO schema 不动**。
 
 | 模块 | 触发链路 | 关键产物 | 灰度 experiment_id |
 |---|---|---|---|
 | **Career Bridging（Why）** | 5 类里程碑（enrollment / kc_cluster_graduated / chapter_entered / project_completed / path_node_unlocked）→ A/B 分组 → LLM + Reflection critic → `career_bridging_report` | Why 报告 | `career_bridging_v1`（A/B） |
 | **Coding Lens（How / Variant）** | 学生在题目页切「我专业版」→ rollout → LLM 重写题面（IO schema 不变 + 测试样例语义不偏移）→ `problem_domain_variant` | 专业化题面变体 | `coding_lens` |
 | **Project Studio（What）** | 学生在 Studio 选 KC → LLM 出题 + critic → **reference solution 真判题自验证**（100% AC 自身 test_cases）→ 落 `problem` 表 + `career_micro_project` | Python 微项目 + 作品集 Markdown 卡片 | `career_micro_project` |
-| **Career Path Map（Map）** | 学生看路径地图 → 拓扑排序 + mastery 三态判断（unlocked / in_progress / locked）→ GraphRAG why_md | 12 专业 × 5 KC 路径 DAG | `career_path` |
 
 **触发联动（todo 10 + 13）**：
 1. `JudgeCompletedEventListener` 在 mastery 写入后调用 `CareerMilestoneEventListener.onMasteryUpdated`，KC 跨过 0.7 触发 `kc_cluster_graduated`
@@ -373,17 +405,17 @@ com.pytutor/
 
 **关闭路径（todo 15）**：
 - 教师锁定（考试模式）：`POST /api/coding-lens/variants/{id}/lock` 后任意 major 请求都返回锁定 variant，确保所有学生看同一份题面
-- 学生级面板：`PUT /api/career/preferences` 可独立关闭 4 个模块；service 入口 `isModuleDisabled` 短路
+- 学生级面板：`PUT /api/career/preferences` 可独立关闭 3 个模块；配置入口已迁移到 `/setting/profile`
 
 ```
 关键 Flyway 表（V83 / V84 / V85 / V86 / V88）
 ├── user_profile (扩展) ── major_code / career_intent / career_profile_completed_at
 │                       └─ 4 个 disabled BOOLEAN 列（V88）
 ├── career_major_dictionary ── 12 专业字典 + seed_use_cases
-├── career_bridging_milestone (5 类 type) + career_bridging_report
+├── career_bridging_milestone (4 类 type) + career_bridging_report
 ├── problem_domain_variant ── (problem_id, major_code) 题面变体缓存 + locked_for_exam
 ├── career_micro_project ── (user_id, judge_problem_id, status, rollout_mode, trace_id)
-└── career_path_node ── (major_code, kc_code) DAG + sort_order + 60 行人工种子
+└── （已下线）career_path_node 历史表保留，仅用于审计追溯
 ```
 
 进度详见 [`docs/todos/todo-career-bridging-closure-progress.md`](./docs/todos/todo-career-bridging-closure-progress.md)。
@@ -705,9 +737,88 @@ Admin 点击 "生成讲解视频"
 
 ---
 
-## 九、数据库设计
+## 九、Chat Composer 对话能力层
 
-### 9.1 迁移版本一览
+### 9.1 三阶段演进
+
+```
+Phase 1 — 共享输入框基础设施
+├── useChatComposer.js: @ 引用菜单 + / 命令面板 + ↑↓ 历史 + 草稿暂存
+├── AtMentionMenu / SlashCommandMenu / ComposerHintBar / ContextUsageBar
+├── UnifiedAgentPanel + LanguagePackQaPage 统一接入
+└── scopeKey 按 tutor:<problemId> / qa:<lpId>:<sessionId> 隔离
+
+Phase 2 — 引用解析与上下文接入
+├── @card / @last_xxx / @courseware / @page / @kc / @notebook 六类 token
+├── PageContextProvider / KcContextProvider / NotebookContextProvider
+├── SessionUsage DTO + ContextUsageBar 实时 token 用量
+└── backend ReferenceResolver → tutor-graph evidence_pack.coursewares
+
+Phase 3 — 会话级重型能力
+├── /compact: tutor-graph compact_node (K=6 + LLM 摘要) + Java 后端两侧 API
+├── /fork: forkSession → 新建 session + 复制 events/messages
+├── 跨课件 @courseware 旁证: 多 bundle 区块化标记 + prompt 约束
+└── maxInitialDisplay: @ 菜单初始限显 6-8 项，输入搜索不限
+```
+
+### 9.2 Slash 命令清单
+
+| 命令 | 页面 | 状态 | 说明 |
+|------|------|------|------|
+| `/ideate` | AI 导学 | available | 触发思路分析 |
+| `/guide` | AI 导学 | available | 触发题目导读 |
+| `/error` | AI 导学 | available | 触发错误诊断 |
+| `/skeleton` | AI 导学 | available | 生成骨架代码 |
+| `/transfer` | AI 导学 | available | 触发迁移题 |
+| `/review` | AI 导学 | available | 知识点回顾 |
+| `/post-ac` | AI 导学 | available | 过题总结 |
+| `/visualize` | AI 导学 | available | 教学可视化 |
+| `/clear` | 两页 | available | 清空对话 |
+| `/export` | 两页 | available | 导出 Markdown |
+| `/compact` | 两页 | available | 压缩上下文 (Phase 3) |
+| `/fork` | 两页 | available | 分叉会话 (Phase 3) |
+| `/refs` | 课件问答 | available | 打开证据侧栏 |
+| `/page <n>` | 课件问答 | available | 跳转课件页 |
+| `/resume` | AI 导学 | placeholder | 恢复会话 (Phase 4) |
+
+---
+
+## 十、微服务架构
+
+### 10.1 服务拓扑
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Java Backend (Spring Boot :8081)                               │
+│  ├── TutorWorkflowController ──► tutor-graph :8100              │
+│  │   (createRun / compact / fork / checkpoint / interrupt)      │
+│  ├── LanguagePackQaController ──► alethicode-rag :8200          │
+│  │   (sendMessage → PageRetrieval → AnswerSynthesis)            │
+│  ├── SubmissionController ──► NATS → judge-server :12358        │
+│  │   (judge dispatch / heartbeat / result callback)             │
+│  └── InternalAITutorToolController ──► tutor-graph              │
+│      (getWorkflowContext / getDiagnosisEvidence / getLearnerState│
+│       / getCoursewareHits / resolveReferences / ...)            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 10.2 服务明细
+
+| 服务 | 语言 | 入口 | 端口 | 职责 |
+|------|------|------|------|------|
+| `tutor-graph` | Python (FastAPI + LangGraph) | `app/main.py` | 8100 | AI 导学工作流引擎：17 ClientEvents, 15 nodes, Phase 状态机, LangGraph checkpointer |
+| `alethicode-rag` | Python (FastAPI + LightRAG) | `app/main.py` | 8200 | 课件 RAG 检索：LightRAG + pgvector + Memgraph 知识图谱 |
+| `judge-server` | Python | `judge_server/server.py` | 12358 | 安全沙箱判题：C seccomp 隔离, 多语言支持, 错误诊断 |
+
+### 10.3 跨服务认证
+
+所有内部调用通过 `X-Internal-Service-Key` header 认证，key 值由 `INTERNAL_SERVICE_KEY` 环境变量注入。
+
+---
+
+## 十一、数据库设计
+
+### 11.1 迁移版本一览
 
 ```
 V1  ─── 初始 schema (user, problem, submission, ...)
@@ -748,6 +859,18 @@ V35 ─── 批次运行
 V36 ─── 文档排序
 V37 ─── 错误分类统一
 V38 ─── 视频任务表
+...
+V81 ─── 课堂 AI 出题 KC 关联
+V82 ─── 课堂作业智能组卷
+V83 ─── Career 用户档案扩展 + career_major_dictionary 12 专业字典
+V84 ─── Career Bridging 里程碑 + 报告表
+V85 ─── problem_domain_variant (Coding Lens)
+V86 ─── career_path_node + career_micro_project + 60 行路径种子
+V87 ─── AI 导学 session token usage 三列
+V88 ─── Career 用户级面板关闭列
+V89 ─── 课件问答 session token usage 三列
+V90 ─── session compact_count + parent_session_id + fork_from_message_id
+V91 ─── user_profile career preferences 4 disabled 列
 ```
 
 ### 9.2 核心表关系
@@ -800,7 +923,7 @@ V38 ─── 视频任务表
 
 ---
 
-## 十、API 端点规范
+## 十二、API 端点规范
 
 ### 10.1 响应格式
 
@@ -835,7 +958,7 @@ V38 ─── 视频任务表
 
 ---
 
-## 十一、安全架构
+## 十三、安全架构
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -875,7 +998,30 @@ V38 ─── 视频任务表
 
 ---
 
-## 十二、部署架构
+## 十四、可观测性与运维
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                 可观测性三支柱                                  │
+├──────────────┬───────────────────────────────────────────────┤
+│ Metrics      │ Micrometer → Prometheus :9090 → Grafana :3000 │
+│ Traces       │ OTEL SDK → Jaeger :16686 (full-stack traces)  │
+│ LLM Traces   │ Langfuse (per-node prompt / token / latency)  │
+│ Dashboards   │ Grafana: alethicode-overview + 自定义面板       │
+│ Alerts       │ Prometheus alerting rules (pending)           │
+└──────────────┴───────────────────────────────────────────────┘
+```
+
+### 管理后台数据洞察双页
+
+| 页面 | 视角 | 核心指标 |
+|------|------|---------|
+| 学生学习数据 | 以学生为本 | 注册/活跃/提交/AC率/首次AC率/平均到AC时长/人均提交/错误类型分布/高WA题目/高重试题目/反馈统计 |
+| AI 助教工作台 | 以 AI 为本 | AI覆盖率/辅导次数/诊断hit率/响应时间/失败率/Agent维度表现/质量失败桶/评测分数趋势/小时调用趋势 |
+
+---
+
+## 十五、部署架构
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -901,29 +1047,41 @@ V38 ─── 视频任务表
 │                     └───────────┘ └─────┘ └──────────┘          │
 │                                                                  │
 │  ┌──────────────────────────────────────────────────────────┐    │
-│  │                  外部服务                                 │    │
-│  │  ┌─────────────┐ ┌──────────────┐ ┌────────────────┐    │    │
-│  │  │ MiniMax API │ │ 通义 Embedding│ │ Judge Server   │    │    │
-│  │  │ (LLM)       │ │ (向量)       │ │ (判题集群)     │    │    │
-│  │  └─────────────┘ └──────────────┘ └────────────────┘    │    │
+│  │                  微服务 + 外部服务                         │    │
+│  │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐     │    │
+│  │  │ tutor-graph  │ │alethicode-rag│ │ judge-server │     │    │
+│  │  │ (LangGraph)  │ │ (LightRAG)   │ │ (sandbox)    │     │    │
+│  │  │  :8100       │ │  :8200       │ │  :12358      │     │    │
+│  │  └──────────────┘ └──────────────┘ └──────────────┘     │    │
+│  │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐     │    │
+│  │  │ DeepSeek API │ │ 智谱 Embedding│ │  Memgraph   │     │    │
+│  │  │ (LLM)        │ │ (向量)       │ │  (Graph)     │     │    │
+│  │  └──────────────┘ └──────────────┘ └──────────────┘     │    │
+│  │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐     │    │
+│  │  │  Prometheus  │ │   Grafana    │ │   Jaeger     │     │    │
+│  │  │  (metrics)   │ │ (dashboards) │ │  (traces)    │     │    │
+│  │  └──────────────┘ └──────────────┘ └──────────────┘     │    │
 │  └──────────────────────────────────────────────────────────┘    │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 十三、配置参考
+## 十六、配置参考
 
 ### 13.1 必须环境变量
 
 ```
-OPENAI_API_KEY=sk-...           # MiniMax LLM API Key
-EMBEDDING_API_KEY=sk-...        # 通义 Embedding API Key
-EMBEDDING_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-EMBEDDING_MODEL=text-embedding-v4
-LLM_MODEL=MiniMax-M2.7
-LLM_BASE_URL=https://api.minimaxi.com/v1
-JUDGE_SERVER_TOKEN=...          # Judge Server 认证令牌
+OPENAI_API_KEY=sk-...               # DeepSeek LLM API Key (OpenAI 兼容)
+EMBEDDING_API_KEY=...               # 智谱 Embedding API Key
+EMBEDDING_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+EMBEDDING_MODEL=embedding-3
+EMBEDDING_DIM=2048
+LLM_MODEL=deepseek-v4-flash
+LLM_BASE_URL=https://api.deepseek.com
+JUDGE_SERVER_TOKEN=...              # Judge Server 认证令牌
+INTERNAL_SERVICE_KEY=...            # 微服务间认证令牌
+RAG_HTTP_PROXY=http://127.0.0.1:7892  # WSL 开发代理（生产不设）
 ```
 
 ### 13.2 功能开关
@@ -969,7 +1127,7 @@ alethicode:
 
 ---
 
-## 十四、开发指南
+## 十七、开发指南
 
 ### 14.1 环境准备
 
@@ -1017,7 +1175,7 @@ Java:
   类名/文件名    → PascalCase (JudgeServerServiceImpl)
   方法名/变量名  → camelCase  (lastHeartbeat)
   常量           → UPPER_SNAKE_CASE (MAX_RETRY_COUNT)
-  包名           → lowercase (com.pytutor.service)
+  包名           → lowercase (com.alethicode.service)
   DB 列名        → snake_case (create_time)
 
 Vue/前端:
@@ -1033,7 +1191,7 @@ API:
 
 ---
 
-## 十五、附录
+## 十八、附录
 
 ### A. 卡片类型 (CardType)
 
@@ -1049,6 +1207,10 @@ API:
 | POST_AC | post_ac | post_ac | AC 后引导 |
 | TRANSFER_PROBLEM | transfer_problem | transfer | 迁移题 |
 | AI_REPLY | ai_reply | chat | 对话回复 |
+| KNOWLEDGE_REVIEW | knowledge_review | knowledge_review | 知识点回顾 |
+| SKELETON_CODE | skeleton_code | skeleton | 骨架代码 |
+| EXECUTION_TRACE | execution_trace_explainer | execution_trace_explainer | 执行追踪 |
+| VISUALIZE | visualize | visualize | 教学可视化 |
 
 ### B. 评估维度 (EvalDimension)
 
@@ -1062,6 +1224,10 @@ API:
 | KC_ALIGNMENT | KC 对齐 | related_kcs 与题目知识点一致 |
 | COMPREHENSIBILITY | 可理解性 | 语言清晰初学者能懂 |
 | ENCOURAGEMENT | 鼓励性 | 包含合适情感支持 |
+| GROUNDING_ACCURACY | grounding 准确性 | Career Why 报告事实溯源 |
+| SEMANTIC_DRIFT | 语义漂移 | Coding Lens 题面改写偏移度 |
+| SOLVABILITY | 可解性 | Project Studio 微项目自验 |
+| PATH_CONSISTENCY | 路径一致性 | Career Path 拓扑与 KC 对齐 |
 
 ### C. RAG 检索（前置 retrieval，已替代旧 ReAct 工具调用循环）
 
@@ -1076,7 +1242,7 @@ API:
 
 ---
 
-## 十六、Agent + Harness 工程路线图
+## 十九、Agent + Harness 工程路线图
 
 Agent + Harness 工程计划的完整文档位于 [`docs/todos/todo-agent-harness/`](./docs/todos/todo-agent-harness/) 目录。
 

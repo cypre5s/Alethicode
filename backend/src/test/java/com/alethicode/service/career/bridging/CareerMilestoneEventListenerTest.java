@@ -8,7 +8,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -26,10 +28,10 @@ import static org.mockito.Mockito.when;
  * <ul>
  *   <li>career.bridging.enabled=false ⇒ 跳过；</li>
  *   <li>user_profile 缺失 / major_code 空 ⇒ 跳过（非 career 学生）；</li>
- *   <li>mastery &lt; 0.7 ⇒ 不触发 KC 簇毕业；</li>
- *   <li>mastery ≥ 0.7 ⇒ 写一条 KC_CLUSTER_GRADUATED；</li>
- *   <li>章节进入 ⇒ 写一条 CHAPTER_ENTERED；</li>
- *   <li>milestone_ref 命名稳定 (lp:&lt;id&gt;:kc:&lt;id&gt; / lp:&lt;id&gt;) 保证幂等键唯一。</li>
+ *   <li>KC 无 chapter（散落 KC）⇒ 不触发 KC 簇毕业；</li>
+ *   <li>chapter 内 KC mastery 均值 &lt; 0.7 ⇒ 不触发；</li>
+ *   <li>chapter 内 KC mastery 均值 ≥ 0.7 ⇒ 写一条 KC_CLUSTER_GRADUATED；</li>
+ *   <li>milestone_ref 命名稳定 (lp:&lt;id&gt;:chapter:&lt;id&gt; / lp:&lt;id&gt;) 保证幂等键唯一。</li>
  * </ul>
  */
 @ExtendWith(MockitoExtension.class)
@@ -82,9 +84,12 @@ class CareerMilestoneEventListenerTest {
     }
 
     @Test
-    void onMasteryUpdatedDoesNotTriggerWhenMasteryBelowThreshold() {
+    void onMasteryUpdatedSkipsWhenKcHasNoChapter() {
         stubMajorCodeReturns(7L, "biology");
-        stubMasteryReturns(7L, 10L, 100L, 0.55);
+        // KC 行存在但 chapter_id NULL（散落 KC，不参与簇聚合）
+        Map<String, Object> kcRow = new LinkedHashMap<>();
+        kcRow.put("chapter_id", null);
+        stubChapterIdQuery(100L, List.of(kcRow));
 
         listener.onMasteryUpdated(7L, 10L, 100L);
 
@@ -92,12 +97,35 @@ class CareerMilestoneEventListenerTest {
     }
 
     @Test
-    void onMasteryUpdatedDoesNotTriggerWhenMasteryRowMissing() {
+    void onMasteryUpdatedSkipsWhenKcRowMissing() {
         stubMajorCodeReturns(7L, "biology");
-        when(jdbcTemplate.queryForList(
-                argThat(sqlContains("from learner_kc_mastery")),
-                eq(Double.class), eq(7L), eq(10L), eq(100L)))
-                .thenReturn(List.of());
+        stubChapterIdQuery(100L, List.of());
+
+        listener.onMasteryUpdated(7L, 10L, 100L);
+
+        verify(careerBridgingService, never()).recordMilestone(anyLong(), any(), anyString());
+    }
+
+    @Test
+    void onMasteryUpdatedDoesNotTriggerWhenChapterAverageBelowThreshold() {
+        stubMajorCodeReturns(7L, "biology");
+        Map<String, Object> kcRow = new LinkedHashMap<>();
+        kcRow.put("chapter_id", 33L);
+        stubChapterIdQuery(100L, List.of(kcRow));
+        stubChapterAverageReturns(7L, 10L, 33L, 0.55);
+
+        listener.onMasteryUpdated(7L, 10L, 100L);
+
+        verify(careerBridgingService, never()).recordMilestone(anyLong(), any(), anyString());
+    }
+
+    @Test
+    void onMasteryUpdatedDoesNotTriggerWhenChapterAverageNull() {
+        stubMajorCodeReturns(7L, "biology");
+        Map<String, Object> kcRow = new LinkedHashMap<>();
+        kcRow.put("chapter_id", 33L);
+        stubChapterIdQuery(100L, List.of(kcRow));
+        stubChapterAverageReturns(7L, 10L, 33L, null);
 
         listener.onMasteryUpdated(7L, 10L, 100L);
 
@@ -107,23 +135,29 @@ class CareerMilestoneEventListenerTest {
     @Test
     void onMasteryUpdatedRecordsKcClusterGraduatedAtThreshold() {
         stubMajorCodeReturns(7L, "biology");
-        stubMasteryReturns(7L, 10L, 100L, 0.7);
+        Map<String, Object> kcRow = new LinkedHashMap<>();
+        kcRow.put("chapter_id", 33L);
+        stubChapterIdQuery(100L, List.of(kcRow));
+        stubChapterAverageReturns(7L, 10L, 33L, 0.7);
 
         listener.onMasteryUpdated(7L, 10L, 100L);
 
         verify(careerBridgingService, times(1)).recordMilestone(
-                eq(7L), eq(MilestoneType.KC_CLUSTER_GRADUATED), eq("lp:10:kc:100"));
+                eq(7L), eq(MilestoneType.KC_CLUSTER_GRADUATED), eq("lp:10:chapter:33"));
     }
 
     @Test
     void onMasteryUpdatedRecordsKcClusterGraduatedAboveThreshold() {
         stubMajorCodeReturns(42L, "psychology");
-        stubMasteryReturns(42L, 11L, 200L, 0.92);
+        Map<String, Object> kcRow = new LinkedHashMap<>();
+        kcRow.put("chapter_id", 88L);
+        stubChapterIdQuery(200L, List.of(kcRow));
+        stubChapterAverageReturns(42L, 11L, 88L, 0.92);
 
         listener.onMasteryUpdated(42L, 11L, 200L);
 
         verify(careerBridgingService, times(1)).recordMilestone(
-                eq(42L), eq(MilestoneType.KC_CLUSTER_GRADUATED), eq("lp:11:kc:200"));
+                eq(42L), eq(MilestoneType.KC_CLUSTER_GRADUATED), eq("lp:11:chapter:88"));
     }
 
     @Test
@@ -163,11 +197,18 @@ class CareerMilestoneEventListenerTest {
                 .thenReturn(majorCode == null ? List.of() : List.of(majorCode));
     }
 
-    private void stubMasteryReturns(long userId, long lpId, long kcId, double mastery) {
+    private void stubChapterIdQuery(long kcId, List<Map<String, Object>> rows) {
         lenient().when(jdbcTemplate.queryForList(
+                        argThat(sqlContains("from language_pack_kc")),
+                        eq(kcId)))
+                .thenReturn(rows);
+    }
+
+    private void stubChapterAverageReturns(long userId, long lpId, long chapterId, Double avg) {
+        lenient().when(jdbcTemplate.queryForObject(
                         argThat(sqlContains("from learner_kc_mastery")),
-                        eq(Double.class), eq(userId), eq(lpId), eq(kcId)))
-                .thenReturn(List.of(mastery));
+                        eq(Double.class), eq(userId), eq(lpId), eq(chapterId)))
+                .thenReturn(avg);
     }
 
     private static SqlMatcher sqlContains(String fragment) {

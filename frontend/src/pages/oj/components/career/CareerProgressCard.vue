@@ -60,8 +60,8 @@ export default {
 <style scoped>
 .career-progress-card {
   padding: 20px;
-  background: linear-gradient(135deg, #ede9fe 0%, #e0e7ff 100%);
-  border: 1px solid #c7d2fe;
+  background: #fff;
+  border: 1px solid #e5e7eb;
   border-radius: 12px;
   margin-bottom: 16px;
 }
@@ -72,24 +72,23 @@ export default {
   margin-bottom: 12px;
 }
 .card-icon {
-  color: #6366f1;
+  color: #6b7280;
 }
 .card-label {
   font-size: 13px;
   font-weight: 600;
-  color: #4338ca;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  color: #374151;
+  letter-spacing: 0.3px;
 }
 .card-major {
   font-size: 16px;
   font-weight: 600;
-  color: #1e1b4b;
+  color: #1f2937;
   margin-bottom: 4px;
 }
 .card-latest {
   font-size: 13px;
-  color: #4338ca;
+  color: #6b7280;
   margin-bottom: 12px;
 }
 .card-actions {
@@ -98,8 +97,8 @@ export default {
 }
 .card-link {
   font-size: 13px;
-  color: #6366f1;
-  font-weight: 600;
+  color: #2563eb;
+  font-weight: 500;
   text-decoration: none;
 }
 .card-link:hover {
@@ -107,13 +106,13 @@ export default {
 }
 .card-empty {
   font-size: 14px;
-  color: #4338ca;
+  color: #6b7280;
   margin-bottom: 12px;
 }
 .card-cta {
   display: inline-block;
   padding: 8px 20px;
-  background: #6366f1;
+  background: #2563eb;
   color: #fff;
   border-radius: 8px;
   font-size: 13px;
@@ -122,6 +121,6 @@ export default {
   transition: background 0.2s;
 }
 .card-cta:hover {
-  background: #4f46e5;
+  background: #1d4ed8;
 }
 </style>

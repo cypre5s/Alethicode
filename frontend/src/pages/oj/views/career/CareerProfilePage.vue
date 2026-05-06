@@ -5,17 +5,23 @@
 
     <div class="profile-form">
       <label class="form-label" for="major-select">我的专业</label>
-      <select
+      <ElSelect
         id="major-select"
-        class="form-select"
         v-model="majorCode"
+        filterable
+        allow-create
+        default-first-option
+        placeholder="搜索或输入你的专业…"
         :disabled="submitting"
+        class="form-select-el"
       >
-        <option value="" disabled>请选择专业…</option>
-        <option v-for="m in majors" :key="m.code" :value="m.code">
-          {{ m.name_zh }}（{{ m.discipline }}）
-        </option>
-      </select>
+        <ElOption
+          v-for="m in majors"
+          :key="m.code"
+          :value="m.code"
+          :label="m.name_zh + '（' + m.discipline + '）'"
+        />
+      </ElSelect>
 
       <label class="form-label" for="career-intent">我的学习目标（选填）</label>
       <textarea
@@ -87,7 +93,13 @@ export default {
     async handleSubmit () {
       this.submitting = true
       try {
-        const res = await api.updateCareerProfile(this.majorCode, this.careerIntent)
+        const knownCodes = this.majors.map(m => m.code)
+        const isCustom = this.majorCode && !knownCodes.includes(this.majorCode)
+        const effectiveCode = isCustom ? 'other' : this.majorCode
+        const effectiveIntent = isCustom
+          ? ('专业：' + this.majorCode + (this.careerIntent ? '；' + this.careerIntent : ''))
+          : this.careerIntent
+        const res = await api.updateCareerProfile(effectiveCode, effectiveIntent)
         const d = res.data.data
         this.hasProfile = true
         if (d && d.report) {
@@ -135,7 +147,9 @@ export default {
   font-weight: 600;
   color: #374151;
 }
-.form-select,
+.form-select-el {
+  width: 100%;
+}
 .form-textarea {
   padding: 10px 12px;
   border: 1px solid #d1d5db;
@@ -145,7 +159,6 @@ export default {
   background: #fff;
   transition: border-color 0.2s;
 }
-.form-select:focus,
 .form-textarea:focus {
   outline: none;
   border-color: #6366f1;

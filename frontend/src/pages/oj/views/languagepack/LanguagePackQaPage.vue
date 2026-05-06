@@ -455,18 +455,21 @@
           key: 'qa-pages',
           group: '课件页码',
           lazyLoad: true,
+          maxInitialDisplay: 6,
           items: () => proxy ? proxy.buildQaPageMentionItems() : []
         },
         {
           key: 'qa-kcs',
           group: '知识点',
           lazyLoad: true,
+          maxInitialDisplay: 8,
           items: () => proxy ? proxy.buildQaKcMentionItems() : []
         },
         {
           key: 'qa-notebooks',
           group: '学习笔记',
           lazyLoad: true,
+          maxInitialDisplay: 6,
           items: () => proxy ? proxy.buildQaNotebookMentionItems() : []
         }
       ]
@@ -824,8 +827,9 @@
         const items = []
         documents.forEach(doc => {
           const pageCount = Number(doc.page_count) || 0
+          const title = doc.original_filename || doc.title || '课件'
+          if (pageCount <= 0) return
           for (let pageNo = 1; pageNo <= pageCount; pageNo++) {
-            const title = doc.original_filename || doc.title || '课件'
             items.push({
               key: `page:${doc.id}:${pageNo}`,
               token: `@page:${pageNo}`,

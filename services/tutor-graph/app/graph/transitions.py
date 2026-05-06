@@ -1,4 +1,4 @@
-"""Phase / event transition rules — pure logic, no I/O."""
+"""Phase / Event 状态迁移规则，纯逻辑无 I/O。"""
 
 from __future__ import annotations
 

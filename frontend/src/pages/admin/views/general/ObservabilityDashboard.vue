@@ -1,6 +1,6 @@
 <template>
   <div class="view">
-    <Panel title="AI 助教工作台">
+    <Panel title="辅导总控">
       <template #header>
         <div class="toolbar">
           <el-radio-group
@@ -28,12 +28,17 @@
         <div class="surface-card">
           <div class="section-head">
             <h4>核心指标</h4>
-            <p>运行效率 + 教学质量融合视图</p>
+            <p>AI 触达 + 运行效率 + 教学质量融合视图</p>
           </div>
           <div class="metric-cards">
-            <div class="metric-card">
+            <div class="metric-card metric-card--primary">
               <div class="metric-label">AI 辅导次数</div>
               <div class="metric-value">{{ overview.data.total_calls || 0 }}</div>
+            </div>
+            <div class="metric-card metric-card--primary">
+              <div class="metric-label">AI 覆盖率</div>
+              <div class="metric-value">{{ formatPercent(overview.data.ai_user_coverage || 0) }}</div>
+              <div class="metric-sub">{{ overview.data.ai_user_count || 0 }} 名学生用过 AI</div>
             </div>
             <div class="metric-card">
               <div class="metric-label">教学任务派发</div>
@@ -46,6 +51,11 @@
             <div class="metric-card" :class="{ danger: failureRate > 0.05 }">
               <div class="metric-label">辅导失败率</div>
               <div class="metric-value">{{ formatPercent(failureRate) }}</div>
+            </div>
+            <div class="metric-card metric-card--accent">
+              <div class="metric-label">错误诊断 hit 率</div>
+              <div class="metric-value">{{ formatPercent(overview.data.error_diagnosis_hit_rate || 0) }}</div>
+              <div class="metric-sub">诊断后下次 AC</div>
             </div>
             <div class="metric-card">
               <div class="metric-label">学情记忆命中</div>

@@ -1,0 +1,45 @@
+# 仅判题机的 docker-compose（开发模式按需启动）。
+#
+# 默认 `deploy/docker-compose.yml` 里的 `judge` 服务仍然连上游官方镜像，
+# 满足"开发模式启动暂时不要用本地判题机"的约束。
+#
+# 想验证项目内 fork 后的判题机时，先 `cd services/judge-server && make image`
+# 构建本地镜像，然后：
+#
+#   docker compose -f deploy/docker-compose.judge-only.yml up
+#
+# 端口与上游 `JudgeServer/docker-compose.example.yml` 对齐：宿主机 12358 →
+# 容器 8080。Token / 测试用例目录 / heartbeat 目标地址通过 .env 与生产
+# 行为保持一致。
+
+services:
+  judge:
+    image: alethicode/judge-server:dev
+    build:
+      context: ../services/judge-server
+      dockerfile: Dockerfile
+    container_name: alethicode-judge-local
+    restart: unless-stopped
+    privileged: true
+    shm_size: 256mb
+    read_only: true
+    cap_drop:
+      - SETPCAP
+      - MKNOD
+      - NET_BIND_SERVICE
+      - SYS_CHROOT
+      - SETFCAP
+      - FSETID
+    tmpfs:
+      - /tmp
+    volumes:
+      - ./data/test_case:/test_case:ro
+      - ./data/judge_server/log:/log
+      - ./data/judge_server/run:/judger
+    environment:
+      SERVICE_URL: http://localhost:12358
+      BACKEND_URL: ${BACKEND_URL:-http://host.docker.internal:8081/api/judge-server-heartbeat/}
+      TOKEN: ${JUDGE_SERVER_TOKEN:-alethicode_judge_local_2026}
+      DISABLE_HEARTBEAT: ${DISABLE_HEARTBEAT:-1}
+    ports:
+      - "127.0.0.1:12358:8080"

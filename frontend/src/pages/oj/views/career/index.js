@@ -1,15 +1,13 @@
 const CareerProfilePage = () => import('./CareerProfilePage.vue')
 const CareerReportPage = () => import('./CareerReportPage.vue')
-const CareerPathPage = () => import('./CareerPathPage.vue')
-const CareerStudioPage = () => import('./CareerStudioPage.vue')
-const CareerProjectDetailPage = () => import('./CareerProjectDetailPage.vue')
+const MicroProjectListPage = () => import('./MicroProjectListPage.vue')
+const MicroProjectDetailPage = () => import('./MicroProjectDetailPage.vue')
 const CareerPreferencesPanel = () => import('./CareerPreferencesPanel.vue')
 
 export {
   CareerProfilePage,
   CareerReportPage,
-  CareerPathPage,
-  CareerStudioPage,
-  CareerProjectDetailPage,
+  MicroProjectListPage,
+  MicroProjectDetailPage,
   CareerPreferencesPanel
 }

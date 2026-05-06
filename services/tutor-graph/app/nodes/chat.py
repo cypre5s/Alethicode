@@ -1,4 +1,4 @@
-"""Chat node — contextual tutoring chat without changing phase."""
+"""对话节点，基于当前阶段和上下文生成导学回复，不改变 Phase。"""
 
 from __future__ import annotations
 
@@ -39,11 +39,9 @@ def _format_card_refs(label: str, cards: list[dict]) -> str:
 
 
 def _format_courseware_refs(coursewares: list[dict]) -> str:
-    """Render courseware chunks with primary / side-evidence labelling.
+    """渲染课件引用区块，首个 bundle 标记为主课件，其余为旁证。
 
-    The first bundle is the user's explicitly @courseware-referenced pack (primary);
-    any additional bundles are side-evidence (旁证) that provide supplementary context
-    but should NOT be cited by page number in the response.
+    旁证课件仅提供补充背景，LLM 不应引用旁证的具体页码。
     """
     if not coursewares:
         return ""
@@ -84,6 +82,7 @@ async def chat_node(
     *,
     llm_client: LlmClient,
 ) -> TutorGraphState:
+    """生成导学对话回复，组装卡片/课件/学情上下文后调 LLM。"""
     event_data = state.get("event_data", {})
     message = event_data.get("message", "")
     phase = state.get("current_phase", "READING")
@@ -145,9 +144,7 @@ async def chat_node(
     if message:
         result["history"] = history + [{"role": "assistant", "content": result.get("content", "")}]
 
-    # Validate referenced_card_ids: only ids that actually appear in references / last_cards may
-    # be persisted, so the LLM cannot fabricate ids that the frontend would render as broken
-    # anchors.
+    # 防止 LLM 编造不存在的 card_id 导致前端渲染断链
     allowed_ids: set[str] = set()
     for card in references:
         if isinstance(card, dict) and card.get("card_id"):

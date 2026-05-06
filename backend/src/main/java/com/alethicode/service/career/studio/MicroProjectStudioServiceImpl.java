@@ -1,5 +1,6 @@
 package com.alethicode.service.career.studio;
 
+import com.alethicode.config.AlethicodeProperties;
 import com.alethicode.service.ai.AiModelGateway;
 import com.alethicode.service.aitutor.contract.CardType;
 import com.alethicode.service.aitutor.profile.MasteryService;
@@ -65,8 +66,12 @@ public class MicroProjectStudioServiceImpl implements MicroProjectStudioService 
     private static final int DEFAULT_TIME_LIMIT_MS = 3000;
     private static final int DEFAULT_MEMORY_LIMIT_MB = 256;
     private static final String REFERENCE_LANGUAGE = "Python3";
-    /** plan 9 节灰度 4 个 experiment_id 之一：Studio 每次 generate 走 evaluate，rollback 直接 abort。 */
-    private static final String EXPERIMENT_ID = "career_micro_project";
+    /** plan 9 节灰度 4 个 experiment_id 之一：Studio 走 assignAbTest，control 组不调 LLM。 */
+    private static final String EXPERIMENT_ID = "studio_v1";
+    /** plan 9 节给定的 Studio treatment_rate（最保守 0.2）。 */
+    private static final double TREATMENT_RATE = 0.2;
+    /** plan 5.1 节：可解性校验失败重试 ≤ 2 次（首次 + 2 次 = 总 3 次尝试）。 */
+    private static final int MAX_GENERATE_ATTEMPTS = 3;
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
@@ -78,6 +83,7 @@ public class MicroProjectStudioServiceImpl implements MicroProjectStudioService 
     private final LanguagePackProblemJudgeCheckService judgeCheckService;
     private final RolloutPolicyService rolloutPolicyService;
     private final CareerPreferenceService preferenceService;
+    private final AlethicodeProperties properties;
 
     public MicroProjectStudioServiceImpl(
             JdbcTemplate jdbcTemplate,
@@ -89,7 +95,8 @@ public class MicroProjectStudioServiceImpl implements MicroProjectStudioService 
             AiProblemTestCaseWriter testCaseWriter,
             LanguagePackProblemJudgeCheckService judgeCheckService,
             RolloutPolicyService rolloutPolicyService,
-            CareerPreferenceService preferenceService
+            CareerPreferenceService preferenceService,
+            AlethicodeProperties properties
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
@@ -101,6 +108,7 @@ public class MicroProjectStudioServiceImpl implements MicroProjectStudioService 
         this.judgeCheckService = judgeCheckService;
         this.rolloutPolicyService = rolloutPolicyService;
         this.preferenceService = preferenceService;
+        this.properties = properties;
     }
 
     @Override
@@ -121,57 +129,94 @@ public class MicroProjectStudioServiceImpl implements MicroProjectStudioService 
     }
 
     @Override
-    @Transactional
     public Optional<CareerMicroProject> generate(long userId, String majorCode, List<String> kcCodes) {
+        // plan 11 节：全局开关
+        if (!properties.getCareer().getStudio().isEnabled()) {
+            log.debug("micro project studio globally disabled (enabled=false)");
+            return Optional.empty();
+        }
         if (preferenceService.isModuleDisabled(userId, CareerPreferenceServiceImpl.MODULE_CAREER_STUDIO)) {
             log.info("micro project skipped (user-level disabled): user={}", userId);
             return Optional.empty();
         }
-        RolloutDecision decision = rolloutPolicyService.evaluate(
-                EXPERIMENT_ID, "user:" + userId, Map.of());
-        if ("rollback".equals(decision.rolloutMode())) {
-            log.info("micro project rolled back for user={}, major={}, reason={}",
-                    userId, majorCode, decision.reason());
+        // plan 9 节：Studio 走 A/B（treatment_rate = 0.2，最保守），control 组不调 LLM
+        RolloutPolicyService.AbTestAssignment assignment = rolloutPolicyService.assignAbTest(
+                EXPERIMENT_ID, userId, TREATMENT_RATE);
+        if (!"treatment".equals(assignment.group())) {
+            log.info("micro project skipped (A/B control group): user={}, major={}", userId, majorCode);
             return Optional.empty();
         }
 
         Map<String, Object> majorRow = loadMajorRow(majorCode);
-        Map<String, Object> evidence = new LinkedHashMap<>();
-        evidence.put("major_dictionary", majorRow);
-        evidence.put("mastered_kcs", kcCodes);
-        evidence.put("user_id", userId);
 
-        String userPrompt = buildUserPrompt(majorRow, kcCodes);
-        Map<String, Object> initialOutput = aiModelGateway.callForJson(
-                MicroProjectPrompts.SYSTEM, userPrompt, "micro-project");
+        // plan 5.1 节：可解性校验失败重试 ≤ 2 次（首次 + 2 次 = 总 3 次尝试）
+        for (int attempt = 1; attempt <= MAX_GENERATE_ATTEMPTS; attempt++) {
+            Optional<CareerMicroProject> result = attemptGenerate(
+                    userId, majorCode, kcCodes, majorRow, assignment.group(), attempt);
+            if (result.isPresent()) {
+                return result;
+            }
+        }
+        log.warn("micro project gave up after {} attempts: user={}, major={}",
+                MAX_GENERATE_ATTEMPTS, userId, majorCode);
+        return Optional.empty();
+    }
 
-        ReflectionResult reflection = reflectionService.reflectAndRefine(
-                CardType.MICRO_PROJECT_BRIEF, evidence, initialOutput, 1);
+    /**
+     * 单次生成尝试（plan 5.1 节 3 步流程）：
+     * <ol>
+     *   <li>LLM 出题 + critic（CardType.MICRO_PROJECT_BRIEF）</li>
+     *   <li>reference solution 真判题自验证（走 Judge Server 同源 /judge 协议）</li>
+     *   <li>持久化：INSERT problem 表（含 KC 映射 statistic_info） + INSERT career_micro_project</li>
+     * </ol>
+     * 任一步失败返回 empty，外层循环重试。整个持久化在 {@link Transactional} 边界内，
+     * INSERT problem 之后真判题失败抛异常会触发 rollback，避免脏数据。
+     */
+    @Transactional
+    protected Optional<CareerMicroProject> attemptGenerate(
+            long userId, String majorCode, List<String> kcCodes,
+            Map<String, Object> majorRow, String rolloutMode, int attempt) {
+        try {
+            Map<String, Object> evidence = new LinkedHashMap<>();
+            evidence.put("major_dictionary", majorRow);
+            evidence.put("mastered_kcs", kcCodes);
+            evidence.put("user_id", userId);
 
-        if (!reflection.passed()) {
-            log.warn("micro project critic rejected: user={}, major={}, verdict={}",
-                    userId, majorCode, reflection.criticVerdict());
+            String userPrompt = buildUserPrompt(majorRow, kcCodes);
+            Map<String, Object> initialOutput = aiModelGateway.callForJson(
+                    MicroProjectPrompts.SYSTEM, userPrompt, "micro-project");
+
+            ReflectionResult reflection = reflectionService.reflectAndRefine(
+                    CardType.MICRO_PROJECT_BRIEF, evidence, initialOutput, 1);
+            if (!reflection.passed()) {
+                log.warn("micro project critic rejected attempt {}/{}: user={}, major={}, verdict={}",
+                        attempt, MAX_GENERATE_ATTEMPTS, userId, majorCode, reflection.criticVerdict());
+                return Optional.empty();
+            }
+
+            Map<String, Object> output = reflection.output();
+            Map<String, Object> problemSchema = asMap(output.get("problem"));
+            Map<String, Object> referenceSchema = asMap(output.get("reference_solution"));
+            List<Map<String, Object>> testCases = extractTestCases(problemSchema);
+            String referenceCode = stringOf(referenceSchema.get("code"));
+
+            if (referenceCode.isBlank() || testCases.isEmpty()) {
+                log.warn("micro project missing reference_solution.code or test_cases attempt {}/{}: user={}",
+                        attempt, MAX_GENERATE_ATTEMPTS, userId);
+                return Optional.empty();
+            }
+
+            if (!verifyReferenceSolution(userId, majorCode, referenceCode, testCases)) {
+                return Optional.empty();
+            }
+
+            return Optional.of(persistProject(userId, majorCode, kcCodes, problemSchema, referenceCode, testCases,
+                    rolloutMode));
+        } catch (RuntimeException e) {
+            log.warn("micro project attempt {}/{} threw: user={}, major={}, reason={}",
+                    attempt, MAX_GENERATE_ATTEMPTS, userId, majorCode, e.toString());
             return Optional.empty();
         }
-
-        Map<String, Object> output = reflection.output();
-        Map<String, Object> problemSchema = asMap(output.get("problem"));
-        Map<String, Object> referenceSchema = asMap(output.get("reference_solution"));
-        List<Map<String, Object>> testCases = extractTestCases(problemSchema);
-        String referenceCode = stringOf(referenceSchema.get("code"));
-
-        if (referenceCode.isBlank() || testCases.isEmpty()) {
-            log.warn("micro project missing reference_solution.code or test_cases: user={}, major={}",
-                    userId, majorCode);
-            return Optional.empty();
-        }
-
-        if (!verifyReferenceSolution(userId, majorCode, referenceCode, testCases)) {
-            return Optional.empty();
-        }
-
-        return Optional.of(persistProject(userId, majorCode, kcCodes, problemSchema, referenceCode, testCases,
-                decision.rolloutMode()));
     }
 
     @Override
@@ -200,6 +245,22 @@ public class MicroProjectStudioServiceImpl implements MicroProjectStudioService 
         } catch (EmptyResultDataAccessException ignored) {
             return Optional.empty();
         }
+    }
+
+    @Override
+    @Transactional
+    public CareerMicroProject exportPortfolioCard(long userId, long projectId) {
+        CareerMicroProject project = findById(userId, projectId).orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "micro project not found or not owned by user: id=" + projectId));
+        String markdown = renderPortfolioMarkdown(project);
+        String uri = persistPortfolioMarkdownToDisk(projectId, markdown);
+        jdbcTemplate.update(
+                "update career_micro_project set portfolio_card_uri = ? where id = ?",
+                uri, projectId);
+        log.info("micro project portfolio card exported: id={}, uri={}", projectId, uri);
+        return findById(userId, projectId).orElseThrow(() ->
+                new IllegalStateException("portfolio card uri not persisted: id=" + projectId));
     }
 
     @Override
@@ -515,5 +576,49 @@ public class MicroProjectStudioServiceImpl implements MicroProjectStudioService 
             return "";
         }
         return value.length() <= maxLen ? value : value.substring(0, maxLen);
+    }
+
+    /**
+     * 渲染作品集 Markdown 卡片：与前端 portfolioMarkdown 计算逻辑同源，作为
+     * server 端权威版本（plan 5.3 节「导出作品集卡片」+ portfolio_card_uri 列）。
+     */
+    private String renderPortfolioMarkdown(CareerMicroProject project) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("# ").append(project.title() == null ? "微项目" : project.title()).append("\n\n");
+        sb.append("- 专业: ").append(project.majorCode() == null ? "" : project.majorCode()).append('\n');
+        sb.append("- 状态: ").append(project.status() == null ? "" : project.status()).append('\n');
+        if (project.score() != null) {
+            sb.append("- 得分: ").append(project.score()).append('\n');
+        }
+        if (project.createdAt() != null) {
+            sb.append("- 创建: ").append(project.createdAt()).append('\n');
+        }
+        if (project.completedAt() != null) {
+            sb.append("- 完成: ").append(project.completedAt()).append('\n');
+        }
+        if (project.judgeProblemId() != null) {
+            sb.append("- 判题机题号: #").append(project.judgeProblemId()).append('\n');
+        }
+        sb.append("\n## 题目说明\n\n");
+        sb.append(project.briefMd() == null || project.briefMd().isBlank() ? "_未填写_" : project.briefMd()).append("\n\n");
+        sb.append("---\n");
+        sb.append("_由 Alethicode Project Studio 自动生成（reference solution 已通过真判题自验证）_\n");
+        return sb.toString();
+    }
+
+    /**
+     * 写到 {@code data/exports/career-portfolio/<projectId>.md}，返回 file URI。
+     * 失败抛 {@link IllegalStateException}，由 controller 转换为 5xx。
+     */
+    private String persistPortfolioMarkdownToDisk(long projectId, String markdown) {
+        java.nio.file.Path dir = java.nio.file.Path.of("data", "exports", "career-portfolio");
+        try {
+            java.nio.file.Files.createDirectories(dir);
+            java.nio.file.Path target = dir.resolve(projectId + ".md");
+            java.nio.file.Files.writeString(target, markdown, java.nio.charset.StandardCharsets.UTF_8);
+            return "file:" + target.toString();
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("failed to write portfolio markdown: " + e.getMessage(), e);
+        }
     }
 }

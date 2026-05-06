@@ -1,6 +1,6 @@
 <template>
   <div class="view">
-    <Panel title="公测使用统计">
+    <Panel title="学生学习数据">
       <template #header>
         <div class="toolbar">
           <ElRadioGroup v-model="range" size="small" class="range-picker" @change="reload">
@@ -19,7 +19,7 @@
         <div class="surface-card">
           <div class="section-head">
             <h4>核心指标</h4>
-            <p>{{ rangeLabel }}的整体活跃、学习效果、AI 教学覆盖与用户反馈一览</p>
+            <p>{{ rangeLabel }}的整体活跃、学习效果与用户反馈一览</p>
           </div>
           <div class="kpi-grid">
             <div class="kpi-card kpi-card--primary">
@@ -42,11 +42,6 @@
               <div class="kpi-value">{{ formatPercent(overview.ac_rate) }}</div>
               <div class="kpi-foot">AC {{ overview.recent_ac }} / {{ overview.recent_submissions }}</div>
             </div>
-            <div class="kpi-card kpi-card--accent">
-              <div class="kpi-label">AI 覆盖率</div>
-              <div class="kpi-value">{{ formatPercent(aiValue.ai_user_coverage) }}</div>
-              <div class="kpi-foot">{{ aiValue.ai_user_count }} 名学生用过 AI</div>
-            </div>
             <div class="kpi-card">
               <div class="kpi-label">{{ rangeLabel }}反馈</div>
               <div class="kpi-value">{{ feedbackSummary.total }}</div>
@@ -59,7 +54,7 @@
         <div class="surface-card">
           <div class="section-head">
             <h4>每日活跃趋势</h4>
-            <p>提交人数、提交总数、AI 调用次数随时间的分布</p>
+            <p>提交人数、提交总数随时间的分布</p>
           </div>
           <div class="chart-block">
             <Line v-if="dailyChartData" :data="dailyChartData" :options="dailyChartOptions" />
@@ -85,28 +80,26 @@
                 <div class="metric-value">{{ formatDuration(overview.avg_to_ac_seconds) }}</div>
                 <div class="metric-foot">从首次提交到 AC</div>
               </div>
-              <div class="metric-card metric-card--accent">
-                <div class="metric-label">错误诊断 hit 率</div>
-                <div class="metric-value">{{ formatPercent(aiValue.error_diagnosis_hit_rate) }}</div>
-                <div class="metric-foot">
-                  诊断后下次 AC {{ aiValue.error_diagnosis_hit }} / {{ aiValue.error_diagnosis_with_next }}
-                </div>
+              <div class="metric-card">
+                <div class="metric-label">做题学生数</div>
+                <div class="metric-value">{{ overview.active_users }}</div>
+                <div class="metric-foot">{{ rangeLabel }}有提交的学生</div>
               </div>
               <div class="metric-card">
-                <div class="metric-label">AI 辅导调用</div>
-                <div class="metric-value">{{ aiValue.total_calls }}</div>
-                <div class="metric-foot">{{ aiValue.ai_user_count }} 名学生使用</div>
+                <div class="metric-label">人均提交</div>
+                <div class="metric-value">{{ overview.active_users > 0 ? Math.round(overview.recent_submissions / overview.active_users * 10) / 10 : 0 }}</div>
+                <div class="metric-foot">{{ rangeLabel }}活跃学生平均</div>
               </div>
             </div>
           </div>
           <div class="surface-card">
             <div class="section-head">
-              <h4>AI 卡片类型分布</h4>
-              <p>{{ rangeLabel }}各类教学卡片的调用次数</p>
+              <h4>错误类型分布</h4>
+              <p>{{ rangeLabel }}学生常见错误分类</p>
             </div>
             <div class="chart-block chart-block-short">
-              <Bar v-if="cardChartData" :data="cardChartData" :options="cardChartOptions" />
-              <div v-else class="chart-empty">暂无 AI 卡片数据</div>
+              <Bar v-if="errorTypeChartData" :data="errorTypeChartData" :options="cardChartOptions" />
+              <div v-else class="chart-empty">暂无错误类型数据</div>
             </div>
           </div>
         </div>
@@ -239,15 +232,21 @@ const TYPE_LABELS = {
 }
 
 const CARD_TYPE_LABELS = {
-  reading: '审题导读',
-  ideating: '思路分析',
-  skeleton: '骨架代码',
+  problem_guide: '审题导读',
+  ideate_analysis: '思路分析',
+  faded_example: '渐退示例',
+  parsons_problem: '排序题',
   error_diagnosis: '错误诊断',
+  execution_trace_explainer: '执行追踪',
   post_ac: 'AC 反思',
-  transfer: '迁移练习',
+  transfer_problem: '迁移练习',
   knowledge_review: '知识回顾',
+  ai_reply: '对话回复',
   visualize: '可视化',
-  encouragement: '鼓励'
+  career_bridging: '职业桥接',
+  domain_variant: '专业题面',
+  micro_project_brief: '微项目',
+  career_path_node: '学习路径'
 }
 
 export default {
@@ -301,14 +300,6 @@ export default {
             backgroundColor: 'transparent',
             tension: 0.35,
             yAxisID: 'y1'
-          },
-          {
-            label: 'AI 调用',
-            data: this.dailyActive.map(r => r.ai_calls || 0),
-            borderColor: '#f59e0b',
-            backgroundColor: 'transparent',
-            tension: 0.35,
-            yAxisID: 'y1'
           }
         ]
       }
@@ -341,18 +332,25 @@ export default {
         }
       }
     },
-    cardChartData () {
-      const dist = this.aiValue.card_distribution || []
+    errorTypeChartData () {
+      const dist = (this.painPoints && this.painPoints.error_distribution) || []
       if (!dist.length) return null
+      const ERROR_LABELS = {
+        syntax_error: '语法错误', runtime_error: '运行时错误',
+        logic_error: '逻辑错误', algorithm_error: '算法错误',
+        name_or_type_error: '命名/类型错误', indentation: '缩进错误',
+        compilation_error: '编译错误', time_limit: '超时',
+        memory_limit: '内存超限', unknown: '其他'
+      }
       return {
-        labels: dist.map(r => CARD_TYPE_LABELS[r.card_type] || r.card_type),
+        labels: dist.map(r => ERROR_LABELS[r.error_type] || r.error_type || '其他'),
         datasets: [{
-          label: '调用次数',
+          label: '出现次数',
           data: dist.map(r => Number(r.cnt) || 0),
           backgroundColor: [
-            '#3b82f6', '#10b981', '#f59e0b', '#ef4444',
-            '#8b5cf6', '#06b6d4', '#a855f7', '#84cc16',
-            '#f97316'
+            '#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6',
+            '#10b981', '#06b6d4', '#a855f7', '#84cc16',
+            '#f97316', '#94a3b8'
           ],
           borderRadius: 6
         }]

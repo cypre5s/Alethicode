@@ -1,4 +1,4 @@
-"""TutorGraphState — the single source of truth for LangGraph runtime."""
+"""LangGraph 运行时状态定义，所有节点的唯一数据源。"""
 
 from __future__ import annotations
 

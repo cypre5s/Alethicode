@@ -1,11 +1,4 @@
-"""Tests for the Unified Chat (P3) chat node behavior.
-
-Covers:
-- Last-cards block is injected when present in state.
-- Explicit references override / supplement last_cards in the prompt.
-- referenced_card_ids returned by the LLM are filtered against allowed ids.
-- Empty references / last_cards still produces a valid chat output.
-"""
+"""chat 节点测试：卡片注入、引用过滤、课件旁证标记、空输入处理。"""
 
 from __future__ import annotations
 

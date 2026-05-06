@@ -16,8 +16,8 @@
 import { ref, computed, watch, onUnmounted, isRef } from 'vue'
 import { readDraft, writeDraft, readHistory, pushHistory } from './composerStorage'
 
-const AT_TRIGGER_RE = /(?:^|\s)@([\w:.-]*)$/
-const SLASH_TRIGGER_RE = /^\/(\S*)$/
+const AT_TRIGGER_RE = /(?:^|\s)@([^\s]*)$/
+const SLASH_TRIGGER_RE = /^\/(\S*)(?:\s+([\s\S]*))?$/
 
 function ensureArray(value, label) {
   if (!Array.isArray(value)) {
@@ -130,19 +130,24 @@ export function useChatComposer(options) {
   }
 
   const atGroups = computed(function () {
-    const query = String(atQuery.value || '').toLowerCase()
+    var query = String(atQuery.value || '').toLowerCase()
     return atProviders
       .map(function (provider) {
-        const items = getProviderItems(provider).filter(function (item) {
+        var allItems = getProviderItems(provider)
+        var filtered = allItems.filter(function (item) {
           if (!item || !item.token) return false
           if (!query) return true
-          const haystack = ((item.token || '') + ' ' + (item.label || '') + ' ' + (item.desc || '')).toLowerCase()
+          var haystack = ((item.token || '') + ' ' + (item.label || '') + ' ' + (item.desc || '')).toLowerCase()
           return haystack.indexOf(query) !== -1
         })
+        var maxDisplay = provider.maxInitialDisplay
+        if (!query && typeof maxDisplay === 'number' && maxDisplay > 0 && filtered.length > maxDisplay) {
+          filtered = filtered.slice(0, maxDisplay)
+        }
         return {
           group: provider.group || provider.label || provider.key,
           key: provider.key,
-          items: items
+          items: filtered
         }
       })
       .filter(function (group) { return group.items.length > 0 })
@@ -244,7 +249,11 @@ export function useChatComposer(options) {
       slashQuery.value = ''
       return
     }
-    const args = String(rawText.value || '').replace(SLASH_TRIGGER_RE, '').trim()
+    const raw = String(rawText.value || '')
+    const command = String(item.command || '')
+    const args = raw === command || raw.indexOf(command + ' ') === 0
+      ? raw.slice(command.length).trim()
+      : raw.replace(SLASH_TRIGGER_RE, '').trim()
     if (typeof item.run === 'function') {
       try {
         item.run({

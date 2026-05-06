@@ -149,7 +149,7 @@ describe('chat composer · composerStorage 行为', () => {
 describe('chat composer · useChatComposer 静态契约', () => {
   test('导出 useChatComposer + 触发正则常量', () => {
     expect(useChatComposerSource).toMatch(/export function useChatComposer\s*\(/)
-    expect(useChatComposerSource).toMatch(/AT_TRIGGER_RE\s*=\s*\/\(\?:\^\|\\s\)@/)
+    expect(useChatComposerSource).toMatch(/AT_TRIGGER_RE\s*=\s*\/\(\?:\^\|\\s\)@\(\[/)
     expect(useChatComposerSource).toMatch(/SLASH_TRIGGER_RE\s*=\s*\/\^\\\//)
   })
 

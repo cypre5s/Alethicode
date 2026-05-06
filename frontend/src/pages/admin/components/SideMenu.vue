@@ -26,8 +26,8 @@
             <span class="menu-title-text">数据洞察</span>
           </span>
         </template>
-        <el-menu-item index="/usage-stats">使用统计</el-menu-item>
-        <el-menu-item index="/secrets/observability">AI 助教工作台</el-menu-item>
+        <el-menu-item index="/usage-stats">学生学习数据</el-menu-item>
+        <el-menu-item index="/secrets/observability">辅导总控</el-menu-item>
         <el-menu-item index="/secrets/system-monitor">系统监控</el-menu-item>
         <el-menu-item index="/beta-feedback">公测反馈</el-menu-item>
       </el-sub-menu>

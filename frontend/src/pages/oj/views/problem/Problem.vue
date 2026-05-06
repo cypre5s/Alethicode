@@ -1353,8 +1353,7 @@
             this.pushAgentMessage({ type: 'system', content: '思路分析请求失败，请稍后重试' })
           })
         } else {
-          // Unified Chat (P3): include parsed @card / @last_xxx references and the active Mode
-          // so the chat node can inject the referenced cards into the LLM prompt.
+          // 把 @card/@last_xxx 引用和当前 Mode 传给 tutor-graph chat 节点
           const references = parseReferences(text)
           this.dispatchWorkflowEvent('CHAT', {
             message: text,

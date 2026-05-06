@@ -370,9 +370,24 @@ public class AlethicodeProperties {
     public static class Career {
 
         private final Bridging bridging = new Bridging();
+        private final Lens lens = new Lens();
+        private final Studio studio = new Studio();
+        private final Path path = new Path();
 
         public Bridging getBridging() {
             return bridging;
+        }
+
+        public Lens getLens() {
+            return lens;
+        }
+
+        public Studio getStudio() {
+            return studio;
+        }
+
+        public Path getPath() {
+            return path;
         }
 
         public static class Bridging {
@@ -393,6 +408,61 @@ public class AlethicodeProperties {
 
             public void setTreatmentRate(double treatmentRate) {
                 this.treatmentRate = treatmentRate;
+            }
+        }
+
+        /**
+         * Coding Lens 全局开关（plan 11 节风险与回滚）：
+         * <ul>
+         *   <li>{@code enabled=false} ⇒ 所有 major 请求都返回 empty 让前端回退原版题面</li>
+         *   <li>{@code disabledForExam=true} ⇒ 考试模式全局禁用题面专业化重写
+         *       （对应 env {@code CAREER_LENS_DISABLED_FOR_EXAM=true}）</li>
+         * </ul>
+         */
+        public static class Lens {
+            private boolean enabled = true;
+            private boolean disabledForExam = false;
+
+            public boolean isEnabled() {
+                return enabled;
+            }
+
+            public void setEnabled(boolean enabled) {
+                this.enabled = enabled;
+            }
+
+            public boolean isDisabledForExam() {
+                return disabledForExam;
+            }
+
+            public void setDisabledForExam(boolean disabledForExam) {
+                this.disabledForExam = disabledForExam;
+            }
+        }
+
+        /** Project Studio 全局开关（plan 11 节）；{@code enabled=false} 时 generate 直接返回 empty。 */
+        public static class Studio {
+            private boolean enabled = true;
+
+            public boolean isEnabled() {
+                return enabled;
+            }
+
+            public void setEnabled(boolean enabled) {
+                this.enabled = enabled;
+            }
+        }
+
+        /** Career Path Map 全局开关（plan 11 节）；{@code enabled=false} 时 buildView 返回空 nodes。 */
+        public static class Path {
+            private boolean enabled = true;
+
+            public boolean isEnabled() {
+                return enabled;
+            }
+
+            public void setEnabled(boolean enabled) {
+                this.enabled = enabled;
             }
         }
     }

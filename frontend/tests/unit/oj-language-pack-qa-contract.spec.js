@@ -55,6 +55,19 @@ describe('OJ language pack QA contract', () => {
     expect(source).toContain('api.getLanguagePackQaCitationPage')
   })
 
+  test('LanguagePackQaPage composer registers Phase 2 page/kc/notebook mentions and page command', () => {
+    const source = readSource('../../src/pages/oj/views/languagepack/LanguagePackQaPage.vue')
+    expect(source).toContain("key: 'qa-pages'")
+    expect(source).toContain("key: 'qa-kcs'")
+    expect(source).toContain("key: 'qa-notebooks'")
+    expect(source).toContain('buildQaPageMentionItems')
+    expect(source).toContain('buildQaKcMentionItems')
+    expect(source).toContain('buildQaNotebookMentionItems')
+    expect(source).toContain('run: ({ args }) => proxy && proxy.jumpToQaPage(args)')
+    const pageCommand = source.match(/key:\s*'qa-page'[\s\S]*?run:\s*\(\{ args \}\) => proxy && proxy\.jumpToQaPage\(args\)/)
+    expect(pageCommand && pageCommand[0]).not.toContain("status: 'placeholder'")
+  })
+
   test('LanguagePackQaPage warns users not to ask OJ problem-solving questions here', () => {
     const source = readSource('../../src/pages/oj/views/languagepack/LanguagePackQaPage.vue')
     expect(source).toContain('不要在这里问 OJ 题目')

@@ -4,6 +4,18 @@
 
 ## [Unreleased] - 2026-05-06
 
+### 前端体验优化
+
+- 2026-05-06 **[重构/Career 路径下线]** 前后端安全删除 Career 学习路径模块：移除后端 `CareerPathController` 与 `service.career.path` 全部实现及对应单测；前端移除 `api/career.js` 的 `getCareerPath` 调用，避免残留访问 `/api/career/path`。
+- 2026-05-06 **[调整/Career 设置迁移]** Career「模块设置」入口统一迁移至 `/setting/profile`，复用 `CareerPreferencesPanel` 并保持设置页视觉风格一致；导航层移除原 `/career/preferences` 入口，减少信息分散。
+- 2026-05-06 **[重组/数据洞察]** 管理后台「使用统计」与「AI 助教工作台」按视角重组：「学生学习数据」只保留注册/活跃/提交/AC 率/痛点/反馈等纯学生指标，移除 AI 覆盖率、AI 辅导调用、诊断 hit 率、AI 卡片分布；「AI 助教工作台」接收这些 AI 指标（覆盖率 + 诊断 hit 率），与响应时间、失败率、Agent 维度、评测质量组成完整的 AI 系统运维视图。
+- 2026-05-06 **[优化/@ 菜单]** `useChatComposer.js` 新增 `maxInitialDisplay` 支持：课件问答 @ 菜单初始只展示每组前 6-8 项（页码 6 / KC 8 / 笔记 6），输入关键词后全量搜索不受限；解决 100+ 页课件时 @ 菜单信息过载问题。
+- 2026-05-06 **[修复/@ 搜索]** `useChatComposer.js` `AT_TRIGGER_RE` 正则从 `[\w:.-]*` 放宽为 `[^\s]*`，支持中文搜索（如 `@变量` 过滤知识点、`@第3页` 过滤页码），帮助学生快速定位页码、KC 和错误分类。
+- 2026-05-06 **[修复/卡片名汉化]** `UsageStats.vue` `CARD_TYPE_LABELS` 对齐后端 `CardType` 枚举 messageType（`problem_guide`→审题导读、`ideate_analysis`→思路分析、`faded_example`→渐退示例 等 15 项），修复柱状图显示英文 key 的问题。
+- 2026-05-06 **[修改/辅导总控]** admin 菜单与 `ObservabilityDashboard.vue` 标题从「AI 助教工作台」改为「辅导总控」（4 字）。
+- 2026-05-06 **[新增/Career 导航]** `NavBar.vue` 新增「专业学习」子菜单（ElSubMenu），包含专业档案 / 学习路径 / 微项目 / 专业报告 / 模块设置 5 项入口，解决 Career 功能无导航入口的问题。
+- 2026-05-06 **[修改/专业选择]** `CareerProfilePage.vue` 专业选择从原生 `<select>` 改为 `ElSelect filterable allow-create`：支持搜索已有 12 专业 + 自定义输入；自定义专业自动映射 `other` major_code 并将专业名写入学习目标。`V92__career_major_other.sql` 在 `career_major_dictionary` 中幂等插入 `other` 行。
+
 ### AI 导学 / 课件问答 对话能力扩展 Phase 3：会话级重型能力
 
 > **背景**：`chat_composer_phase_plan` Phase 3 的 3 项会话级重型能力：上下文压缩、会话分叉、跨课件旁证标记。

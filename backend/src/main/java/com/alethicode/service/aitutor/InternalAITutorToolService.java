@@ -41,5 +41,13 @@ public interface InternalAITutorToolService {
      */
     SessionUsage getSessionUsage(String sessionId);
 
+    /**
+     * 分叉 AI 导学会话：新建 session + thread，复制源会话的 projection events。
+     *
+     * @param sourceSessionId    源会话 ID
+     * @param fromMessageEventId 截止复制的 event ID（null 表示复制全部）
+     * @return 新会话信息含 session_id、thread_id、problem_id 等
+     * @throws InternalAITutorToolServiceImpl.ProblemNotFoundException 源会话不存在
+     */
     Map<String, Object> forkSession(String sourceSessionId, Long fromMessageEventId);
 }

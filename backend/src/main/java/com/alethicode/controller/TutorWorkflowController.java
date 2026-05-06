@@ -140,10 +140,7 @@ public class TutorWorkflowController {
             return fail422("classroom_assignment session must declare anti_cheating");
         }
 
-        // 学生做完 A 题 AC 后切到 B 题继续做不应叠加配额：先看是否已有同 (user, problem)
-        // 的活跃 session，存在直接复用、不计入配额、不调 tutor-graph 重建 thread。
-        // 这条是对 CRIT-3 active session quota 的"业务体验补丁"——quota 只防恶意脚本
-        // 短时间批量创建，不应惩罚正常切题学生。
+        // 同 (user, problem) 已有活跃 session 时直接复用，不叠加配额
         Optional<Map<String, Object>> existing = projectionService.findActiveSession(userId, problemId);
         if (existing.isPresent()) {
             Map<String, Object> reused = existing.get();
@@ -230,8 +227,7 @@ public class TutorWorkflowController {
 
         String activeRunId = activeRuns.remove(sessionId);
         if (activeRunId != null) {
-            // Stop the virtual thread poller before cancelling the tutor-graph run so
-            // the shutdown is deterministic even if tutor-graph is unresponsive.
+            // 先停 poller 再 cancel run，确保 tutor-graph 无响应时也能确定性关闭
             webSocketHandler.interruptPoller(activeRunId);
             try {
                 graphClient.cancelRun(activeRunId).block(Duration.ofSeconds(5));
@@ -264,9 +260,7 @@ public class TutorWorkflowController {
             return fail409("Session already has an active run");
         }
 
-        // CRIT-3: 每用户每天 LLM run 配额硬上限，超过后立刻 429 并阻止下游 LLM 调用。
-        // 用 Redis 原子 INCR 计数，TTL=86400s 自然过期；超额计数也会带来 1 次额外 INCR
-        // 但不会落到 LLM provider 上。
+        // 每用户每天 LLM run 配额硬上限，超额 429
         quotaService.enforceDailyLlmRunQuota(userId);
 
         Optional<Map<String, Object>> sessionOpt = projectionService.getSession(sessionId);
@@ -467,6 +461,9 @@ public class TutorWorkflowController {
         return ResponseEntity.ok(ApiResponse.success(body));
     }
 
+    /**
+     * 压缩会话上下文：转发 COMPACT 事件到 tutor-graph，由 compact 节点执行摘要。
+     */
     @PostMapping("/{sessionId}/compact")
     @RateLimiter(name = "tutorWorkflow")
     public ResponseEntity<ApiResponse<Object>> compactSession(
@@ -532,6 +529,9 @@ public class TutorWorkflowController {
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.success(body));
     }
 
+    /**
+     * 分叉会话：复制源 session 的 events 到新 session，返回新 session 信息。
+     */
     @PostMapping("/{sessionId}/fork")
     @RateLimiter(name = "tutorWorkflow")
     public ResponseEntity<ApiResponse<Object>> forkSession(

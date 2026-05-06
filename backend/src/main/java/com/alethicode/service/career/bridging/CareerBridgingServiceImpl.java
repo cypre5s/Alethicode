@@ -482,12 +482,12 @@ public class CareerBridgingServiceImpl implements CareerBridgingService {
 
     private List<String> loadRecentPackTitles(long userId) {
         return jdbcTemplate.queryForList("""
-                select distinct lp.title
+                select distinct lp.name
                 from learner_kc_mastery m
                 join language_pack_kc kc on kc.id = m.kc_id
                 join language_pack lp on lp.id = m.language_pack_id
                 where m.user_id = ?
-                order by lp.title
+                order by lp.name
                 limit 5
                 """, String.class, userId);
     }

@@ -2,7 +2,12 @@
   <div class="setting-main">
     <div class="flex-container">
       <div class="left">
-        <p class="section-title">{{$t('m.ChangePassword')}}</p>
+        <div class="card-head">
+          <div class="card-title">
+            <div class="card-title-bar"></div>
+            {{$t('m.ChangePassword')}}
+          </div>
+        </div>
         <ElForm class="setting-content" ref="formPassword" :model="formPassword" :rules="rulePassword" label-width="120px" label-position="left">
           <ElFormItem label="旧密码" prop="old_password">
             <ElInput v-model="formPassword.old_password" type="password"/>
@@ -19,14 +24,21 @@
           <ElFormItem v-if="visible.passwordAlert">
             <ElAlert type="success" :closable="false">密码已修改，将在 5 秒后自动重新登录</ElAlert>
           </ElFormItem>
-          <ElButton type="primary" @click="changePassword">{{$t('m.Update_Password')}}</ElButton>
+          <ElFormItem class="form-actions">
+            <ElButton type="primary" :loading="loading.btnPassword" @click="changePassword">{{$t('m.Update_Password')}}</ElButton>
+          </ElFormItem>
         </ElForm>
       </div>
 
       <div class="middle separator"></div>
 
       <div class="right">
-        <p class="section-title">{{$t('m.ChangeEmail')}}</p>
+        <div class="card-head">
+          <div class="card-title">
+            <div class="card-title-bar"></div>
+            {{$t('m.ChangeEmail')}}
+          </div>
+        </div>
         <ElForm class="setting-content" ref="formEmail" :model="formEmail" :rules="ruleEmail" label-width="120px" label-position="left">
           <ElFormItem label="当前密码" prop="password">
             <ElInput v-model="formEmail.password" type="password"/>
@@ -40,7 +52,9 @@
           <ElFormItem v-if="visible.tfaRequired" label="双因素验证码" prop="tfa_code">
             <ElInput v-model="formEmail.tfa_code"/>
           </ElFormItem>
-          <ElButton type="primary" @click="changeEmail">{{$t('m.ChangeEmail')}}</ElButton>
+          <ElFormItem class="form-actions">
+            <ElButton type="primary" :loading="loading.btnEmail" @click="changeEmail">{{$t('m.ChangeEmail')}}</ElButton>
+          </ElFormItem>
         </ElForm>
       </div>
     </div>
@@ -176,17 +190,56 @@
 
   .flex-container {
     justify-content: flex-start;
+    gap: 20px;
     .left {
       flex: 1 0;
       width: 250px;
-      padding-right: 5%;
+      background: var(--st-bg-card);
+      border: 1px solid var(--st-border);
+      border-radius: var(--st-radius);
+      box-shadow: var(--st-shadow-sm);
+      padding: 0 22px 22px;
     }
     > .middle {
-      flex: none;
+      display: none;
     }
     .right {
       flex: 1 0;
       width: 250px;
+      background: var(--st-bg-card);
+      border: 1px solid var(--st-border);
+      border-radius: var(--st-radius);
+      box-shadow: var(--st-shadow-sm);
+      padding: 0 22px 22px;
     }
+  }
+
+  .card-head {
+    padding: 18px 0 0;
+    margin-bottom: 16px;
+  }
+
+  .card-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--st-text);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .card-title-bar {
+    width: 3px;
+    height: 16px;
+    border-radius: 2px;
+    background: var(--st-blue);
+  }
+
+  .setting-content {
+    margin: 0;
+  }
+
+  :deep(.form-actions .el-form-item__content) {
+    justify-content: flex-end;
   }
 </style>

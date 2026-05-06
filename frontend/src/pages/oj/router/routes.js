@@ -21,9 +21,8 @@ import {
   MaintenancePage,
   CareerProfilePage,
   CareerReportPage,
-  CareerPathPage,
-  CareerStudioPage,
-  CareerProjectDetailPage,
+  MicroProjectListPage,
+  MicroProjectDetailPage,
   CareerPreferencesPanel
 } from '../views'
 
@@ -131,6 +130,12 @@ export default [
         path: 'account',
         meta: { requiresAuth: true, title: 'Account Settings' },
         component: Setting.AccountSetting
+      },
+      {
+        name: 'career-setting',
+        path: 'career',
+        meta: { requiresAuth: true, title: 'Career 模块设置' },
+        component: CareerPreferencesPanel
       }
     ]
   },
@@ -183,28 +188,16 @@ export default [
     component: CareerReportPage
   },
   {
-    path: '/career/path',
-    name: 'career-path',
-    meta: { title: '学习路径', requiresAuth: true },
-    component: CareerPathPage
-  },
-  {
     path: '/career/studio',
     name: 'career-studio',
     meta: { title: '微项目工作室', requiresAuth: true },
-    component: CareerStudioPage
+    component: MicroProjectListPage
   },
   {
     path: '/career/studio/projects/:projectId',
     name: 'career-project-detail',
     meta: { title: '微项目详情', requiresAuth: true },
-    component: CareerProjectDetailPage
-  },
-  {
-    path: '/career/preferences',
-    name: 'career-preferences',
-    meta: { title: 'Career 模块设置', requiresAuth: true },
-    component: CareerPreferencesPanel
+    component: MicroProjectDetailPage
   },
   {
     name: 'maintenance',

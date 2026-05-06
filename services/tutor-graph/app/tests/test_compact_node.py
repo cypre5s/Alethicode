@@ -1,4 +1,4 @@
-"""Tests for the compact node — conversation history compression."""
+"""compact 节点测试：对话历史压缩的正常、边界、失败场景。"""
 
 from __future__ import annotations
 

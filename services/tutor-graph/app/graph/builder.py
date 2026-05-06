@@ -1,4 +1,4 @@
-"""Assemble the full tutor StateGraph with checkpointer."""
+"""组装完整的 tutor StateGraph 并注册所有节点和路由。"""
 
 from __future__ import annotations
 

@@ -31,6 +31,15 @@ public interface MicroProjectStudioService {
     /** 拉单个微项目（必须为该用户所有，否则抛 404）。 */
     Optional<CareerMicroProject> findById(long userId, long projectId);
 
+    /**
+     * 渲染作品集 Markdown 卡片并写入 {@code portfolio_card_uri} 列（plan 5.3 节）。
+     * 写盘到 {@code data/exports/career-portfolio/<projectId>.md}，URI 形如
+     * {@code file:data/exports/career-portfolio/<projectId>.md}。
+     *
+     * @return 写入后回读的 micro project 投影
+     */
+    CareerMicroProject exportPortfolioCard(long userId, long projectId);
+
     /** 标记项目完成（写 project_completed 里程碑 + 重激活 Why 报告）。 */
     void markCompleted(long projectId, double score);
 

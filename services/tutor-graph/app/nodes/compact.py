@@ -1,4 +1,4 @@
-"""Compact node — compress older conversation history into a summary."""
+"""压缩对话历史为摘要，保留最近 K 轮原文。"""
 
 from __future__ import annotations
 
@@ -20,6 +20,15 @@ async def compact_node(
     *,
     llm_client: LlmClient,
 ) -> TutorGraphState:
+    """压缩 chat history 中超过 K 轮的旧消息为一条 system 摘要。
+
+    Args:
+        state: 当前 tutor graph 状态。
+        llm_client: LLM 客户端，用于生成摘要。
+
+    Returns:
+        更新后的 state；history <= K 时原样返回，LLM 失败时 runtime_state=FAILED。
+    """
     node_outputs = dict(state.get("node_outputs", {}))
     existing_chat = node_outputs.get("chat", {})
     history = list(existing_chat.get("history", []))

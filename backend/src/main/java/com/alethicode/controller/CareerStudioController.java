@@ -23,12 +23,15 @@ import java.util.Optional;
 /**
  * Project Studio REST 入口（plan 5.3 节）。
  *
- * <p>暴露 4 个端点：
+ * <p>暴露 5 个端点：
  * <ul>
  *   <li>{@code GET /api/career/studio/recommendations} —— 推荐 KC 簇候选。</li>
  *   <li>{@code POST /api/career/studio/projects} —— 生成微项目（含真判题自验证）。</li>
  *   <li>{@code GET /api/career/studio/projects?limit=5} —— 学生最近 N 个微项目。</li>
  *   <li>{@code GET /api/career/studio/projects/{id}} —— 单个微项目详情。</li>
+ *   <li>{@code POST /api/career/studio/projects/{id}/portfolio-card} —— 渲染并写回
+ *       作品集卡片 Markdown（plan 5.3 节，写盘到 {@code data/exports/career-portfolio/}
+ *       并把 file URI 写回 {@code career_micro_project.portfolio_card_uri} 列）。</li>
  * </ul>
  *
  * <p>所有端点未登录抛 401；资源属主校验下沉到 service 层（user_id 双键 SQL）。
@@ -82,6 +85,15 @@ public class CareerStudioController {
                 .<ApiResponse<CareerMicroProject>>map(ApiResponse::success)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "micro project not found or not owned by user: id=" + projectId));
+    }
+
+    @PostMapping({"/projects/{projectId}/portfolio-card", "/projects/{projectId}/portfolio-card/"})
+    public ApiResponse<CareerMicroProject> exportPortfolioCard(
+            @PathVariable long projectId,
+            Authentication auth
+    ) {
+        long userId = requireUserId(auth);
+        return ApiResponse.success(studioService.exportPortfolioCard(userId, projectId));
     }
 
     private static long requireUserId(Authentication auth) {

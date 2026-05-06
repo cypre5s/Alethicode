@@ -1,11 +1,8 @@
 <template>
-  <div class="career-preferences-page">
-    <h1 class="page-title">Career 模块设置</h1>
-    <p class="page-desc">每个模块都可以单独关闭。关闭后，相关入口仍然可见，但不会调用 LLM 生成专业化内容（节省你的注意力 / 算力）。</p>
-
+  <div class="setting-main career-preferences-page">
     <p v-if="loading" class="muted-line">加载中…</p>
 
-    <form v-else class="prefs-form" @submit.prevent="handleSave">
+    <form v-else class="prefs-form mini-container setting-content" @submit.prevent="handleSave">
       <fieldset class="prefs-group">
         <legend class="prefs-legend">学习入口</legend>
 
@@ -42,24 +39,14 @@
           <span id="career-studio-help" class="prefs-help">关闭后，无法生成新的微项目；已生成的项目仍可查看与提交。</span>
         </label>
 
-        <label class="prefs-row">
-          <input
-            type="checkbox"
-            v-model="form.career_path_disabled"
-            :disabled="saving"
-            aria-describedby="career-path-help"
-          />
-          <span class="prefs-label">关闭「学习路径地图」</span>
-          <span id="career-path-help" class="prefs-help">关闭后，路径页不再展示节点，节省查询 mastery 的开销。</span>
-        </label>
       </fieldset>
 
       <div class="prefs-actions">
         <button type="submit" class="primary-btn" :disabled="saving" :aria-label="saving ? '正在保存设置' : '保存设置'">
           {{ saving ? '保存中…' : '保存设置' }}
         </button>
-        <span v-if="savedAt" class="prefs-saved-line">最近保存：{{ savedAt }}</span>
       </div>
+      <p v-if="savedAt" class="prefs-saved-line">最近保存：{{ savedAt }}</p>
     </form>
   </div>
 </template>
@@ -75,8 +62,7 @@ export default {
       form: {
         career_bridging_disabled: false,
         coding_lens_disabled: false,
-        career_studio_disabled: false,
-        career_path_disabled: false
+        career_studio_disabled: false
       },
       loading: true,
       saving: false,
@@ -91,7 +77,6 @@ export default {
         this.form.career_bridging_disabled = !!(d.career_bridging_disabled || d.careerBridgingDisabled)
         this.form.coding_lens_disabled = !!(d.coding_lens_disabled || d.codingLensDisabled)
         this.form.career_studio_disabled = !!(d.career_studio_disabled || d.careerStudioDisabled)
-        this.form.career_path_disabled = !!(d.career_path_disabled || d.careerPathDisabled)
       }
     } catch (e) {
       // by-design silent: 偏好读取失败不应阻塞页面，默认全部启用
@@ -119,36 +104,23 @@ export default {
 
 <style scoped>
 .career-preferences-page {
-  max-width: 680px;
-  margin: 40px auto;
-  padding: 0 20px;
-}
-.page-title {
-  font-size: 22px;
-  font-weight: 700;
-  color: #1f2937;
-  margin-bottom: 8px;
-}
-.page-desc {
-  color: #6b7280;
-  line-height: 1.6;
-  margin-bottom: 24px;
+  margin: 10px 20px;
+  padding-bottom: 20px;
 }
 .muted-line {
-  text-align: center;
   color: #9ca3af;
-  padding: 24px 0;
+  padding: 12px 0;
 }
 .prefs-form {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-  padding: 4px 24px 20px;
+  background: var(--st-bg-card);
+  border: 1px solid var(--st-border);
+  border-radius: var(--st-radius);
+  box-shadow: var(--st-shadow-sm);
+  padding: 8px 20px 16px;
 }
 .prefs-group {
   border: none;
-  padding: 16px 0;
+  padding: 8px 0;
   margin: 0;
 }
 .prefs-legend {
@@ -161,9 +133,9 @@ export default {
 .prefs-row {
   display: grid;
   grid-template-columns: 24px 1fr;
-  column-gap: 12px;
+  column-gap: 10px;
   align-items: start;
-  padding: 14px 0;
+  padding: 12px 0;
   border-bottom: 1px solid #f3f4f6;
   cursor: pointer;
 }
@@ -171,13 +143,13 @@ export default {
   border-bottom: none;
 }
 .prefs-row input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   margin-top: 2px;
   accent-color: #6366f1;
 }
 .prefs-label {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: #1f2937;
   grid-column: 2;
@@ -191,20 +163,20 @@ export default {
 }
 .prefs-actions {
   display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 12px 0 0;
+  justify-content: flex-end;
+  padding-top: 12px;
+  border-top: 1px solid #f3f4f6;
 }
 .primary-btn {
-  padding: 10px 22px;
+  padding: 9px 18px;
   border: none;
   border-radius: 8px;
   background: #6366f1;
   color: #fff;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  min-height: 44px;
+  min-height: 36px;
 }
 .primary-btn:hover:not(:disabled) {
   background: #4f46e5;
@@ -220,5 +192,7 @@ export default {
 .prefs-saved-line {
   font-size: 12px;
   color: #16a34a;
+  margin: 10px 0 0;
+  text-align: right;
 }
 </style>
