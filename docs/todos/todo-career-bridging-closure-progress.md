@@ -28,7 +28,7 @@
 | 8 | `feat(career-path): 拓扑排序 + 解锁判断 + GraphRAG why_md 增强` | 本地完成（待 push） | 见 git log | service + controller |
 | 9 | `feat(career-path-ui): vue-mermaid 渲染的专业路径地图与缩略图嵌入` | 本地完成（待 push） | 见 git log | CareerPathPage + API + 路由 |
 | review | code review 修复批（🔴 #1 #2 / 🟠 #3-#7 / 🟡 #8 #9 #11） | 本地完成（待 push） | 见 git log | 前端 method/path 拉齐 + Coding Lens RBAC + Vue v-html → marked+DOMPurify + Career Controller 走 service + 死代码删除 + markNodeUnlocked 校验 + ReflectionResult 语义统一 + 新增 13 个单测 |
-| 10 | `feat(career-bridging): 串通 KC 毕业与章节进入两类里程碑触发` | 待开始（先前 commit ed25609 的死代码 listener 已在 review 修复批中清除） | — | — |
+| 10 | `feat(career-bridging): 串通 KC 毕业与章节进入两类里程碑触发` | 本地完成（待 push） | 见 git log | listener 重建 + JudgeCompletedEventListener / LearnerCourseProgressService 接入 + 10 单测 |
 | 11 | `feat(career-studio): 微项目生成与 reference solution 真判题自验证` | 待开始 | — | — |
 | 12 | `feat(career-studio-ui): 项目详情、CodeMirror 复用与作品集卡片导出` | 待开始 | — | — |
 | 13 | `feat(career-bridging): project_completed 触发报告重激活` | 待开始 | — | — |
@@ -229,6 +229,34 @@ push 阻塞）；进度仅靠隔离 DB 的 SQL dry-run 提供证据。
 | 2026-05-06 | code review 修复批 `npm run typecheck` + `npx vite build` | ✓ 0 错误，PWA precache 249 entries / 19521.22 KiB 正常生成 |
 | 2026-05-06 | code review 🟢 Low 项清理批 单测复跑 | ✓ 27/27 仍全过；mock RolloutPolicyService 替换暴力枚举后无 flake |
 | 2026-05-06 | code review 🟢 Low 项清理批 `npm run typecheck` + `npx vite build` | ✓ 0 错误 |
+| 2026-05-06 | todo 10 `mvn -Dtest='ReflectionServiceImplTest,CareerBridgingServiceImplTest,DomainLensServiceImplTest,CareerPathServiceImplTest,CareerMilestoneEventListenerTest' test` | ✓ 37/37 全过（旧 27 + 新 10）、0 failure 0 error |
+| 2026-05-06 | todo 10 `mvn -q compile && mvn -q test-compile` | ✓ 0 错误，CareerMilestoneEventListener + 2 处构造器接入不破坏其它 switch / 注入链 |
+| 2026-05-06 | todo 10 `feat(career-bridging): KC 毕业 + 章节进入里程碑触发器` 本地 commit | ✓ listener + JudgeCompletedEventListener / LearnerCourseProgressService 接入 + 10 单测 + CHANGELOG + progress 同 commit |
+
+## todo 10：KC 毕业 + 章节进入里程碑触发器（本地完成，待 push）
+
+### 已落地
+
+- `backend/src/main/java/com/alethicode/service/career/bridging/CareerMilestoneEventListener.java`：
+  「直调式」桥接组件，提供 2 个入口：
+  - `onMasteryUpdated(userId, languagePackId, kcId)`：检查该 KC mastery
+    `>= 0.7` 即调 `careerBridgingService.recordMilestone(KC_CLUSTER_GRADUATED, "lp:<lp>:kc:<kc>")`
+  - `onLanguagePackEntered(userId, languagePackId)`：调
+    `careerBridgingService.recordMilestone(CHAPTER_ENTERED, "lp:<lp>")`
+- `backend/src/main/java/com/alethicode/service/submission/JudgeCompletedEventListener.java`：
+  构造器新增 `CareerMilestoneEventListener` 参数；`handleMasteryUpdate`
+  在 `masteryService.updateMastery` 之后追加 `careerMilestoneEventListener.onMasteryUpdated`
+- `backend/src/main/java/com/alethicode/service/classroom/LearnerCourseProgressService.java`：
+  构造器新增 `CareerMilestoneEventListener` 参数；`getOrCreateProgress`
+  在首次 INSERT 路径中调用 `careerMilestoneEventListener.onLanguagePackEntered`
+- `backend/src/test/java/com/alethicode/service/career/bridging/CareerMilestoneEventListenerTest.java`：
+  10 用例覆盖 enabled=false / 无 profile / mastery 三态阈值 / 章节进入正常 + 跳过 4 类边界
+
+### 强约束遵守
+
+- listener 不接管 DB 异常 → 调用方现有 try/catch 兜底
+- 三层边界保护：enabled / has profile / mastery 阈值 → 关闭或非 career 学生路径 0 影响
+- milestone_ref 命名规范化（`lp:<id>:kc:<id>` / `lp:<id>`）保证幂等键稳定，`recordMilestone` 三元组幂等
 
 ## 严格约束清单（每个后续 todo 都要遵守）
 

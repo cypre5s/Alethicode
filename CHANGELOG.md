@@ -4,6 +4,17 @@
 
 ## [Unreleased] - 2026-05-06
 
+### Career Bridging Closure todo 10：KC 毕业 + 章节进入两类里程碑触发器
+
+> **背景**：plan 3.1 节定义 5 类 milestone（enrollment / kc_cluster_graduated / chapter_entered / project_completed / path_node_unlocked），其中 enrollment 已由 `CareerBridgingServiceImpl#ensureProfile` 触发，path_node_unlocked 由 `CareerPathServiceImpl#markNodeUnlocked` 触发。本 todo 把剩下 2 类（KC 簇毕业 + 章节进入）真正接入主链路：复用现有 `JudgeCompletedEventListener`（mastery 写入入口）+ `LearnerCourseProgressService.getOrCreateProgress`（课件包首次访问入口），通过 `CareerMilestoneEventListener` 桥接到 `CareerBridgingService.recordMilestone`，三元组 `(user_id, milestone_type, milestone_ref)` 幂等保证不重复触发。
+
+- 2026-05-06 **[新增/listener]** `com.alethicode.service.career.bridging.CareerMilestoneEventListener`：提供 `onMasteryUpdated(userId, languagePackId, kcId)` 与 `onLanguagePackEntered(userId, languagePackId)` 两个直调式入口；内部三层边界保护：(1) `career.bridging.enabled=false` ⇒ 静默跳过（不阻塞主链路）；(2) `user_profile.major_code` 空 ⇒ 静默跳过（非 career 学生不打扰）；(3) mastery `< 0.7` ⇒ 不触发 KC 簇毕业。`milestone_ref` 命名规范化为 `lp:<lp_id>:kc:<kc_id>`（KC 毕业）/ `lp:<lp_id>`（章节进入），保证幂等键稳定。**不接管 DB 异常**：listener 只做边界判断，DB 异常上抛由调用方现有 try/catch 兜底，符合 AGENTS.md「fail-fast，不写防御性掩盖问题逻辑」。
+- 2026-05-06 **[接入/judge-event]** `JudgeCompletedEventListener` 构造器注入 `CareerMilestoneEventListener`；`handleMasteryUpdate` 在 `masteryService.updateMastery` 之后追加 `careerMilestoneEventListener.onMasteryUpdated(userId, lpId, kcId)`，与 mastery 写入同一 `try/catch` 边界保护，确保 career hook 抛错不污染 mastery 主链路。
+- 2026-05-06 **[接入/course-progress]** `LearnerCourseProgressService` 注入 `CareerMilestoneEventListener`；`getOrCreateProgress` 在「SELECT 0 行 → INSERT」首次访问路径之后调用 `careerMilestoneEventListener.onLanguagePackEntered(userId, languagePackId)`，外层包 `try/catch` 仅捕获 `RuntimeException` 落 `log.warn`，绝不阻塞 progress 行返回（progress 行是学生页面直接渲染依赖）。
+- 2026-05-06 **[新增/单测]** `CareerMilestoneEventListenerTest`（10 用例）：覆盖 (1)(2) `enabled=false` / `user_profile` 缺失 / `major_code` 空 三条跳过路径；(3) mastery `< 0.7` 不触发；(4) mastery 行不存在不触发；(5) mastery `>= 0.7` 触发 `KC_CLUSTER_GRADUATED("lp:10:kc:100")`；(6) mastery 远超阈值同样触发；(7)(8) `enabled=false` / `major_code` 空 时 `onLanguagePackEntered` 跳过；(9) 正常路径触发 `CHAPTER_ENTERED("lp:33")`。**未引入 SpringContext**，纯 Mockito 测试 ≤ 0.1s。
+- 2026-05-06 **[强约束/不破坏现有契约]** 只新增 listener 文件 + 注入 2 处构造器参数，未改 `learner_kc_mastery` / `learner_course_progress` schema，未改 `JudgeCompletedEvent` 字段，未改 `CareerBridgingService` 接口（`recordMilestone` 早在 todo 3 已暴露给本入口预留）。`enabled=false` 配置开关验证后向兼容：所有 listener 钩子都先经 `properties.getCareer().getBridging().isEnabled()` 短路，关闭时主链路 0 影响。
+- 2026-05-06 **[验证]** `mvn -Dtest='ReflectionServiceImplTest,CareerBridgingServiceImplTest,DomainLensServiceImplTest,CareerPathServiceImplTest,CareerMilestoneEventListenerTest' test`：37/37 全过、0 failure 0 error；`mvn -q compile` + `mvn -q test-compile`：0 错误。
+
 ### Career Bridging Closure code review 🟢 Low 项清理批
 
 > **背景**：在 🔴/🟠/🟡 修复批之后，继续清理 review 报告里的 🟢 Low 项，全部是非阻塞的 polishing：测试鲁棒性 / 可观测性 / 命名一致性 / javadoc 标占位 / 用户感知 toast。`#14 evidence 序列化 helper` 评估后取消（3 处 fallback 不同 + 含 untracked 文件，AGENTS.md「最小完整方案、外科手术式」收益不抵成本）。

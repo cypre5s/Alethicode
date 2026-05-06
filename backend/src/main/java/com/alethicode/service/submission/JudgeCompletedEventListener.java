@@ -2,6 +2,7 @@ package com.alethicode.service.submission;
 
 import com.alethicode.service.submission.SubmissionDataCollector;
 import com.alethicode.service.aitutor.profile.LearnerMasteryServiceUnified;
+import com.alethicode.service.career.bridging.CareerMilestoneEventListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,17 +24,20 @@ public class JudgeCompletedEventListener {
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
     private final SubmissionDataCollector submissionDataCollector;
     private final LearnerMasteryServiceUnified masteryService;
+    private final CareerMilestoneEventListener careerMilestoneEventListener;
     @Autowired(required = false)
     private com.alethicode.service.aitutor.review.ErrorReviewPackageService errorReviewPackageService;
 
     public JudgeCompletedEventListener(JdbcTemplate jdbcTemplate,
                                        com.fasterxml.jackson.databind.ObjectMapper objectMapper,
                                        SubmissionDataCollector submissionDataCollector,
-                                       LearnerMasteryServiceUnified masteryService) {
+                                       LearnerMasteryServiceUnified masteryService,
+                                       CareerMilestoneEventListener careerMilestoneEventListener) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
         this.submissionDataCollector = submissionDataCollector;
         this.masteryService = masteryService;
+        this.careerMilestoneEventListener = careerMilestoneEventListener;
     }
 
     @Async
@@ -133,6 +137,7 @@ public class JudgeCompletedEventListener {
                 Long lpId = ((Number) m.get("language_pack_id")).longValue();
                 Long kcId = ((Number) m.get("kc_id")).longValue();
                 masteryService.updateMastery(event.userId(), lpId, kcId, event.finalResult() == 0);
+                careerMilestoneEventListener.onMasteryUpdated(event.userId(), lpId, kcId);
             }
         } catch (Exception e) {
             log.warn("Mastery update failed for submission {}: {}", event.submissionId(), e.getMessage());
