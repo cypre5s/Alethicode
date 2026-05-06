@@ -80,6 +80,5 @@ export const REVIEW_DUE_UPDATED_EVENT = 'oj:review-due-updated'
 
 export const VIEW_MODES = {
   CALENDAR: 'calendar',
-  ARCHIVE: 'archive',
-  TIMELINE: 'timeline'
+  ARCHIVE: 'archive'
 }

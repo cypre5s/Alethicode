@@ -22,9 +22,8 @@
       @change="applyFilters"
     />
 
-    <div class="nb-content" v-loading="loading && viewMode !== 'timeline'">
-      <LearningTimeline v-if="viewMode === 'timeline'" />
-      <NotebookCalendarView v-else-if="viewMode === 'calendar'" :items="calendarItems" @open-day="openDay" />
+    <div class="nb-content" v-loading="loading">
+      <NotebookCalendarView v-if="viewMode === 'calendar'" :items="calendarItems" @open-day="openDay" />
       <NotebookArchiveView
         v-else
         :entries="entries"
@@ -64,7 +63,6 @@ import NotebookDayDrawer from './notebook/NotebookDayDrawer.vue'
 import NotebookArchiveView from './notebook/NotebookArchiveView.vue'
 import NotebookAddDialog from './notebook/NotebookAddDialog.vue'
 import MisconceptionTagCloud from './notebook/MisconceptionTagCloud.vue'
-import LearningTimeline from './twin/LearningTimeline.vue'
 import { getCategoryLabel, toLocalDateKey } from './notebook/notebookFormatters.js'
 import { REVIEW_DUE_UPDATED_EVENT, VIEW_MODES } from './notebook/notebookConstants.js'
 import {
@@ -76,7 +74,7 @@ export default {
   name: 'LearnerNotebook',
   components: {
     NotebookHeader, NotebookFilterToolbar, NotebookCalendarView, NotebookDayDrawer,
-    NotebookArchiveView, NotebookAddDialog, MisconceptionTagCloud, LearningTimeline
+    NotebookArchiveView, NotebookAddDialog, MisconceptionTagCloud
   },
   data () {
     return {
