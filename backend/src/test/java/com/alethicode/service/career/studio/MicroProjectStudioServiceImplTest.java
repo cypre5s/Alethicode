@@ -267,18 +267,40 @@ class MicroProjectStudioServiceImplTest {
     }
 
     @Test
-    void markCompletedRecordsProjectCompletedMilestoneOnSuccess() {
+    void markCompletedRecordsProjectCompletedMilestoneAndReactivatesReport() {
         when(jdbcTemplate.update(argThat(sqlContains("update career_micro_project")), eq(85), eq(101L)))
                 .thenReturn(1);
         when(jdbcTemplate.queryForObject(
                 argThat(sqlContains("select user_id from career_micro_project")),
                 eq(Long.class), eq(101L)))
                 .thenReturn(7L);
+        when(careerBridgingService.recordMilestone(eq(7L), eq(MilestoneType.PROJECT_COMPLETED), eq("project:101")))
+                .thenReturn(555L);
 
         service.markCompleted(101L, 85.0);
 
         verify(careerBridgingService, times(1)).recordMilestone(
                 eq(7L), eq(MilestoneType.PROJECT_COMPLETED), eq("project:101"));
+        // todo 13: project_completed 后立即重激活 Why 报告
+        verify(careerBridgingService, times(1)).generateForMilestone(eq(7L), eq(555L));
+    }
+
+    @Test
+    void markCompletedSwallowsBridgingReactivationFailure() {
+        when(jdbcTemplate.update(argThat(sqlContains("update career_micro_project")), eq(85), eq(101L)))
+                .thenReturn(1);
+        when(jdbcTemplate.queryForObject(
+                argThat(sqlContains("select user_id from career_micro_project")),
+                eq(Long.class), eq(101L)))
+                .thenReturn(7L);
+        when(careerBridgingService.recordMilestone(anyLong(), any(), anyString())).thenReturn(555L);
+        when(careerBridgingService.generateForMilestone(eq(7L), eq(555L)))
+                .thenThrow(new IllegalStateException("LLM down"));
+
+        // 不抛异常：项目仍标 passed，里程碑已写入，报告失败仅 log.warn
+        service.markCompleted(101L, 85.0);
+
+        verify(careerBridgingService, times(1)).generateForMilestone(eq(7L), eq(555L));
     }
 
     @Test
@@ -293,6 +315,62 @@ class MicroProjectStudioServiceImplTest {
         service.markCompleted(101L, 85.0);
 
         verify(careerBridgingService, never()).recordMilestone(anyLong(), any(), anyString());
+        verify(careerBridgingService, never()).generateForMilestone(anyLong(), anyLong());
+    }
+
+    // ---------- markCompletedByJudgeProblem ----------
+
+    @Test
+    void markCompletedByJudgeProblemReturnsFalseWhenNoMatchingProject() {
+        when(jdbcTemplate.queryForList(
+                argThat(sqlContains("from career_micro_project")
+                        .and(sqlContains("judge_problem_id"))),
+                eq(Long.class), eq(7L), eq(8888L)))
+                .thenReturn(List.of());
+
+        boolean triggered = service.markCompletedByJudgeProblem(7L, 8888L, 100.0);
+
+        assertThat(triggered).isFalse();
+        verify(jdbcTemplate, never()).update(argThat(sqlContains("update career_micro_project")),
+                any(), any());
+    }
+
+    @Test
+    void markCompletedByJudgeProblemMarksAndTriggersReportWhenMatched() {
+        when(jdbcTemplate.queryForList(
+                argThat(sqlContains("from career_micro_project")
+                        .and(sqlContains("judge_problem_id"))),
+                eq(Long.class), eq(7L), eq(8888L)))
+                .thenReturn(List.of(101L));
+        // markCompleted 内部链路
+        when(jdbcTemplate.update(argThat(sqlContains("update career_micro_project")), eq(100), eq(101L)))
+                .thenReturn(1);
+        when(jdbcTemplate.queryForObject(
+                argThat(sqlContains("select user_id from career_micro_project")),
+                eq(Long.class), eq(101L)))
+                .thenReturn(7L);
+        when(careerBridgingService.recordMilestone(eq(7L), eq(MilestoneType.PROJECT_COMPLETED), eq("project:101")))
+                .thenReturn(555L);
+
+        boolean triggered = service.markCompletedByJudgeProblem(7L, 8888L, 100.0);
+
+        assertThat(triggered).isTrue();
+        verify(careerBridgingService, times(1)).generateForMilestone(eq(7L), eq(555L));
+    }
+
+    @Test
+    void markCompletedByJudgeProblemSwallows404FromConcurrentRace() {
+        when(jdbcTemplate.queryForList(
+                argThat(sqlContains("from career_micro_project")
+                        .and(sqlContains("judge_problem_id"))),
+                eq(Long.class), eq(7L), eq(8888L)))
+                .thenReturn(List.of(101L));
+        when(jdbcTemplate.update(argThat(sqlContains("update career_micro_project")), eq(100), eq(101L)))
+                .thenReturn(0); // 已被另一线程标完
+
+        boolean triggered = service.markCompletedByJudgeProblem(7L, 8888L, 100.0);
+
+        assertThat(triggered).isFalse();
     }
 
     // ---------- helpers ----------
@@ -345,6 +423,18 @@ class MicroProjectStudioServiceImplTest {
         @Override
         public boolean matches(String argument) {
             return argument != null && argument.toLowerCase().contains(fragment.toLowerCase());
+        }
+
+        SqlMatcher and(SqlMatcher other) {
+            String thisFrag = this.fragment;
+            return new SqlMatcher(thisFrag) {
+                @Override
+                public boolean matches(String argument) {
+                    return argument != null
+                            && argument.toLowerCase().contains(thisFrag.toLowerCase())
+                            && argument.toLowerCase().contains(other.fragment.toLowerCase());
+                }
+            };
         }
 
         @Override

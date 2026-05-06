@@ -31,8 +31,18 @@ public interface MicroProjectStudioService {
     /** 拉单个微项目（必须为该用户所有，否则抛 404）。 */
     Optional<CareerMicroProject> findById(long userId, long projectId);
 
-    /** 标记项目完成（写 project_completed 里程碑）。 */
+    /** 标记项目完成（写 project_completed 里程碑 + 重激活 Why 报告）。 */
     void markCompleted(long projectId, double score);
+
+    /**
+     * 由 SubmissionService AC 路径回调：根据 (user_id, judge_problem_id) 反查
+     * career_micro_project，存在则调 {@link #markCompleted}，写
+     * project_completed 里程碑并触发 Why 报告重激活。
+     *
+     * @return true 表示真触发了 markCompleted，false 表示该 problem 不属于任何
+     *         career_micro_project（即学生提交的是普通题目，非微项目）
+     */
+    boolean markCompletedByJudgeProblem(long userId, long judgeProblemId, double score);
 
     record MicroProjectRecommendation(List<String> kcCodes, String rationale) {
     }

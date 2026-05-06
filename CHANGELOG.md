@@ -4,6 +4,17 @@
 
 ## [Unreleased] - 2026-05-06
 
+### Career Bridging Closure todo 13：project_completed 触发 Career Bridging 报告重激活
+
+> **背景**：plan 5.4 节定义微项目通过后的「Why 报告重激活」——学生提交微项目对应 problem 走标准 SubmissionService → AC（finalResult=0）⇒ 自动写 PROJECT_COMPLETED 里程碑 + 立即触发 Career Bridging Why 报告生成（与 enrollment 路径同语义，control 组返回 empty 不写报告，treatment 组写一份「项目通过的 Why」报告）。本 todo 把 JudgeCompletedEvent → micro project markCompleted → generateForMilestone 全链路接通。
+
+- 2026-05-06 **[新增/接口]** `MicroProjectStudioService` 新增 `markCompletedByJudgeProblem(userId, judgeProblemId, score): boolean`：根据 (user, judge_problem_id) 反查 career_micro_project，存在且未通过则调 `markCompleted` 并返回 true，否则 false。`markCompleted` 内部新增 `reactivateBridgingReport`：写 PROJECT_COMPLETED 里程碑后立即调 `careerBridgingService.generateForMilestone`，重激活失败仅 `log.warn` 不阻塞 markCompleted（项目已落「passed」，里程碑已写入）。
+- 2026-05-06 **[接入/judge-event]** `JudgeCompletedEventListener` 构造器注入 `MicroProjectStudioService`；新增 `handleMicroProjectCompletion`，仅在 `finalResult==0` AC 时调 `markCompletedByJudgeProblem(userId, problemId, 100.0)`。非 AC / 非微项目（service 反查无匹配返回 false）/ 异常 三类均不阻塞 mastery / notebook / review-package / data-collection 等其它 hook。
+- 2026-05-06 **[扩展/单测]** `MicroProjectStudioServiceImplTest` 新增 5 用例（共 15）：(11) markCompleted 正常 ⇒ 写 PROJECT_COMPLETED + reactivate generateForMilestone；(12) markCompleted 重激活报告抛 RuntimeException ⇒ 不抛、仍标 passed；(13) markCompletedByJudgeProblem 反查无 ⇒ 返回 false、不调 update；(14) 反查有 ⇒ 调 markCompleted、返回 true、触发 generateForMilestone；(15) 并发 race（update affected=0） ⇒ 返回 false 不抛 404。
+- 2026-05-06 **[强约束/不绕过 SubmissionService]** AC 路径走标准 `SubmissionService` → `JudgeCompletedEvent` → `JudgeCompletedEventListener` 内 hook 链（mastery 更新 + KC 簇毕业 + 微项目完成），与 OJ 主提交路径同源。`career_micro_project.status` 由「recommended」直接跳到「passed」（未走 submitted/failed 中间态）反映：plan 0 节强约束「Studio 学生侧不引入额外提交流」，AC 时一次性记账。
+- 2026-05-06 **[fail-fast 保留]** listener 内 `handleMicroProjectCompletion` 用 try/catch 仅处理 `Exception` 落 warn 日志，不吞特定错误；service 内 `markCompletedByJudgeProblem` 仅吞「并发 race 抛 404」（语义等价于「另一线程已标完」），其它 ResponseStatusException 上抛保持可观测。
+- 2026-05-06 **[验证]** `mvn -Dtest='MicroProjectStudioServiceImplTest' test`：15/15 全过；`mvn -Dtest='ReflectionServiceImplTest,CareerBridgingServiceImplTest,DomainLensServiceImplTest,CareerPathServiceImplTest,CareerMilestoneEventListenerTest,MicroProjectStudioServiceImplTest' test`：52/52 全过；`mvn -q compile && mvn -q test-compile`：0 错误。
+
 ### Career Bridging Closure todo 12：Project Studio 前端 UI + 作品集卡片导出
 
 > **背景**：plan 5.3 节定义 Studio 学生侧入口与作品集卡片输出。本 todo 把 todo 11 的 4 个后端端点接到学生 UI：列表 + 推荐 + 一键生成 + 详情 + 作品集卡片 Markdown 导出（用于个人作品集 / 简历附件）。所有 LLM 文本走 `marked` + DOMPurify `sanitize` 渲染（与 review 修复批确立的 Vue 模板渲染规范一致），消除 v-html XSS 面。

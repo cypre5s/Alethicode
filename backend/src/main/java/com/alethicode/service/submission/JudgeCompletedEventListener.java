@@ -3,6 +3,7 @@ package com.alethicode.service.submission;
 import com.alethicode.service.submission.SubmissionDataCollector;
 import com.alethicode.service.aitutor.profile.LearnerMasteryServiceUnified;
 import com.alethicode.service.career.bridging.CareerMilestoneEventListener;
+import com.alethicode.service.career.studio.MicroProjectStudioService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,12 +20,15 @@ import java.util.Map;
 public class JudgeCompletedEventListener {
 
     private static final Logger log = LoggerFactory.getLogger(JudgeCompletedEventListener.class);
+    /** 微项目 AC 时按 100 分写入 career_micro_project.score。 */
+    private static final double MICRO_PROJECT_AC_SCORE = 100.0;
 
     private final JdbcTemplate jdbcTemplate;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
     private final SubmissionDataCollector submissionDataCollector;
     private final LearnerMasteryServiceUnified masteryService;
     private final CareerMilestoneEventListener careerMilestoneEventListener;
+    private final MicroProjectStudioService microProjectStudioService;
     @Autowired(required = false)
     private com.alethicode.service.aitutor.review.ErrorReviewPackageService errorReviewPackageService;
 
@@ -32,12 +36,14 @@ public class JudgeCompletedEventListener {
                                        com.fasterxml.jackson.databind.ObjectMapper objectMapper,
                                        SubmissionDataCollector submissionDataCollector,
                                        LearnerMasteryServiceUnified masteryService,
-                                       CareerMilestoneEventListener careerMilestoneEventListener) {
+                                       CareerMilestoneEventListener careerMilestoneEventListener,
+                                       MicroProjectStudioService microProjectStudioService) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
         this.submissionDataCollector = submissionDataCollector;
         this.masteryService = masteryService;
         this.careerMilestoneEventListener = careerMilestoneEventListener;
+        this.microProjectStudioService = microProjectStudioService;
     }
 
     @Async
@@ -47,6 +53,7 @@ public class JudgeCompletedEventListener {
         handleReviewPackage(event);
         handleDataCollection(event);
         handleMasteryUpdate(event);
+        handleMicroProjectCompletion(event);
     }
 
     private void handleNotebook(JudgeCompletedEvent event) {
@@ -141,6 +148,30 @@ public class JudgeCompletedEventListener {
             }
         } catch (Exception e) {
             log.warn("Mastery update failed for submission {}: {}", event.submissionId(), e.getMessage());
+        }
+    }
+
+    /**
+     * AC 时检查 problemId 是否对应某个 career_micro_project，是则触发
+     * project_completed 里程碑 + Career Bridging Why 报告重激活（todo 13）。
+     *
+     * <p>非 AC 不触发；非 micro project 由 service 层快速 SELECT 后 return false。
+     * 只 catch 通用 Exception 落 warn 日志，不阻塞 JudgeCompletedEvent 主链路。
+     */
+    private void handleMicroProjectCompletion(JudgeCompletedEvent event) {
+        if (event.finalResult() != 0 || event.userId() == null || event.problemId() == null) {
+            return;
+        }
+        try {
+            boolean triggered = microProjectStudioService.markCompletedByJudgeProblem(
+                    event.userId(), event.problemId(), MICRO_PROJECT_AC_SCORE);
+            if (triggered) {
+                log.info("micro project marked passed by judge AC: user={}, problem={}",
+                        event.userId(), event.problemId());
+            }
+        } catch (Exception e) {
+            log.warn("micro project completion hook failed for submission {}: {}",
+                    event.submissionId(), e.getMessage());
         }
     }
 

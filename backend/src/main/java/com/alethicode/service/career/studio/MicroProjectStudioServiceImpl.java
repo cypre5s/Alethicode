@@ -194,12 +194,55 @@ public class MicroProjectStudioServiceImpl implements MicroProjectStudioService 
                     "select user_id from career_micro_project where id = ?",
                     Long.class, projectId);
             if (userId != null) {
-                careerBridgingService.recordMilestone(
+                long milestoneId = careerBridgingService.recordMilestone(
                         userId, MilestoneType.PROJECT_COMPLETED,
                         "project:" + projectId);
+                reactivateBridgingReport(userId, milestoneId, projectId);
             }
         } catch (EmptyResultDataAccessException ignored) { }
         log.info("micro project completed: id={}, score={}", projectId, score);
+    }
+
+    @Override
+    @Transactional
+    public boolean markCompletedByJudgeProblem(long userId, long judgeProblemId, double score) {
+        List<Long> projectIds = jdbcTemplate.queryForList("""
+                select id from career_micro_project
+                where user_id = ? and judge_problem_id = ? and status != 'passed'
+                order by created_at desc
+                limit 1
+                """, Long.class, userId, judgeProblemId);
+        if (projectIds.isEmpty()) {
+            return false;
+        }
+        try {
+            markCompleted(projectIds.get(0), score);
+            return true;
+        } catch (ResponseStatusException e) {
+            // 并发场景下 markCompleted 抛 404 表示已被另一线程标记，不视为失败
+            if (e.getStatusCode() == HttpStatus.NOT_FOUND) {
+                return false;
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * 触发 Career Bridging Why 报告重激活：把刚写入的 PROJECT_COMPLETED 里程碑
+     * 作为种子，立即调 {@link CareerBridgingService#generateForMilestone}，让
+     * Why 层在「项目通过」这一关键节点自动产出新一份报告。
+     *
+     * <p>失败不阻塞 markCompleted（项目已落「passed」，里程碑已写入），仅 log.warn。
+     * A/B / treatment 决策由 generateForMilestone 内部完成，control 组返回 empty
+     * 不会写报告（与 enrollment 路径同语义）。
+     */
+    private void reactivateBridgingReport(long userId, long milestoneId, long projectId) {
+        try {
+            careerBridgingService.generateForMilestone(userId, milestoneId);
+        } catch (RuntimeException e) {
+            log.warn("micro project bridging report reactivation failed: project={}, milestone={}, reason={}",
+                    projectId, milestoneId, e.toString());
+        }
     }
 
     /**
