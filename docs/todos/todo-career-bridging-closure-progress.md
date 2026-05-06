@@ -1,0 +1,144 @@
+# Career Bridging Closure 落地进度
+
+跟踪 plan `career-bridging-closure_e71ce32e.plan.md` 在 main 分支上的逐 todo 推进。
+本文档每完成一个 todo 同步一次，避免会话间遗忘。
+
+## 范围与不变量
+
+- plan 共 16 个 commit；本仓库当前推进进度见下表
+- 工作分支：`main`（plan 0.6.1 节用户决策）；不切支线
+- 由于本机 GitHub SSH 22 端口被网络阻断、443 端口传输不可达，**所有 commit
+  暂存本地 main，不 push origin**；待网络恢复后由维护者手动一次 push
+- LLM 调用全部走 `AiModelGateway.callForJson`，禁止 `callWithTools`
+  （ReAct 路径已下线）
+- 判题不动，Judge Server 协议不动，IO schema 不动
+
+## 总进度
+
+| # | commit message | 状态 | 本地 sha | 备注 |
+|---|---|---|---|---|
+| 0 | `docs(agents): 同步本轮工作准则修订` | 本地完成（待 push） | `8d8fede` | sprint 分支 35 commit ff-merge 至 main 已落本地 |
+| 1 | `feat(career-db): 扩展 user_profile 并新建 career_major_dictionary（V83）+ problem_domain_variant（V85）` | 本地完成（待 push） | 见 git log | V83/V85 SQL + CHANGELOG + 本进度文档同 commit |
+| 2 | `feat(aitutor-cardtype): 扩展 4 个新 CardType 与 ReflectionServiceImpl 对应 critic rubric` | 进行中 | — | 紧接 todo 1 落地 |
+| 3 | `feat(career-bridging): 里程碑式 Why 报告生成 + Rollout/Reflection 接入` | 待开始 | — | 依赖 V84 迁移（plan 后续 phase） |
+| 4 | `feat(career-bridging-ui): CareerProfilePage 与主页 CareerProgressCard` | 待开始 | — | — |
+| 5 | `feat(coding-lens): 受约束 LLM 题面重写 + critic 防语义漂移` | 待开始 | — | — |
+| 6 | `feat(coding-lens-ui): DomainLensToggle 与教师后台只读视图` | 待开始 | — | — |
+| 7 | `feat(career-db): V86 新建 career_micro_project 与 career_path_node 及种子数据` | 待开始 | — | — |
+| 8 | `feat(career-path): 拓扑排序 + 解锁判断 + GraphRAG why_md 增强` | 待开始 | — | — |
+| 9 | `feat(career-path-ui): vue-mermaid 渲染的专业路径地图与缩略图嵌入` | 待开始 | — | — |
+| 10 | `feat(career-bridging): 串通 KC 毕业与章节进入两类里程碑触发` | 待开始 | — | — |
+| 11 | `feat(career-studio): 微项目生成与 reference solution 真判题自验证` | 待开始 | — | — |
+| 12 | `feat(career-studio-ui): 项目详情、CodeMirror 复用与作品集卡片导出` | 待开始 | — | — |
+| 13 | `feat(career-bridging): project_completed 触发报告重激活` | 待开始 | — | — |
+| 14 | `feat(career-rollout): 4 个 experiment_id 接入 RolloutPolicyService 与评测扩展` | 待开始 | — | — |
+| 15 | `feat(career-admin): 教师锁定/考试模式与用户级关闭面板` | 待开始 | — | — |
+| 16 | `docs(career): README/PROJECT/CHANGELOG/docs/plans 全量同步` | 待开始 | — | — |
+
+## Phase 0：切到 main（本地完成）
+
+### 已完成
+- `8d8fede docs(agents): 同步本轮工作准则修订`：把 `AGENTS.md` 由旧版重写为
+  当前版工作准则；commit 到 sprint 分支
+- 本地 `git merge --ff-only feature/iclr2026-sprint12-r02-followup` 完成
+- 当前 `main` HEAD = `8d8fede`，领先 `origin/main` 40 commit
+- 工作树干净
+
+### 待执行（用户在网络恢复后手工跑）
+```bash
+# 仅在 GitHub SSH 通道恢复后执行
+git push origin feature/iclr2026-sprint12-r02-followup
+git push origin main
+```
+
+### 网络受阻取证
+- `git push origin <ref>` 在 SSH 22 端口直接被 RST：`kex_exchange_identification:
+  Connection closed by remote host`
+- 改走 SSH 443 通道（`ssh -p 443 git@ssh.github.com` 认证成功），但 push 在
+  `git-receive-pack` 握手后 6+ 分钟无任何 progress 输出，强制中止
+- 仓库本身没问题：`https://github.com/cypre5s/Alethicode.git/info/refs` 返回 401
+  （未带 PAT，标准响应），不是 404
+
+## todo 1：V83 + V85（本地完成，待 push）
+
+### 已落地
+- `backend/src/main/resources/db/migration/V83__career_profile_extension.sql`：
+  扩展 `user_profile` 三列 + 新建 `career_major_dictionary` + 12 条种子
+- `backend/src/main/resources/db/migration/V85__problem_domain_variant.sql`：
+  新建 `problem_domain_variant`（题面专业化变体缓存）+ 2 个索引
+- 12 条种子均为 Python 标准库可达成的真实场景，每条 5 个 use_case，覆盖：
+  生物、化学、医学、药学、临床医学、工商管理、经济、金融、统计、心理、
+  机械工程、土木工程
+
+### 验证
+- 隔离 DB（`alethicode_career_test_v83`，跑完即 drop，**未碰 dev DB
+  alethicode 与 test_aethicode**）上跑完 V83 + V85，5 项断言全部通过：
+  1. user_profile 三新列类型 / nullable 正确
+  2. career_major_dictionary 行数 = 12
+  3. 12 条 spot check 全数到位、每条 use_cases 长度 = 5
+  4. problem_domain_variant 13 列结构与 plan 2.3 节完全一致
+  5. 4 个索引（`idx_user_profile_major_code`、
+     `idx_career_major_dictionary_discipline`、
+     `idx_problem_domain_variant_problem`、
+     `idx_problem_domain_variant_major`）全部创建
+- mvn 编译验证：见后续 `## 验证记录`
+
+### 已知本地环境冲突（待用户决定）
+
+> 本机 dev DB（`5436/alethicode`）的 `flyway_schema_history` 已经记录到 V94，
+> 是 sprint l99 分支跑过的历史（V83=`learning timeline view`、
+> V85=`ai learner narrative feedback` 等），与本次 main 上的 V83/V85 内容
+> 完全不同，**checksum 不匹配会让 Spring Boot 启动时 Flyway validation 失败**。
+
+main 代码层面已被 Revert 抵消、不含 l99 的迁移文件，但 dev DB 实体对象残留
+（`learner_timeline_view` 等表 / 视图）。建议处理（任选其一）：
+
+1. 重置 dev DB（最干净）：
+   ```bash
+   PGPASSWORD='ChangeMeBeforeDeploy_2026!' \
+     psql -h 127.0.0.1 -p 5436 -U onlinejudge -d postgres \
+     -c "DROP DATABASE alethicode;" \
+     -c "CREATE DATABASE alethicode OWNER onlinejudge;"
+   # 然后 cd backend && mvn spring-boot:run，Flyway 会从 V1 重跑到 V85
+   ```
+2. 临时启用 Flyway repair（需要把 Flyway clean 关闭、validate 关闭，复杂、
+   不推荐）。
+3. 不重置 dev DB，本地暂不跑 `mvn spring-boot:run`，仅依赖 CI 的 PostgreSQL
+   做最终验证（CI 是干净 DB，不会有冲突）。
+
+本次会话默认选 **方案 3**：本地不重置 dev DB；远端 CI 暂时也不会跑（因
+push 阻塞）；进度仅靠隔离 DB 的 SQL dry-run 提供证据。
+
+## todo 2：CardType + ReflectionServiceImpl critic rubric（待开始）
+
+按 plan 3.4 节扩展 4 个 CardType：
+- `CAREER_BRIDGING("career_bridging", "career_bridging")`
+- `DOMAIN_VARIANT("domain_variant", "domain_variant")`
+- `MICRO_PROJECT_BRIEF("micro_project_brief", "micro_project_brief")`
+- `CAREER_PATH_NODE("career_path_node", "career_path_node")`
+
+并在 `ReflectionServiceImpl.buildCriticSystemPrompt` 的 switch 中追加这 4 类
+的 4 维 rubric（事实一致性 / 教学适切性 / schema 完整性 / 答案泄露 或
+语义不漂移），其中 `DOMAIN_VARIANT` 必须强约束 IO schema 与样例语义不变。
+
+测试：在 `ReflectionServiceImplTest` 增加单测，覆盖 4 个 CardType 的
+`buildCriticSystemPrompt` 输出包含各自 rubric 的关键短语。
+
+## 验证记录
+
+| 时间 | 操作 | 结果 |
+|---|---|---|
+| 2026-05-06 | V83 + V85 在隔离 DB `alethicode_career_test_v83` 跑通 | ✓ 5 项断言全过、DB 已 drop |
+| 2026-05-06 | `git status` 在 main HEAD `8d8fede` | ✓ 工作树干净（除 V83/V85 + 本进度文档） |
+| 2026-05-06 | todo 1 `feat(career-db): ...` 本地 commit | ✓ V83/V85 SQL + CHANGELOG + progress 文档同 commit；`frontend/src/pages/oj/components/chat/composerStorage.js` 非本 plan 范围 untracked 残留（AI Tutor composer 草稿层，scope = tutor:/qa:），按 AGENTS.md 实施规范「不擅自删除遗留」原则保留 |
+
+## 严格约束清单（每个后续 todo 都要遵守）
+
+- 新建 API → 先读 `api-design-principles` skill
+- 改前端 → 先读 `ui-ux-pro-max` skill
+- 写完代码 → 跑 `code-reviewer` skill 自审
+- 多步任务 → `superpowers` skill
+- 命名按 `AGENTS.md` 「命名规范」严格执行；同一语义只能有一种拼写
+- LLM 调用一律走 `AiModelGateway.callForJson`；不允许任何 fallback / 兜底
+- 每个 commit 必须含 `CHANGELOG.md` 中文条目
+- 每个 commit 一定要更新本进度文档对应行的状态与 sha

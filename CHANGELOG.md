@@ -2,6 +2,22 @@
 
 本项目遵循 Keep a Changelog 思想并使用中文记录，版本语义以迁移里程碑为主。
 
+## [Unreleased] - 2026-05-06
+
+### Career Bridging Closure 启动：plan 切 main 主线 + Phase 1 数据基线（V83 + V85）
+
+> **背景**：实施 plan `career-bridging-closure_e71ce32e.plan.md`，围绕「专业 × 编程」主题对非 CS 学生补全平台缺失的 Why / How（内容侧）/ What / Map 四层闭环（4 个新模块：Career Bridging / Coding Lens / Project Studio / Career Path Map）。本批 commit 完成 plan 的 phase0（切 main 工作流）+ phase1 第 1 个功能 commit（V83 + V85 数据基线，4 个模块共享的「学生专业 + 专业字典 + 题面变体」表结构）。判题不动、Judge Server 协议不动、IO schema 不动；LLM 调用一律走 `AiModelGateway.callForJson`（已下线 ReAct 路径不再启用）。
+
+- 2026-05-06 **[流程/Git 工作流]** 用户决策「直接在 main 上工作，不切支线，每个 todo 一次 commit」——把 sprint 分支 `feature/iclr2026-sprint12-r02-followup` 的全部 35 个本地 commit（含 17 个 l99 add + 17 个对应 Revert + 1 个 docs(agents) + 沉底的 Docker/Security/README 修复 5 个）以 `git merge --ff-only` 方式 fast-forward 推进 `main`，无 force push。l99 Open Learner Twin / VHS Replay / What-If Fork / Learning by Teaching / Portable Twin / Customization 在 main 代码层面通过 Revert 全量撤回但保留全历史可追溯。
+- 2026-05-06 **[文档/AGENTS.md]** `AGENTS.md` 由旧版「OJ 适用人群 / 第一性原理 / Alethicode-Academy 增强路线图」整体重写为面向 Alethicode 平台主线的当前版「项目背景 / 基础约定 / 开发命令 / 仓库结构 / 工作原则 / 必用 Skills / 方案规范 / 实施规范 / 命名规范 / 验证与交付 / 文档维护」，与 `README.md` 与 `PROJECT.md` 现有口径对齐，作为后续 17 个功能 commit 的工作流前置约束（commit `8d8fede`）。
+- 2026-05-06 **[网络/已知阻塞]** 本机 GitHub 推送通道阻断（SSH 22 端口 RST、443 通道 `git-receive-pack` 握手后 6+ 分钟无 progress），所有本批 commit 暂存本地 `main`，**待用户网络恢复后手工跑** `git push origin feature/iclr2026-sprint12-r02-followup` + `git push origin main` 一次推上。Plan 0.6.4 节要求的「push 后立即看 CI」按此延后；本会话 commit 序列保持「1 todo = 1 commit」可回滚粒度，远端 CI 在 push 时一并触发。
+- 2026-05-06 **[新增/V83]** `backend/src/main/resources/db/migration/V83__career_profile_extension.sql`：扩展现有 `user_profile` 表追加 `major_code VARCHAR(64)` / `career_intent TEXT` / `career_profile_completed_at TIMESTAMPTZ` 三列（plan 0 节强约束：不新建用户档案表，仅扩展 V7 已有的 `user_profile`）；新建 `career_major_dictionary` 表作为模块 1-4 的共享 evidence 源（`code` 主键、`name_zh` / `name_en` / `discipline`、`seed_keywords` / `seed_use_cases` / `seed_kcs` JSONB、`enabled` / `created_at` / `updated_at`）；落 12 条种子（生物 / 化学 / 医学 / 药学 / 临床医学 / 工商管理 / 经济学 / 金融学 / 统计学 / 心理学 / 机械工程 / 土木工程），每条 5 个 use_case 全部为 Python 标准库可达成的真实专业场景（避免 LLM 后续生成时幻觉到 numpy / pandas / 第三方库）；建索引 `idx_user_profile_major_code`（部分索引：`major_code IS NOT NULL`）+ `idx_career_major_dictionary_discipline`（部分索引：`enabled = TRUE`）。
+- 2026-05-06 **[新增/V85]** `backend/src/main/resources/db/migration/V85__problem_domain_variant.sql`：新建 `problem_domain_variant` 表（problem × major 题面变体缓存：13 列，含 `domain_metaphor` JSONB 用于前端展示「原变量名 → 专业语义」映射、`semantic_drift_score` 用于 critic 监控、`locked_for_exam` 用于教师锁定 / 考试模式、`reflection_passed` 用于灰度过滤）；UNIQUE(`problem_id`, `major_code`) 保证一题×专业一份变体；建 `idx_problem_domain_variant_problem` + `idx_problem_domain_variant_major`（部分索引：`reflection_passed = TRUE`）。
+- 2026-05-06 **[强约束/Coding Lens]** V85 严格遵循 plan 2.3 节约束：本表**不持有 `test_case_id`**、不修改 `problem` 表的 IO schema 字段；`domain_metaphor` 仅供前端展示从原变量名到专业语义的字典映射，**不参与 Judge Server 调用路径**；前端切换到「我专业版」依然使用原 problem 的 sample_input / output 跑判题，确保 AC / WA 行为零偏移。后续模块 2 服务层会强制 critic 校验 IO schema 不变 + 测试样例语义不偏移。
+- 2026-05-06 **[验证/隔离 DB dry-run]** 在隔离 PostgreSQL DB（`alethicode_career_test_v83`，跑完即 drop，**未碰本机 dev DB `alethicode` 与 `test_aethicode`**）上跑通 V83 + V85，5 项断言全过：(a) `user_profile` 三新列类型 / nullable 正确；(b) `career_major_dictionary` 行数 = 12；(c) 12 条 spot check 全数到位、每条 `seed_use_cases` 长度 = 5；(d) `problem_domain_variant` 13 列结构与 plan 2.3 节完全一致；(e) 4 个索引（`idx_user_profile_major_code` / `idx_career_major_dictionary_discipline` / `idx_problem_domain_variant_problem` / `idx_problem_domain_variant_major`）全部创建。
+- 2026-05-06 **[已知/dev DB 冲突]** 本机 dev DB（`5436/alethicode`）`flyway_schema_history` 已记录到 V94，是 sprint l99 分支跑过的旧历史（V83 = `learning timeline view`、V85 = `ai learner narrative feedback` 等），与本次 main 的 V83 / V85 内容完全不同，checksum 必然 mismatch 导致 Spring Boot 启动 Flyway validation 失败。main 代码已被 Revert 抵消、不含 l99 迁移文件，但 dev DB 实体对象残留（`learner_timeline_view` 等表 / 视图）。按 progress 文档「方案 3」**暂不重置 dev DB**（避免破坏 sprint l99 工作），本地不跑 `mvn spring-boot:run`，等远端 CI（干净 DB）做最终 Flyway validation；本机 V83 / V85 已通过隔离 DB dry-run 提供等价证据，failfast 不引入 Flyway repair 兜底。
+- 2026-05-06 **[文档/progress]** 新建 `docs/todos/todo-career-bridging-closure-progress.md` 跟踪 plan 在 main 上的逐 todo 推进；本 commit 同步标记 todo 1（V83 + V85）完成 + 网络受阻取证 + DB 冲突处理记录，避免会话间遗忘。
+
 ## [Unreleased] - 2026-05-03
 
 ### 项目根 README 首版（大厂标准 / 对外门面文档）
