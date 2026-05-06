@@ -67,26 +67,5 @@ export default {
   },
   submitSundayReflection(data) {
     return ajax('twin/weekly/reflection', 'post', { data })
-  },
-  startTeachAiSession(data) {
-    return ajax('twin/teach-ai/start', 'post', { data })
-  },
-  submitTeachAiExplanation(sessionId, data) {
-    return ajax(`twin/teach-ai/${sessionId}/explain`, 'post', { data })
-  },
-  getTeachAiSessions() {
-    return ajax('twin/teach-ai/sessions', 'get')
-  },
-  getKcDecayQueue() {
-    return ajax('twin/kc-decay/queue', 'get')
-  },
-  reviewDecayKc(kcId) {
-    return ajax(`twin/kc-decay/${kcId}/review`, 'post')
-  },
-  startArenaMatch(data) {
-    return ajax('twin/arena/start', 'post', { data })
-  },
-  judgeArenaAi(matchId, data) {
-    return ajax(`twin/arena/${matchId}/judge-ai`, 'post', { data })
   }
 }
