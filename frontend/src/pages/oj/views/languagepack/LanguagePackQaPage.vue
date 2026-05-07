@@ -732,7 +732,10 @@
             : String(this.packs[0].id)
           await this.switchPack(firstPackId)
         } catch (error) {
-          this.qaAvailabilityState = 'empty'
+          console.error('[QA] loadPacks failed:', error)
+          if (!this.packs.length) {
+            this.qaAvailabilityState = 'empty'
+          }
         } finally {
           this.loadings.packs = false
         }
@@ -779,18 +782,24 @@
             return
           }
           await this.startNewSession()
+        } catch (error) {
+          console.error('[QA] loadSessions failed:', error)
         } finally {
           this.loadings.sessions = false
         }
       },
       async startNewSession () {
         if (!this.selectedLanguagePackId) return
-        const res = await api.createLanguagePackQaSession({
-          language_pack_id: Number(this.selectedLanguagePackId)
-        })
-        const session = res.data.data
-        this.sessions = [session, ...this.sessions]
-        await this.activateSession(session.id)
+        try {
+          const res = await api.createLanguagePackQaSession({
+            language_pack_id: Number(this.selectedLanguagePackId)
+          })
+          const session = res.data.data
+          this.sessions = [session, ...this.sessions]
+          await this.activateSession(session.id)
+        } catch (error) {
+          console.error('[QA] startNewSession failed:', error)
+        }
       },
       async activateSession (sessionId) {
         this._disconnectQaWs()
