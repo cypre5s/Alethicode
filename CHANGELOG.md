@@ -4,6 +4,10 @@
 
 ## [Unreleased] - 2026-05-07
 
+### 课件问答页新会话失效修复
+
+- 2026-05-07 **[修复/课件问答 setup 阶段污染 Vue publicProxy accessCache]** `LanguagePackQaPage.vue` 进入新会话后「发送」按钮始终 disabled、`@kc` 与 `@page` 候选始终为空。根因：`setup()` 内 `scopeKey = computed(() => ...proxy.selectedLanguagePackId...)` 在 `useChatComposer` 同步求值（`let activeScope = currentScope.value`）时立即访问 publicProxy 的 `selectedLanguagePackId`/`activeSessionId`，此刻 Options API 的 `data()` 还未运行，Vue 3 把 `accessCache[selectedLanguagePackId]` 标记为非 DATA 来源；之后 `data()` 初始化、`switchPack` 把 `this.$data.selectedLanguagePackId` 正确改成 `"43"`，但 `this.selectedLanguagePackId` 由于 cache 命中错误来源永远返回 `undefined`，`loadSessions` 在 `if (!this.selectedLanguagePackId) return` 处提前退出，`activeSessionId` 不被设置；`buildQaPageMentionItems` / `buildQaKcMentionItems` 同理短路。修：把 `scopeKey` 改为通过 `proxy.$data` 的 shallowReadonly 视图读 `selectedLanguagePackId` 与 `activeSessionId`，既不污染 publicProxy accessCache，也保留 reactive 追踪。`isInputBlocked` 仍用原 publicProxy 路径，因为它是 lazy computed，在 setup 阶段不会被求值。Probe 验证：修复前 `loadSessions_enter` 时 `pid:"undefined"`、`dataPid:null`；修复后 `loadSessions_enter` 时 `pid:"43"`、`dataPid:"43"`，会话列表自动激活、发送按钮可用、`@kc` 与 `@page` 候选正常加载。
+
 ### AI 导学拼装挑战入口与课件 @ 引用二级目录
 
 - 2026-05-07 **[修复/Tutor /usage 500]** `GET /api/ai/tutor-workflow-sessions/{id}/usage` 在生产与本地都返回 500，触发链路是骨架代码后续的拼装挑战派发。根因：历史 V87 版本号被 `learning_health_summary_view.sql` 占用，后续替换为 `ai_tutor_session_token_usage` 时 Flyway history 仍记录 `success=true`，但实际 `ai_tutor_workflow_session` 没有 `tokens_used` / `tokens_limit` / `model_name` 三列，`InternalAITutorToolServiceImpl#getSessionUsage` 直接抛 SQL 异常。修：新增 `V93__ai_tutor_workflow_session_token_usage_columns.sql`，使用 `ADD COLUMN IF NOT EXISTS` 幂等补齐三列；不动 V87 历史 checksum，开发与生产一次启动即可对齐。

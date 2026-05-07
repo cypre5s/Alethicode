@@ -453,9 +453,17 @@
     setup () {
       const instance = getCurrentInstance()
       const proxy = instance && instance.proxy
+      // setup() 阶段 useChatComposer 会同步求值 scopeKey，此时 Options API
+      // 的 data() 还未运行；如果通过 publicProxy 直接读 selectedLanguagePackId，
+      // Vue 3 会把 accessCache[selectedLanguagePackId] 标记为非 DATA，导致
+      // 之后所有 this.selectedLanguagePackId 访问永远返回 undefined，loadSessions
+      // 等流程在 if (!this.selectedLanguagePackId) return 处提前退出。
+      // 通过 $data 走 shallowReadonly 视图既能保留 reactive 追踪，又不会污染
+      // publicProxy accessCache。
       const scopeKey = computed(() => {
-        const packId = proxy && proxy.selectedLanguagePackId ? proxy.selectedLanguagePackId : 'none'
-        const sessionId = proxy && proxy.activeSessionId ? proxy.activeSessionId : 'new'
+        const data = proxy && proxy.$data
+        const packId = data && data.selectedLanguagePackId ? data.selectedLanguagePackId : 'none'
+        const sessionId = data && data.activeSessionId ? data.activeSessionId : 'new'
         return `qa:${packId}:${sessionId}`
       })
       const isInputBlocked = computed(() => Boolean(proxy && proxy.qaInputDisabled))
