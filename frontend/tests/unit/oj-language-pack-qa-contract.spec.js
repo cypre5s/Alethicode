@@ -68,6 +68,25 @@ describe('OJ language pack QA contract', () => {
     expect(pageCommand && pageCommand[0]).not.toContain("status: 'placeholder'")
   })
 
+  test('LanguagePackQaPage @page mention candidates use chapter.page tokens with subgroup labels', () => {
+    const source = readSource('../../src/pages/oj/views/languagepack/LanguagePackQaPage.vue')
+    const pageProvider = source.match(/key:\s*'qa-pages'[\s\S]*?items:\s*\(\) => proxy \? proxy\.buildQaPageMentionItems\(\) : \[\]/)
+    expect(pageProvider && pageProvider[0]).not.toContain('maxInitialDisplay')
+    expect(source).toContain('const chapter = idx + 1')
+    expect(source).toContain('token: `@page:${chapter}.${documentPageNo}`')
+    expect(source).toContain('const subgroup = `第 ${chapter} 章 · ${title}`')
+    expect(source).toContain('label: `第 ${documentPageNo} 页`')
+  })
+
+  test('LanguagePackQaPage /page command accepts both chapter.page and legacy global numbers', () => {
+    const source = readSource('../../src/pages/oj/views/languagepack/LanguagePackQaPage.vue')
+    expect(source).toContain("raw.match(/^(\\d+)\\.(\\d+)$/)")
+    expect(source).toContain('用法：/page <章.页> 或 /page <全局页>')
+    // legacy fallback：累计扣减 page_count，把全局页号映射到具体文档页
+    expect(source).toContain('remaining -= pageCount')
+    expect(source).toContain('page_no: documentPageNo')
+  })
+
   test('LanguagePackQaPage warns users not to ask OJ problem-solving questions here', () => {
     const source = readSource('../../src/pages/oj/views/languagepack/LanguagePackQaPage.vue')
     expect(source).toContain('不要在这里问 OJ 题目')
@@ -82,6 +101,14 @@ describe('OJ language pack QA contract', () => {
     expect(source).toContain('尚未完成问答索引')
     expect(source).toContain('packOptionLabel')
     expect(source).toContain('currentPackIsQaReady')
+  })
+
+  test('LanguagePackQaPage resolves the selected pack from component data before QA readiness checks', () => {
+    const source = readSource('../../src/pages/oj/views/languagepack/LanguagePackQaPage.vue')
+    expect(source).toContain('resolvePackById (packId)')
+    expect(source).toContain('this.$data.packs')
+    expect(source).toContain('const selectedPack = this.resolvePackById(packId)')
+    expect(source).toContain('if (!selectedPack || !selectedPack.qa_ready)')
   })
 
   test('LanguagePackQaPage hides answer video generation entry', () => {

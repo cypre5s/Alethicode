@@ -144,7 +144,6 @@ class InternalAITutorToolServiceImplTest {
 
     @Test
     void getSessionUsageDefaultsZeroWhenColumnsMissing() {
-        // schema 预留期：三列默认值都是 0 / ""，service 不应抛错。
         Map<String, Object> row = new java.util.HashMap<>();
         row.put("tokens_used", 0L);
         row.put("tokens_limit", 0L);

@@ -1,7 +1,5 @@
-/* UI/UX Pro Max Design System */
-
 :root {
-  /* —— Brand · Trust Blue（保留主色，不动）—— */
+  /* 品牌主色 */
   --primary-50: #eff6ff;
   --primary-100: #dbeafe;
   --primary-500: #3b82f6;
@@ -10,7 +8,7 @@
   --primary-color: var(--primary-600);
   --primary-hover: var(--primary-700);
 
-  /* —— Brand · Warm Accent（温暖品牌点缀，承接 notebook 紫粉系）—— */
+  /* 温暖强调色 */
   --warm-primary: #6366f1;
   --warm-primary-strong: #4f46e5;
   --warm-accent: #ec4899;
@@ -22,7 +20,7 @@
   --warm-grad-cool: linear-gradient(135deg, #06b6d4 0%, #6366f1 100%);
   --warm-grad-success: linear-gradient(135deg, #10b981 0%, #06b6d4 100%);
 
-  /* —— Semantic —— */
+  /* 语义色 */
   --color-success: #10b981;
   --success-color: var(--color-success);
   --color-warning: #f59e0b;
@@ -33,28 +31,28 @@
   --color-neutral: #64748b;
   --secondary-color: var(--color-neutral);
 
-  /* —— Surface —— */
+  /* 表面色 */
   --bg-base: #f8fafc;
   --bg-card: #ffffff;
   --bg-panel: #f1f5f9;
   --bg-warm: var(--warm-bg-subtle);
   --bg-inverse: #0f172a;
 
-  /* —— Text —— */
+  /* 文本色 */
   --text-strong: #0f172a;
   --text-primary: #1e293b;
   --text-secondary: #475569;
   --text-disabled: #94a3b8;
   --text-on-dark: #e2e8f0;
 
-  /* —— Border —— */
+  /* 边框 */
   --border-color: rgba(226, 232, 240, 0.6);
   --border-subtle: var(--border-color);
   --border-default: #e2e8f0;
   --border-strong: #cbd5e1;
   --border-warm: rgba(196, 181, 253, 0.32);
 
-  /* —— Radius（4 档统一）—— */
+  /* 圆角 */
   --radius-xs: 4px;
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -64,14 +62,14 @@
   --border-radius-md: var(--radius-md);
   --border-radius-lg: var(--radius-lg);
 
-  /* —— Shadow（4 档 + warm glow）—— */
+  /* 阴影 */
   --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
   --shadow-sm: 0 2px 8px rgba(15, 23, 42, 0.06);
   --shadow-md: 0 6px 18px rgba(15, 23, 42, 0.08);
   --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.10);
   --shadow-warm: 0 6px 18px rgba(99, 102, 241, 0.12), 0 2px 6px rgba(15, 23, 42, 0.04);
 
-  /* —— Spacing（4px 节奏）—— */
+  /* 间距 */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -82,7 +80,7 @@
   --space-10: 40px;
   --space-12: 48px;
 
-  /* —— Typography（8 档）—— */
+  /* 字体 */
   --fs-xs: 11px;
   --fs-sm: 12px;
   --fs-base: 13px;
@@ -95,7 +93,7 @@
   --leading-tight: 1.4;
   --leading-loose: 1.75;
 
-  /* —— Component density（OJ + Admin 共用）—— */
+  /* 组件密度 */
   --control-height-sm: 32px;
   --control-height-md: 36px;
   --control-height-lg: 44px;
@@ -114,28 +112,28 @@
   --tag-height: 22px;
   --tag-radius: var(--radius-pill);
 
-  /* —— Glassmorphism Utilities —— */
+  /* 玻璃态 */
   --glass-bg: rgba(255, 255, 255, 0.7);
   --glass-border: rgba(255, 255, 255, 0.4);
   --glass-blur: 8px;
 
-  /* —— Typography font stack —— */
+  /* 字体栈 */
   --font-sans: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: "Cascadia Mono", "SFMono-Regular", "Fira Code", Consolas, monospace;
 
-  /* —— Motion —— */
+  /* 动效 */
   --motion-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
   --motion-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
   --motion-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
 
-  /* —— Z-index 阶梯 —— */
+  /* 层级 */
   --z-dropdown: 100;
   --z-sticky: 200;
   --z-overlay: 300;
   --z-modal: 400;
   --z-toast: 500;
 
-  /* —— Admin Design System（保留语义，内部值改为 token 引用）—— */
+  /* Admin 语义 token */
   --admin-font-sans: var(--font-sans);
   --admin-sidebar-width: 240px;
   --admin-header-height: 72px;
@@ -184,7 +182,7 @@ img {
   -webkit-user-select: none;
 }
 
-/* Global Reset & Utility Classes */
+/* 全局基础样式 */
 h1,
 h2,
 h3,
@@ -229,7 +227,7 @@ p {
   border: 1px dashed var(--border-color);
 }
 
-/* Card Style Wrapper */
+/* 通用卡片外观 */
 .card-base {
   background: var(--bg-card);
   border-radius: var(--border-radius-md);
@@ -275,7 +273,7 @@ a.emphasis {
   }
 }
 
-/* MathJax & Markdown Overrides */
+/* MathJax 与 Markdown 覆盖 */
 .MathJax {
   outline: 0;
 }
@@ -305,7 +303,7 @@ a.emphasis {
   }
 }
 
-/* Animations */
+/* 动画 */
 @keyframes shimmer {
   0% {
     background-position: -200% 0;
@@ -323,23 +321,7 @@ a.emphasis {
   border-radius: var(--border-radius-sm);
 }
 
-/* Micro-interactions Mixin (DISABLED)
-.interactive-hover {
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-    box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-    background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-    border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-    color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-
-  &:hover {
-    transform: scale(1.05);
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
-    z-index: 10;
-  }
-}
-*/
-
-/* Glassmorphism */
+/* 玻璃态工具类 */
 .glass-effect {
   background-color: rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(20px);
@@ -385,7 +367,7 @@ a.emphasis {
   }
 }
 
-/* Element Plus Component Overrides for Modern Look */
+/* Element Plus 覆盖 */
 .el-button {
   border-radius: var(--border-radius-sm);
   font-weight: 500;
@@ -420,7 +402,7 @@ a.emphasis {
   }
 }
 
-/* Pagination Overrides */
+/* 分页覆盖 */
 .el-pagination .el-pager li {
   border-radius: var(--border-radius-sm);
   font-family: var(--font-mono);

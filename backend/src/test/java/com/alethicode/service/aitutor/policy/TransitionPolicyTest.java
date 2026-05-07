@@ -8,7 +8,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
- * Tests for workflow phase transition validation rules.
+ * 工作流阶段转换校验规则测试。
  */
 
 class TransitionPolicyTest {

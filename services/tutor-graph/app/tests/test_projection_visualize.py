@@ -85,7 +85,7 @@ async def test_projection_fails_run_when_visualize_dispatch_returns_empty_payloa
     })
     java.get_learner_state = AsyncMock(return_value={})
     java.get_courseware_hits = AsyncMock(return_value={"hits": []})
-    # Empty payload simulates schema violation from VisualizeCapabilityService.
+    # 空 payload 模拟 VisualizeCapabilityService 的 schema 违规。
     java.dispatch_visualize = AsyncMock(return_value={})
     java.post_workflow_event = AsyncMock(return_value={"status": "recorded"})
 
@@ -155,7 +155,7 @@ async def test_projection_fails_run_when_node_declares_intent_without_prompt():
         "related_kcs": [],
         "courseware_refs": [],
         "visualize_intent": "flowchart",
-        # Missing visualize_prompt → fail fast in projection.
+        # 缺少 visualize_prompt 时 projection 必须 fail-fast。
     })
 
     graph = build_tutor_graph(java_client=java, llm_client=llm, checkpointer=MemorySaver())

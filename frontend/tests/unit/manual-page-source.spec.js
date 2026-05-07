@@ -6,9 +6,8 @@
  * 重构后默认走 Notion / Cursor / Claude 文档风：funMode 默认 false，
  * 标题 / Hero / 目录顺序按新 10 段 SECTIONS 注册；趣味模式由右上角开关激活。
  *
- * 验证集成点：左侧目录、10 个 section、各种炫技层 (confetti / palette / widget /
- * follower / popper / finale)、双门控降级 (funMode + reduce-motion)、
- * IntersectionObserver 联动、阅读完成监听 (≥30s + COMPLETED_KEY)。
+ * 验证集成点：左侧目录、10 个 section、动效层、双门控降级、
+ * IntersectionObserver 联动与阅读完成监听。
  */
 
 const fs = require('fs')

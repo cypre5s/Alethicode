@@ -19,9 +19,7 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-# ============================================================================
-# Step 1: Swap 4 GiB
-# ============================================================================
+# 配置 4 GiB swap。
 SWAP_FILE="/swapfile"
 SWAP_SIZE_GB=4
 
@@ -53,9 +51,7 @@ setup_swap() {
   echo "[OK] swap activated"
 }
 
-# ============================================================================
-# Step 2: sysctl 内核调优
-# ============================================================================
+# 写入 sysctl 内核调优参数。
 SYSCTL_FILE="/etc/sysctl.d/99-alethicode-2c4g.conf"
 
 setup_sysctl() {
@@ -82,9 +78,7 @@ EOF
   echo "[OK] sysctl reloaded"
 }
 
-# ============================================================================
-# Step 3: Docker daemon 日志轮转 + ulimit
-# ============================================================================
+# 配置 Docker daemon 日志轮转与 ulimit。
 DOCKER_DAEMON_FILE="/etc/docker/daemon.json"
 
 setup_docker_daemon() {

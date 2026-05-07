@@ -1,7 +1,5 @@
 export const m = {
-  // NotFound.vue
   Go_Home: 'Go Home',
-  // Problem.vue
   Description: 'Description',
   Input: 'Input',
   Output: 'Output',
@@ -29,7 +27,6 @@ export const m = {
   Submit_code_successfully: 'Submit code successfully',
   You_have_solved_the_problem: 'You have solved the problem',
   Submitted_successfully: 'Submitted successfully',
-  // About.vue
   Compiler: 'Compiler',
   Result_Explanation: 'Result Explanation',
   Pending_Judging_Description: 'You solution will be judged soon, please wait for result.',
@@ -40,7 +37,6 @@ export const m = {
   Time_Limit_Exceeded_Description: 'The CPU time your program used has exceeded limit.',
   Memory_Limit_Exceeded_Description: 'The memory your program actually used has exceeded limit.',
   System_Error_Description: 'Oops, something has gone wrong with the judger. Please report this to administrator.',
-  // ACMContestRank.vue
   Menu: 'Menu',
   Chart: 'Chart',
   Auto_Refresh: 'Auto Refresh',
@@ -50,7 +46,6 @@ export const m = {
   TotalTime: 'TotalTime',
   Top_10_Teams: 'Top 10 Teams',
   save_as_image: 'save as image',
-  // ACMHelper.vue
   ACM_Helper: 'ACM Helper',
   AC_Time: 'AC Time',
   ProblemID: 'ProblemID',
@@ -59,18 +54,14 @@ export const m = {
   Checked: 'Checked',
   Not_Checked: 'Not Checked',
   Check_It: 'Check It',
-  // ACMRank.vue
   ACM_Ranklist: 'ACM Ranklist',
   mood: 'mood',
   AC: 'AC',
   Rating: 'Rating',
-  // Announcements.vue
   By: 'By',
-  // ApplyResetPassword.vue
   The_email_doesnt_exist: 'The email doesn\'t exist',
   Success: 'Success',
   Password_reset_mail_sent: 'Password reset mail has been sent to your email，',
-  // FAQ.vue
   Frequently_Asked_Questions: 'Frequently Asked Questions',
   Where_is_the_input_and_the_output: 'Where is the input and the output?',
   Where_is_the_input_and_the_output_answer_part_1: 'Your program shall read input from',
@@ -101,9 +92,7 @@ export const m = {
   How_to_report_bugs: 'How to report bugs about this oj?',
   How_to_report_bugs_answer_part_1: 'Alethicode is open source, you can open an issue in',
   How_to_report_bugs_answer_part_2: 'The details(like env, version..) about a bug is required, which will help us a lot to solve the bug. Certainly, we are very pleased to merge your pull requests.',
-  // Cancel.vue
   Cancel: 'Cancel',
-  // Navigation
   Problems: 'Problems',
   Announcements: 'Announcements',
   Submissions: 'Submissions',
@@ -114,7 +103,6 @@ export const m = {
   Problems_List: 'Problems List',
   No_Problems: 'No Problems',
   Problem_Submissions: 'Problem Submissions',
-  // CodeMirror.vue
   Language: 'Language',
   Theme: 'Theme',
   Reset_to_default_code_definition: 'Reset to default code definition',
@@ -122,7 +110,6 @@ export const m = {
   Monokai: 'Monokai',
   Solarized_Light: 'Solarized Light',
   Material: 'Material',
-  // NavBar.vue
   Home: 'Home',
   NavProblems: 'Problems',
   NavStatus: 'Status',
@@ -135,25 +122,19 @@ export const m = {
   Management: 'Management',
   Logout: 'Logout',
   Welcome_to: 'Welcome to',
-  // announcements.vue
   Refresh: 'Refresh',
   Back: 'Back',
   No_Announcements: 'No Announcements',
-  // Setting.vue
   Profile: 'Profile',
   Account: 'Account',
   Security: 'Security',
-  // AccoutSetting.vue
   ChangePassword: 'Change Password',
   ChangeEmail: 'Change Email',
   Update_Password: 'Update Password',
-  // ProfileSetting.vue
   Avatar_Setting: 'Avatar Setting',
   Profile_Setting: 'Profile Setting',
-  // SecuritySettig
   Sessions: 'Sessions',
   Two_Factor_Authentication: 'Two Factor Authentication',
-  // Login.vue
   LoginUsername: 'Username',
   LoginPassword: 'Password',
   TFA_Code: 'Code from your TFA app',
@@ -161,11 +142,8 @@ export const m = {
   Forget_Password: 'Forget Password',
   UserLogin: 'Login',
   Welcome_back: 'Welcome back to OJ',
-  // OIRank.vue
   OI_Ranklist: 'OI Ranklist',
-  // OIContestRank.vue
   Total_Score: 'Total Score',
-  // ProblemList.vue
   Problem_List: 'Problem List',
   High: 'High',
   Mid: 'Mid',
@@ -176,7 +154,6 @@ export const m = {
   Difficulty: 'Difficulty',
   Total: 'Total',
   AC_Rate: 'AC Rate',
-  // Register.vue
   RegisterUsername: 'Username',
   Email_Address: 'Email Address',
   RegisterPassword: 'Password',
@@ -188,7 +165,6 @@ export const m = {
   The_email_already_exists: 'The email already exists',
   password_does_not_match: 'password does not match',
   Thanks_for_registering: 'Thanks for your registering, you can login now',
-  // ResetPassword.vue and ApplyResetPassword.vue
   Reset_Password: 'Lost Password',
   RPassword: 'Password',
   RPassword_Again: 'Password Again',
@@ -196,16 +172,12 @@ export const m = {
   ApplyEmail: 'Your Email Address',
   Send_Password_Reset_Email: 'Send Password Reset Email',
   Your_password_has_been_reset: 'Your password has been reset.',
-  // Save.vue
   Save: 'Save',
-  // Simditor.vue
   Uploading_is_in_progress: 'Uploading is in progress, are you sure to leave this page?',
-  // SubmissionDetails.vue
   Lang: 'Lang',
   Succeeded: 'Succeeded',
   Real_Time: 'Real Time',
   Signal: 'Signal',
-  // SubmissionList.vue
   When: 'When',
   ID: 'ID',
   Time: 'Time',
@@ -223,13 +195,11 @@ export const m = {
   Partial_Accepted: 'Partial Accepted',
   Compile_Error: 'Compile Error',
   Rejudge: 'Rejudge',
-  // UserHome.vue
   UserHomeSolved: 'Solved',
   UserHomeserSubmissions: 'Submissions',
   UserHomeScore: 'Score',
   List_Solved_Problems: 'List of solved problems',
   UserHomeIntro: 'The guy is so lazy that has not solved any problem yet.',
-  // SkillProfile.vue
   SkillProfile: 'Skill Profile',
   SkillProfileDesc: 'Multi-dimensional Ability Assessment based on Glicko-2',
   SkillRadar: 'Skill Radar',
@@ -237,7 +207,6 @@ export const m = {
   ProblemRecommendations: 'Problem Recommendations',
   LoadingSkillData: 'Loading skill data...',
   NoSkillData: 'No skill data available',
-  // Classroom (Phase 8)
   Classroom: 'Classroom',
   MyClassrooms: 'My Classrooms',
   CreateClassroom: 'Create Classroom',

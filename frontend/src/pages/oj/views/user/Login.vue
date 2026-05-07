@@ -166,8 +166,6 @@ export default {
       this.$router.push({ name: 'apply-reset-password' })
     },
 
-    // ── Snake cursor ─────────────────────────────────────────
-
     onMouseMove (e) {
       const rect = this.$refs.bannerRef.getBoundingClientRect()
       this._mouse.x = e.clientX - rect.left
@@ -188,10 +186,7 @@ export default {
     },
 
     /**
-     * Measure each .ltr element's center relative to the banner.
-     * Stores results in this._letterData for use in the animation loop.
-     * This mirrors the concept of pretext's text measurement (canvas measureText)
-     * but uses DOM bounding rects since we need per-glyph 2-D positions.
+     * 测量每个 `.ltr` 字形中心点，为物理散开动画提供二维坐标。
      */
     _measureLetters () {
       const banner = this.$refs.bannerRef
@@ -252,11 +247,11 @@ export default {
       const s = this._snake
       const n = s.length
 
-      // Python brand palette: #FFD43B yellow / #3776AB blue-purple, alternating per segment
+      // 使用 Python 品牌黄蓝配色，让每节身体交替着色。
       const PY_YELLOW = [255, 212, 59]
       const PY_PURPLE = [55, 118, 171]
 
-      // Body — draw tail → head so head overlaps
+      // 从尾到头绘制，保证头部覆盖身体。
       for (let i = n - 1; i >= 0; i--) {
         const t = i / (n - 1)
         const radius = Math.max(7 - t * 4.5, 2)
@@ -271,7 +266,7 @@ export default {
         ctx.fill()
         ctx.stroke()
 
-        // Inner highlight shimmer
+        // 内部高光强化立体感。
         ctx.fillStyle = `rgba(255, 255, 255, ${0.18 * (1 - t)})`
         ctx.beginPath()
         ctx.arc(s[i].x - radius * 0.2, s[i].y - radius * 0.2, radius * 0.38, 0, Math.PI * 2)
@@ -284,7 +279,6 @@ export default {
       const neck = s[1]
       const faceAngle = Math.atan2(head.y - neck.y, head.x - neck.x)
 
-      // Eyes
       ctx.fillStyle = '#ffffff'
       ;[-0.52, 0.52].forEach(da => {
         ctx.beginPath()
@@ -296,7 +290,6 @@ export default {
         ctx.fill()
       })
 
-      // Pupils
       ctx.fillStyle = '#111827'
       ;[-0.52, 0.52].forEach(da => {
         ctx.beginPath()
@@ -308,7 +301,6 @@ export default {
         ctx.fill()
       })
 
-      // Tongue
       const tBase = {
         x: head.x + Math.cos(faceAngle) * 8,
         y: head.y + Math.sin(faceAngle) * 8
@@ -358,18 +350,17 @@ export default {
           }
         }
 
-        // Spring toward origin
+        // 弹回原始字形位置。
         ld.vx += -ld.dx * SPRING_K
         ld.vy += -ld.dy * SPRING_K
 
-        // Dampen
         ld.vx *= DAMPING
         ld.vy *= DAMPING
 
         ld.dx += ld.vx
         ld.dy += ld.vy
 
-        // Clamp displacement
+        // 限制偏移，避免字形被甩出横幅。
         const MAX_D = 52
         if (ld.dx > MAX_D) ld.dx = MAX_D
         if (ld.dx < -MAX_D) ld.dx = -MAX_D
@@ -426,8 +417,6 @@ export default {
   box-shadow: 0 14px 36px rgba(15, 23, 42, 0.12);
   background: #ffffff;
 }
-
-// ── Banner ──────────────────────────────────────────────────
 
 .login-banner {
   position: relative;
@@ -580,8 +569,6 @@ export default {
   background: #0f172a;
   color: #fff;
 }
-
-// ── Form ────────────────────────────────────────────────────
 
 .login-form-wrap {
   padding: 18px 20px 20px;

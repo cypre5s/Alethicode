@@ -1,4 +1,4 @@
-"""Tests for tutor node output normalization."""
+"""测试 tutor 节点输出规约。"""
 
 from __future__ import annotations
 

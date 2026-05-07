@@ -20,14 +20,14 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Cross-card conversation pool for Unified Chat (DeepTutor P3).
+ * Unified Chat 的跨卡片会话上下文池。
  *
- * <p>Responsibilities:
+ * <p>核心职责：
  * <ul>
- *   <li>Track {@code active_mode} per session so card production stamps {@code mode_when_produced}.</li>
- *   <li>Return last N cards for a session as Chat evidence.</li>
- *   <li>Resolve {@code @card:&lt;id&gt;} / {@code @last_error} references to {@link CardSummary}s.</li>
- *   <li>Switch Mode with Phase-aware allow matrix (fail-fast 422 on illegal switch).</li>
+ *   <li>跟踪每个会话的 {@code active_mode}，为卡片写入 {@code mode_when_produced}。</li>
+ *   <li>返回会话最近 N 张卡片作为 Chat 证据。</li>
+ *   <li>解析 {@code @card:&lt;id&gt;} 和 {@code @last_error} 等引用。</li>
+ *   <li>按 Phase 允许矩阵切换 Mode，非法切换直接 422。</li>
  * </ul>
  *
  * <p>Design: <code>docs/plans/2026-04-25-unified-chat-context-design.md</code> §7.3</p>
@@ -49,11 +49,9 @@ public class ConversationContextService {
     }
 
     /**
-     * Fail-fast assertion: the session must exist and belong to the given user.
-     * Call this before any operation that exposes conversation data to ensure
-     * cross-user isolation even if the API layer has a bug.
+     * 快速断言会话存在且属于指定用户。
      *
-     * @throws com.alethicode.exception.LegacyBusinessException 403 when the session does not belong to the user
+     * @throws com.alethicode.exception.LegacyBusinessException 会话不属于该用户时抛出 403
      */
     public void assertSessionOwnedBy(String sessionId, long userId) {
         if (sessionId == null || sessionId.isBlank()) return;
@@ -70,8 +68,7 @@ public class ConversationContextService {
     }
 
     /**
-     * @return the currently persisted active mode for the session, or {@link ConversationMode#defaultMode()}
-     *         when the row is missing.
+     * @return 会话当前持久化的 active mode；会话缺失时返回默认 Mode
      */
     public ConversationMode getActiveMode(String sessionId) {
         if (sessionId == null || sessionId.isBlank()) {
@@ -90,9 +87,9 @@ public class ConversationContextService {
     }
 
     /**
-     * Switch the active mode of a session.
+     * 切换会话 active mode。
      *
-     * @throws com.alethicode.exception.LegacyBusinessException 422 when the target mode is not allowed in the current Phase
+     * @throws com.alethicode.exception.LegacyBusinessException 目标 Mode 不允许用于当前 Phase 时抛出 422
      */
     @Transactional
     public ConversationMode switchMode(String sessionId, ConversationMode newMode, Phase currentPhase) {
@@ -125,9 +122,7 @@ public class ConversationContextService {
     }
 
     /**
-     * @return up to {@code limit} (≤ {@value #MAX_LAST_CARDS_LIMIT}) most recent cards for the session,
-     *         newest first, only including events with a non-null {@code card_id}.
-     *         Cross-user isolation: joins ai_tutor_workflow_session to enforce session ownership.
+     * @return 会话最近的卡片列表，按时间倒序，最多 {@value #MAX_LAST_CARDS_LIMIT} 条
      */
     public List<CardSummary> listLastCards(String sessionId, int limit) {
         if (sessionId == null || sessionId.isBlank()) {
@@ -183,14 +178,13 @@ public class ConversationContextService {
     }
 
     /**
-     * Resolve a list of references (raw tokens like {@code @card:C-V-001}, {@code @last_error}) into
-     * {@link CardSummary}s scoped to the given session. Unknown / cross-session refs are silently dropped.
+     * 将原始引用 token 解析为当前会话范围内的 {@link CardSummary}。
      *
-     * <p>Resolution rules:
+     * <p>解析规则：
      * <ul>
-     *   <li>Explicit {@code @card:<id>} only matches if the card row belongs to this session.</li>
-     *   <li>{@code @last_xxx} returns the latest matching card type for this session.</li>
-     *   <li>Each card is returned at most once even if referenced multiple times.</li>
+     *   <li>显式 {@code @card:<id>} 仅匹配当前会话内的卡片。</li>
+     *   <li>{@code @last_xxx} 返回当前会话中最近的对应类型卡片。</li>
+     *   <li>同一卡片被多次引用时只返回一次。</li>
      * </ul></p>
      */
     public List<CardSummary> resolveReferences(String sessionId, List<String> references) {
@@ -225,13 +219,9 @@ public class ConversationContextService {
     }
 
     /**
-     * Stamp {@code card_id}, {@code card_type}, {@code mode_when_produced}, and {@code referenced_card_ids}
-     * onto the most recently inserted event row for the session. Called by
-     * {@link com.alethicode.service.aitutor.impl.InternalAITutorToolServiceImpl#recordWorkflowEvent}
-     * right after the event row is written.
+     * 为会话最近写入的事件补齐卡片元数据。
      *
-     * <p>Returns the assigned card_id, or null when this event does not produce a stable card
-     * (e.g. CODING evidence sampling, FAILED runs).</p>
+     * <p>事件不产生稳定卡片时返回 null，例如 CODING 证据采样或 FAILED run。</p>
      */
     @Transactional
     public String stampCardForLatestEvent(String sessionId, String runId, String cardType,
@@ -330,8 +320,7 @@ public class ConversationContextService {
     }
 
     /**
-     * Build a short, prompt-safe description of the card by extracting the key field from event_data.node_outputs.
-     * Defaults to the first line of the JSON payload when the card_type is unknown.
+     * 从 {@code event_data.node_outputs} 提取关键字段，生成适合 prompt 的短卡片描述。
      */
     private String summarizeCardJson(String cardType, String eventDataJson) {
         if (eventDataJson == null || eventDataJson.isBlank()) return "";

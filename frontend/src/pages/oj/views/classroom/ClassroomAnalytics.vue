@@ -1,6 +1,5 @@
 <template>
   <div ref="analyticsRoot" class="analytics-root">
-    <!-- 0. 学情周报 -->
     <el-card data-section="report" shadow="hover" class="analytics-card report-card">
       <template #header>
         <div class="card-header">
@@ -26,8 +25,6 @@
       </div>
       <el-empty v-else description="点击「生成学情周报」查看 AI 分析" :image-size="48" />
     </el-card>
-
-    <!-- 1. 班级学习脉搏 -->
     <el-row data-section="pulse" :gutter="16" class="pulse-row">
       <el-col :span="16">
         <el-card ref="pulseCardRef" shadow="hover" class="analytics-card pulse-card">
@@ -63,8 +60,6 @@
         </el-card>
       </el-col>
     </el-row>
-
-    <!-- 3. 薄弱知识点 TOP3 -->
     <el-card data-section="weak" shadow="hover" class="analytics-card">
       <template #header>
         <div class="card-header">
@@ -103,8 +98,6 @@
         </div>
       </div>
     </el-card>
-
-    <!-- 4. 风险学生列表 -->
     <el-card data-section="risk" shadow="hover" class="analytics-card">
       <template #header>
         <div class="card-header">
@@ -147,8 +140,6 @@
         </el-table-column>
       </el-table>
     </el-card>
-
-    <!-- 5. 课件使用分析 -->
     <el-row data-section="courseware" :gutter="16">
       <el-col :span="24">
         <el-card shadow="hover" class="analytics-card">
@@ -172,8 +163,6 @@
         </el-card>
       </el-col>
     </el-row>
-
-    <!-- 学生画像弹窗 -->
     <el-dialog v-model="profileDialogVisible" :title="profileData ? profileData.basic.username + ' 学情画像' : '学情画像'" width="720px" top="5vh">
       <div v-if="profileData" class="profile-content">
         <div class="profile-summary-bar">
@@ -214,8 +203,6 @@
         </el-table>
       </div>
     </el-dialog>
-
-    <!-- 干预建议弹窗 -->
     <el-dialog v-model="adviceDialogVisible" title="AI 干预建议" width="520px">
       <div v-if="adviceData" class="advice-content">
         <div class="advice-student-info">

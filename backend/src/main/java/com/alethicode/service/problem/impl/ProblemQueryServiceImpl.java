@@ -672,7 +672,7 @@ public class ProblemQueryServiceImpl implements ProblemQueryService {
                 try {
                     solved.add(Long.parseLong(String.valueOf(entry.getKey())));
                 } catch (NumberFormatException ignored) {
-                    // Ignore malformed problem id in legacy status json.
+                    // 忽略旧状态 JSON 中无法解析的题目 ID。
                 }
             }
         }
@@ -918,7 +918,7 @@ public class ProblemQueryServiceImpl implements ProblemQueryService {
                 try {
                     parsed.add(Long.parseLong(String.valueOf(item)));
                 } catch (NumberFormatException ignored) {
-                    // ignore malformed values
+                    // 忽略无法解析的旧值。
                 }
             }
             return parsed;

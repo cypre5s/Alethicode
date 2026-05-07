@@ -16,20 +16,12 @@ import java.util.HexFormat;
 import java.util.List;
 
 /**
- * AIGC compliance service that satisfies the "generative AI provider" obligations
- * in 《生成式人工智能服务管理暂行办法》:
+ * 满足《生成式人工智能服务管理暂行办法》要求的 AIGC 合规服务。
  *
  * <ul>
- *   <li>Article 12: AI-generated content must be explicitly labelled to end users.
- *       Call {@link #labelAiGeneratedContent(String)} before returning any LLM
- *       output from a student-facing surface.</li>
- *   <li>Article 10/11: provider logs inputs and outputs for at least 6 months.
- *       Call {@link #auditGeneration(AuditEntry)} for every generation event;
- *       retention is DB-enforced via {@code retention_expires_at}.</li>
- *   <li>Sensitive content scan: providers must have a pre-release scan pipeline.
- *       The default implementation is a pluggable fail-open no-op that logs the
- *       decision; swap for an enterprise provider (阿里云内容安全 / 腾讯云 T-Sec)
- *       in production.</li>
+ *   <li>面向学生的 AI 生成内容必须显式标识。</li>
+ *   <li>每次生成都必须记录输入输出审计，保留期由 {@code retention_expires_at} 约束。</li>
+ *   <li>敏感内容扫描应接入企业级内容安全服务，默认实现仅保留插拔点。</li>
  * </ul>
  */
 @Service
@@ -37,7 +29,7 @@ public class AigcComplianceService {
 
     private static final Logger log = LoggerFactory.getLogger(AigcComplianceService.class);
 
-    /** Chinese-first disclaimer; keep short so it never breaks card layouts. */
+    /** 中文优先的 AI 生成内容标识，保持短文本以免破坏卡片布局。 */
     private static final String AI_GENERATED_TAG = "（以下内容由 AI 生成，仅供参考）";
 
     private final NamedParameterJdbcTemplate jdbc;
@@ -46,17 +38,14 @@ public class AigcComplianceService {
 
     public AigcComplianceService(NamedParameterJdbcTemplate jdbc, MeterRegistry meterRegistry) {
         this.jdbc = jdbc;
-        // Name matches the Prometheus alert rule `AigcAuditWriteFailing` in
-        // deploy/observability/prometheus/alerts.yml. Changing the name here
-        // silently breaks the alert.
+        // 指标名必须与 Prometheus 告警 AigcAuditWriteFailing 保持一致。
         this.auditWriteFailures = Counter.builder("aigc_audit_write_failed_total")
                 .description("AIGC audit-log inserts that failed (regulatory retention at risk)")
                 .register(meterRegistry);
     }
 
     /**
-     * Prepend the AI-generated disclaimer if the content doesn't already carry one.
-     * Re-tagging the same content is safe and idempotent.
+     * 为尚未标识的内容添加 AI 生成声明，重复调用保持幂等。
      */
     public String labelAiGeneratedContent(String content) {
         if (content == null || content.isEmpty()) return content;
@@ -65,26 +54,20 @@ public class AigcComplianceService {
     }
 
     /**
-     * Scan an outbound AI response for sensitive categories before it reaches an
-     * end user. The reference implementation is permissive by design — production
-     * deployments must wire this to 阿里云内容安全 / 网易易盾 / 腾讯云天御.
+     * 在 AI 响应到达最终用户前扫描敏感内容类别。
      *
-     * @return list of triggered category labels (empty = safe). The caller decides
-     *         whether to redact, refuse, or continue based on business policy.
+     * @return 命中的类别标签列表，空列表表示未命中
      */
     public List<String> scanForSensitiveContent(String content) {
-        // TODO(compliance): integrate 阿里云内容安全 API. Keep this method a single
-        // plug-in point so the rest of the codebase needn't change when swapping
-        // vendors.
+        // TODO(compliance): 接入内容安全 API；该方法保持为唯一供应商插拔点。
         if (content == null || content.isEmpty()) return List.of();
         return List.of();
     }
 
     /**
-     * Persist the regulatory audit record for a single generation turn.
-     * Failures are logged but do not propagate so a transient DB outage never
-     * blocks the student-facing response; operators must alert on
-     * {@code aigc_audit_write_failed} counters.
+     * 持久化单次生成的监管审计记录。
+     *
+     * 审计写入失败只记录日志和指标，不阻断学生端响应。
      */
     public void auditGeneration(AuditEntry entry) {
         try {
@@ -115,11 +98,9 @@ public class AigcComplianceService {
     }
 
     /**
-     * Retention sweep: delete rows whose retention window has passed. Intended to
-     * run as a scheduled job (Spring {@code @Scheduled} outside this class so the
-     * frequency is configurable).
+     * 清理超过保留窗口的审计记录。
      *
-     * @return number of rows purged
+     * @return 已清理行数
      */
     public int purgeExpiredAuditLogs() {
         return jdbc.update(

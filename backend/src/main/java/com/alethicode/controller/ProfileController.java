@@ -22,9 +22,9 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Student-side learner profile dashboard endpoints (P1 Persistent Memory layer).
+ * 学生端学习画像接口。
  *
- * Design: docs/plans/2026-04-25-persistent-memory-layer-design.md  6.5
+ * 设计依据：{@code docs/plans/2026-04-25-persistent-memory-layer-design.md} 第 6.5 节。
  */
 @RestController
 @RequestMapping("/api/ai/tutor/profile")

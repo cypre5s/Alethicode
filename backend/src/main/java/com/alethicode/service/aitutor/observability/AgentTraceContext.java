@@ -13,19 +13,6 @@ import java.util.Map;
  *   <li>由 dispatcher（当前为 {@code AITutorWorkflowAdminServiceImpl.processWorkflowEvent}）在 session 级别创建一次，
  *       然后通过调用方持有传递。</li>
  * </ul>
- *
- * <p>子 span 的典型创建姿势：
- * <pre>{@code
- * AgentTraceRecorder.SpanHandle handle = traceContext == null ? null
- *         : traceContext.startSpan(AgentTraceRecorder.SpanType.LLM_CALL, meta);
- * try {
- *     // ... LLM 调用 ...
- *     if (traceContext != null) traceContext.endSpanOk(handle, "llm ok");
- * } catch (Exception e) {
- *     if (traceContext != null) traceContext.endSpanFailed(handle, "llm failed", Map.of("err", e.getMessage()));
- *     throw e;
- * }
- * }</pre>
  */
 public record AgentTraceContext(
         AgentTraceRecorder recorder,

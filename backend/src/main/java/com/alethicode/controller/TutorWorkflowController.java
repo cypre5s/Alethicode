@@ -42,9 +42,10 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Public REST facade for the LangGraph tutor workflow. Owns ownership / language /
- * submission validation before delegating runtime concerns to {@link TutorGraphClient}
- * and projection concerns to {@link TutorWorkflowProjectionService}.
+ * LangGraph 导学工作流的学生端 REST 门面。
+ *
+ * 控制器负责所有权、语言和提交校验；运行时委托给 {@link TutorGraphClient}，投影数据委托给
+ * {@link TutorWorkflowProjectionService}。
  */
 @RestController
 @RequestMapping("/api/ai/tutor-workflow-sessions")
@@ -59,11 +60,9 @@ public class TutorWorkflowController {
     private static final Duration GRAPH_CALL_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration GRAPH_RESTORE_TIMEOUT = Duration.ofSeconds(30);
     /**
-     * Tutor workflow payloads are small by design (event + event_data). Cap total
-     * request body to 256 KiB so a malicious user cannot stream a 200 MB JSON body
-     * that Spring Jackson would otherwise deserialize into a giant Map. The global
-     * {@code spring.servlet.multipart.max-request-size} is 256 MB and intentionally
-     * loose for file uploads; tutor workflow must stay tight.
+     * 导学工作流请求体只应包含 {@code event} 和 {@code event_data}。
+     *
+     * 全局上传限制需要支持大文件；本接口单独限制为 256 KiB，避免异常 JSON 被反序列化成大对象。
      */
     private static final long MAX_REQUEST_BODY_BYTES = 256L * 1024L;
 
@@ -293,7 +292,7 @@ public class TutorWorkflowController {
             return fail422("language is required");
         }
 
-        // Language must still be allowed by the problem even if it came from the projection.
+        // 即使语言来自投影，也必须重新按题目配置校验。
         ProblemAccess problemAccess = authorizer.tryLoadProblem(problemId)
                 .orElseThrow(() -> new TutorWorkflowAuthorizer.ProblemNotFound(problemId));
         authorizer.assertLanguageAllowed(problemAccess, language);
@@ -591,14 +590,10 @@ public class TutorWorkflowController {
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.success(result));
     }
 
-    // ---------- helpers ----------
-
     /**
-     * Short-circuit requests whose declared {@code Content-Length} exceeds
-     * {@link #MAX_REQUEST_BODY_BYTES}. Returns {@code null} when the size is OK so the
-     * caller can proceed with the normal pipeline. Spring has already buffered the
-     * body by the time this method runs, so a chunked sender could still get
-     * through; this is a cheap tripwire, not the last line of defense.
+     * 根据声明的 {@code Content-Length} 拦截超大请求体。
+     *
+     * 该检查是低成本哨兵；chunked 请求仍需依赖上游网关和容器限制。
      */
     private ResponseEntity<ApiResponse<Object>> enforceRequestBodyLimit(HttpServletRequest servletRequest) {
         if (servletRequest == null) return null;
@@ -628,17 +623,15 @@ public class TutorWorkflowController {
     }
 
     /**
-     * Extract the authenticated user id.
+     * 从 Spring Security 上下文中提取已认证用户 ID。
      *
-     * <p>Contract order (must match {@code SessionAuthenticationFilter}):
+     * <p>读取顺序必须与 {@code SessionAuthenticationFilter} 保持一致：
      * <ol>
-     *   <li>{@code authentication.getDetails()} — the session auth filter stores the
-     *       numeric user id there while {@code principal} is just the username.</li>
-     *   <li>{@code authentication.getPrincipal()} when it is a {@link Map} with an
-     *       {@code "id"} entry — used by API-key / programmatic auth paths and tests
-     *       that synthesize a principal.</li>
+     *   <li>{@code authentication.getDetails()} 存放 session 认证写入的数字用户 ID。</li>
+     *   <li>{@code authentication.getPrincipal()} 为 {@link Map} 且包含 {@code "id"} 时，
+     *       支持 API key、程序化认证和测试合成 principal。</li>
      * </ol>
-     * Anything else is a configuration bug and maps to 401.
+     * 其他情况视为认证配置错误并映射为 401。
      */
     private Long extractUserId(Authentication authentication) {
         if (authentication == null || !authentication.isAuthenticated()) {
@@ -767,17 +760,13 @@ public class TutorWorkflowController {
     }
 
     /**
-     * Generic 503 response that DOES NOT leak the downstream exception message.
-     * Use this at every point where tutor-graph replies with an error so operators
-     * see detail in the log but clients get a stable, redacted payload.
+     * 返回脱敏的通用 503，避免向客户端泄露 tutor-graph 异常细节。
      */
     private ResponseEntity<ApiResponse<Object>> fail503Redacted(String action, Exception e) {
         log.warn("tutor-graph unavailable during {}: {}", action, e.toString());
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(ApiResponse.error("tutor-graph service temporarily unavailable"));
     }
-
-    // ---------- exception -> HTTP mapping ----------
 
     @ExceptionHandler(SecurityException.class)
     public ResponseEntity<ApiResponse<Object>> handleSecurityException(SecurityException e) {
@@ -820,9 +809,7 @@ public class TutorWorkflowController {
     }
 
     /**
-     * Resilience4j throws {@link io.github.resilience4j.ratelimiter.RequestNotPermitted}
-     * when the token bucket for {@code tutorWorkflow} is empty. Map to 429 so the
-     * frontend can back off instead of retrying the same endpoint immediately.
+     * 将 {@code tutorWorkflow} 限流桶耗尽映射为 429。
      */
     @ExceptionHandler(io.github.resilience4j.ratelimiter.RequestNotPermitted.class)
     public ResponseEntity<ApiResponse<Object>> handleRateLimitExceeded(
@@ -834,9 +821,7 @@ public class TutorWorkflowController {
     }
 
     /**
-     * CRIT-3: per-user daily LLM run / active session quota exceeded — return 429
-     * with a {@code Retry-After: 60} hint. Frontend must surface a friendly
-     * "你今天已使用过多 AI 导学次数，明天再来" rather than retry immediately.
+     * 将每日 LLM run 或活跃会话配额超限映射为 429。
      */
     @ExceptionHandler(AiTutorQuotaService.QuotaExceededException.class)
     public ResponseEntity<ApiResponse<Object>> handleQuotaExceeded(

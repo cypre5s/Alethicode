@@ -1,4 +1,4 @@
-"""FastAPI entry for alethicode-rag."""
+"""alethicode-rag 的 FastAPI 入口。"""
 
 from __future__ import annotations
 

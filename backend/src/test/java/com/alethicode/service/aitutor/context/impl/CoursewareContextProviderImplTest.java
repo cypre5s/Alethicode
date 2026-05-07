@@ -73,14 +73,11 @@ class CoursewareContextProviderImplTest {
         assertThat(summary.chunks().get(0).text()).contains("递归是函数自己调用自己");
         assertThat(summary.chunks().get(0).pageNumber()).isEqualTo(12);
         assertThat(summary.chunks().get(0).score()).isEqualTo(0.92);
-
-        // 7 没出现在 token 里就不应该被检索
         verify(pageRetrievalService, never()).retrieve(eq(7L), any(), any());
     }
 
     @Test
     void failsFastWith403WhenUserReferencesUnauthorisedCoursewarePack() {
-        // 用户只有 lp 7 的访问权，但他 @ 了 lp 42
         when(languagePackQaService.listQaPacks("alice")).thenReturn(List.of(
                 packMap(7L, "数据结构基础")
         ));
@@ -95,8 +92,6 @@ class CoursewareContextProviderImplTest {
         ))
                 .isInstanceOf(LegacyBusinessException.class)
                 .hasMessageContaining("not accessible: 42");
-
-        // 越权时绝不能调 RAG（也是数据保护——避免基于响应时间侧信道判断 lp 是否存在）
         verify(pageRetrievalService, never()).retrieve(any(), any(), any());
     }
 
@@ -121,10 +116,8 @@ class CoursewareContextProviderImplTest {
         );
 
         assertThat(result).hasSize(2);
-        // 第一项 RAG 失败 → chunks 空但 summary 仍返回（让上层 prompt 知道引用了课件但检索失败）
         assertThat(result.get(0).languagePackId()).isEqualTo(42L);
         assertThat(result.get(0).chunks()).isEmpty();
-        // 第二项不受影响
         assertThat(result.get(1).languagePackId()).isEqualTo(7L);
         assertThat(result.get(1).chunks()).hasSize(1);
         assertThat(result.get(1).chunks().get(0).text()).contains("栈");
@@ -153,7 +146,6 @@ class CoursewareContextProviderImplTest {
 
     @Test
     void returnsEmptyWhenNoCoursewareTokensPresent() {
-        // 即便 raw tokens 里有其他 reference 也不调 listQaPacks / retrieve
         List<CoursewareSummary> result = newProvider().resolveCoursewareReferences(
                 "alice",
                 List.of("@card:C-V-001", "@last_error", "raw text"),

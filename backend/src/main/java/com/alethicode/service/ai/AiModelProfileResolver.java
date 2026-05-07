@@ -8,12 +8,10 @@ import org.springframework.stereotype.Component;
 import java.util.Map;
 
 /**
- * Resolves AI provider configuration (API key, base URL, model, timeouts) with
- * precedence: {@link BetaFeatureRegistry} runtime override → {@code sys_options}
- * DB row → process env → local {@code .env} fallback → hard-coded default.
+ * 解析 AI Provider 配置。
  *
- * <p>Chat and embedding profiles are resolved independently so a call that only
- * needs chat credentials never fails because of a missing embedding key.
+ * <p>优先级依次为 {@link BetaFeatureRegistry} 运行时覆盖、{@code sys_options}、进程环境、
+ * 本地 {@code .env} 和硬编码默认值。</p>
  */
 @Component
 public class AiModelProfileResolver {
@@ -28,8 +26,7 @@ public class AiModelProfileResolver {
             "LLM_API_MAX_RETRIES", "max_retries"
     );
 
-    // Defaults track the production `backend/.env`: DeepSeek chat.
-    // CHANGELOG 2026-04-14 records the MiniMax → DeepSeek swap for production stability.
+    // 默认值跟随生产 backend/.env：DeepSeek chat。
     private static final String DEFAULT_CHAT_BASE_URL = "https://api.deepseek.com/v1";
     private static final String DEFAULT_CHAT_MODEL = "deepseek-chat";
     private static final int DEFAULT_TIMEOUT_SECONDS = 150;
@@ -51,8 +48,7 @@ public class AiModelProfileResolver {
     }
 
     /**
-     * Resolve the chat-model profile for the given prefix (may be empty).
-     * Fail-fast when API key is missing. Embedding configuration is not touched.
+     * 解析指定前缀的 chat 模型 profile，缺失 API key 时 fail fast。
      */
     public AiModelProfile resolveChat(String profilePrefix) {
         String prefix = profilePrefix == null ? "" : profilePrefix;

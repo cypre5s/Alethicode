@@ -49,8 +49,6 @@ class AdminNfkControllerContractTest {
             outputStream.write("1,100,7,1,2026-04-10T10:00:00Z\n".getBytes());
         };
         when(exportService.exportTrainingData(eq(99L))).thenReturn(body);
-
-        // StreamingResponseBody 在 MockMvc 中需要先断言 asyncStarted，再 asyncDispatch 读取最终响应。
         MvcResult initial = mockMvc.perform(get("/api/admin/nfk/training-data/export")
                         .param("language_pack_id", "99"))
                 .andExpect(status().isOk())

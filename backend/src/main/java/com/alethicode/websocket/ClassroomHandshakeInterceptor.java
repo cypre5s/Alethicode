@@ -12,10 +12,10 @@ import org.springframework.web.socket.server.HandshakeInterceptor;
 import java.util.Map;
 
 /**
- * Shared WebSocket handshake interceptor that enforces session authentication and
- * stores {@code ws_username} / {@code ws_user_id} on the connection attributes so
- * downstream handlers (classroom collab, monitor, tutor workflow) can run
- * ownership checks without touching HTTP session again.
+ * 统一校验 WebSocket 握手登录态，并把用户身份写入连接属性。
+ *
+ * 下游处理器只信任 {@code ws_username} / {@code ws_user_id}，避免各自重复读取
+ * HTTP session。
  */
 @Component
 public class ClassroomHandshakeInterceptor implements HandshakeInterceptor {
@@ -42,10 +42,7 @@ public class ClassroomHandshakeInterceptor implements HandshakeInterceptor {
         }
         attributes.put(ATTR_USERNAME, String.valueOf(username));
         Object userId = session.getAttribute(SessionAuthenticationFilter.AUTH_USER_ID_KEY);
-        // Defense in depth: only propagate a positive numeric user id. A malformed
-        // session attribute (null, negative, string) must never reach WS handlers as
-        // a usable identity — downstream ownership checks would then authorize the
-        // wrong user.
+        // 只透传正数用户 ID，避免异常 session 值绕过下游所有权校验。
         if (userId instanceof Number n && n.longValue() > 0) {
             attributes.put(ATTR_USER_ID, n.longValue());
         }
@@ -55,6 +52,5 @@ public class ClassroomHandshakeInterceptor implements HandshakeInterceptor {
     @Override
     public void afterHandshake(ServerHttpRequest request, ServerHttpResponse response, WebSocketHandler wsHandler,
                                Exception exception) {
-        // no-op
     }
 }

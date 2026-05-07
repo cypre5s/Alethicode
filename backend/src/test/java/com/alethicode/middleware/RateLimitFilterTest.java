@@ -91,7 +91,6 @@ class RateLimitFilterTest {
 
     @Test
     void shouldUseRealIpHeaderWhenComingFromTrustedProxy() throws Exception {
-        // HIGH-4: nginx 上游(172.x trusted)设置的 X-Real-IP 是真实客户端 IP。
         RateLimitFilter filter = new RateLimitFilter(redis, DEFAULT_TRUSTED_PROXIES);
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/problems");
         request.setRemoteAddr("172.18.0.5");
@@ -107,8 +106,6 @@ class RateLimitFilterTest {
 
     @Test
     void shouldIgnoreXffEvenFromTrustedProxy() throws Exception {
-        // HIGH-4: 即便客户端伪造 X-Forwarded-For，filter 也不解析它，
-        // 仅采用 nginx 上游设置的 X-Real-IP。
         RateLimitFilter filter = new RateLimitFilter(redis, DEFAULT_TRUSTED_PROXIES);
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/problems");
         request.setRemoteAddr("172.18.0.5");
@@ -125,7 +122,6 @@ class RateLimitFilterTest {
 
     @Test
     void shouldNotTrustRealIpFromUntrustedSource() throws Exception {
-        // HIGH-4: 攻击者直接打 backend (绕开 nginx)，自己伪造 X-Real-IP，必须忽略。
         RateLimitFilter filter = new RateLimitFilter(redis, DEFAULT_TRUSTED_PROXIES);
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/problems");
         request.setRemoteAddr("8.8.8.8");

@@ -1,20 +1,5 @@
 /**
- * 课堂（班级 / Classroom）相关接口。
- *
- * 按教学场景分成若干子主题：
- *   - 班级管理（创建/更新/统计）
- *   - 邀请码（生成/加入/停用）
- *   - 成员（角色提拔降级/移除）
- *   - 班级题目（增删改 / 选填题导入导出）
- *   - 课件 (lessons) 管理
- *   - AI 生成题目（生成 / 审核 / 推广 / 任务状态）
- *   - 协作会话 (collaboration sessions + relay token)
- *   - 作业 (assignments + 提交 + 评分)
- *   - 教师监测 (snapshots / 代码回放)
- *   - 错误聚类 + 干预候选 (intervention)
- *   - 班级分析 (weekly-pulse / kc-heatmap / risk-students / courseware-usage 等)
- *
- * 这些接口都以 `/classroom/${classroomId}/...` 为主前缀，放到同一文件便于统一检索。
+ * 课堂域接口按 `/classroom/${classroomId}/...` 主前缀集中维护。
  */
 
 import { ajax } from './shared'
@@ -159,7 +144,7 @@ export default {
   deleteCollaborationSession(classroomId, sessionId) {
     const endpoint = `classroom/${classroomId}/sessions/${sessionId}/`
     return ajax(endpoint, 'delete').catch(err => {
-      // 历史上存在部分反向代理禁用了 DELETE 而返回 405，这里按兼容降级为 POST。
+      // 部分反向代理会拦截 DELETE，会话删除需按后端约定降级为 POST。
       if (err && err.response && err.response.status === 405) {
         return ajax(endpoint, 'post')
       }

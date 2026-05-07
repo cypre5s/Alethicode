@@ -128,10 +128,7 @@ public class LearnerMemoryService {
         payload.put("source", candidate.source());
         payload.put("scope", candidate.scope() == null ? "generic" : candidate.scope().name().toLowerCase());
 
-        // Phase 1 (V75 outbox): we no longer compute embeddings here. The 16-dim
-        // pgvector dedup window (`findSemanticDuplicate`) is deleted with it; LightRAG
-        // will dedup at the KG-entity level once Phase 3 cuts retrieval over. ON CONFLICT
-        // on (user_id, memory_key) still coalesces re-emits of the same key.
+        // 记忆写入只落 outbox，不再同步计算 embedding；语义去重交给 LightRAG。
         jdbcTemplate.update(
                 """
                 INSERT INTO ai_learner_memory(
@@ -196,9 +193,7 @@ public class LearnerMemoryService {
     }
 
     /**
-     * Saves a structured tutoring conclusion when a problem is solved (AC_REVIEW).
-     * These conclusions persist across sessions and are loaded when the student
-     * encounters a related problem, enabling cross-session feedback loops.
+     * 在题目通过后保存结构化导学结论，供后续相关题目复用。
      */
     public void saveTutoringConclusion(Long userId, Long problemId,
                                        String strategyUsed, String keyInsight,
@@ -227,8 +222,7 @@ public class LearnerMemoryService {
     }
 
     /**
-     * Loads previous session conclusions relevant to the current problem.
-     * Used at session start to inject cross-session context into Agent prompts.
+     * 加载与当前题目相关的历史导学结论。
      */
     public List<Map<String, Object>> loadPreviousConclusions(Long userId, Long currentProblemId) {
         if (userId == null) {
@@ -355,11 +349,7 @@ public class LearnerMemoryService {
                     toJson(payload)
             );
 
-            // Two outbox rows here: one for the notebook entry itself (so SimilarErrorRetrieval
-            // can find the rich error context once Phase 3 cuts over), and one for the
-            // ai_learner_memory mirror (so LearnerMemorySemanticRetrievalService still has
-            // a hit). They live in different namespaces (notebook / memory) so they don't
-            // dedup against each other in LightRAG's KG.
+            // notebook 与 memory 分属不同索引命名空间，分别写 outbox 便于两条检索链路命中。
             Map<String, Object> notebookMetadata = new LinkedHashMap<>();
             notebookMetadata.put("user_id", userId);
             notebookMetadata.put("problem_id", notebook.get("problem_id"));
@@ -581,9 +571,10 @@ public class LearnerMemoryService {
     private static final double PRUNE_THRESHOLD = 0.05;
 
     /**
-     * Ebbinghaus-inspired exponential decay with importance modulation.
-     * strength = confidence × e^(-λ_eff × days) × (1 + recall_count × 0.2)
-     * λ_eff = base_λ × (1 - confidence × 0.8)
+     * 使用带重要性调制的指数衰减估算记忆强度。
+     *
+     * strength = confidence × e^(-λ_eff × days) × (1 + recall_count × 0.2)。
+     * λ_eff = base_λ × (1 - confidence × 0.8)。
      */
     private double decayConfidence(double confidence, String memoryType, Timestamp referenceTime, int recallCount) {
         Instant refInstant = referenceTime == null ? Instant.now() : referenceTime.toInstant();

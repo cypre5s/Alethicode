@@ -14,13 +14,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Decorator over {@link SpringAiModelGateway} that layers an in-memory TTL cache
- * on top of {@link #callForJsonCached(String, String, String, String)}. All other
- * operations pass through unchanged.
+ * 为 {@link SpringAiModelGateway} 增加进程内 TTL 缓存的装饰器。
  *
- * <p>Annotated {@code @Primary} so every {@code @Autowired AiModelGateway} injection
- * point gets the caching view. If a call site needs to bypass the cache (e.g.
- * validation runs that must exercise the live provider), inject by qualifier:
+ * <p>{@code @Primary} 让默认注入拿到缓存视图；需要绕过缓存时按 qualifier 注入：
  * <pre>{@code @Autowired @Qualifier("springAiModelGateway") AiModelGateway gateway;}</pre>
  */
 @Service

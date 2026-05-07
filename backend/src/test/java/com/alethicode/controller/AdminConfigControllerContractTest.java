@@ -98,10 +98,6 @@ class AdminConfigControllerContractTest extends AbstractControllerContractTest {
                 "include_embedding", false,
                 "include_tool_loop", false
         ));
-
-        // In MockMvc without a real authentication entry point the framework returns 403
-        // for missing credentials. The operational intent (blocking anonymous access)
-        // is asserted via status being 4xx and not 200/OK.
         mockMvc.perform(post(ENDPOINT)
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)

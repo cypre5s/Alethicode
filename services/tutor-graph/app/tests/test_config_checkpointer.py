@@ -1,9 +1,4 @@
-"""Guard rails around ``TUTOR_GRAPH_CHECKPOINTER`` resolution.
-
-Production must fail fast when required env vars are missing or the checkpointer
-value is bogus; test environments opt into the in-memory mode explicitly via
-``TUTOR_GRAPH_CHECKPOINTER=memory``.
-"""
+"""测试 `TUTOR_GRAPH_CHECKPOINTER` 的配置边界。"""
 
 from __future__ import annotations
 

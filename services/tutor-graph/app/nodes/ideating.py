@@ -1,4 +1,4 @@
-"""Ideating node — thought analysis only."""
+"""生成思路分析，不改变执行状态。"""
 
 from __future__ import annotations
 

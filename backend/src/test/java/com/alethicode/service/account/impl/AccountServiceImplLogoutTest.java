@@ -37,8 +37,6 @@ class AccountServiceImplLogoutTest {
     @BeforeEach
     void setUp() {
         AlethicodeProperties properties = new AlethicodeProperties();
-        // properties.getSystem().isCookieSecure() == false 是 HTTP 部署默认；
-        // 测试 HTTPS 模式时另开一组 case 单独验证 secure=true。
         service = new AccountServiceImpl(
                 mock(JdbcTemplate.class),
                 new ObjectMapper(),
@@ -86,14 +84,11 @@ class AccountServiceImplLogoutTest {
         assertThat(csrfCookie.getMaxAge()).isZero();
         assertThat(csrfCookie.getValue()).isEmpty();
         assertThat(csrfCookie.getPath()).isEqualTo("/");
-        // csrftoken 给前端 JS 读，不能 HttpOnly（与 SecurityConfig.csrfTokenRepository 一致）
         assertThat(csrfCookie.isHttpOnly()).isFalse();
     }
 
     @Test
     void logoutWithoutExistingSessionStillExpiresCookies() {
-        // 攻击者直接 GET /api/logout 不带 cookie：仍要让响应里包含 expire 指令，
-        // 顺手帮浏览器清掉可能残留的 cookie。
         MockHttpServletRequest request = new MockHttpServletRequest();
         MockHttpServletResponse response = new MockHttpServletResponse();
 

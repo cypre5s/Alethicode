@@ -1,9 +1,9 @@
 # Alethicode-NFK 消融实验配置
 # DKT (LSTM) + FoLiBiKT (遗忘线性偏置注意力) + simpleKT (交叉注意力)
-# Leave-One-Component-Out (LOCO) 设计
+# 留一组件消融（LOCO）设计
 
 seeds: [42, 3407, 2024]  # 每折重复 3 次
-n_folds: 5               # 5-fold 学生级 CV
+n_folds: 5               # 5 折学生级 CV
 
 variants:
   full:

@@ -39,7 +39,7 @@ PLAN_SIGNAL_TYPES: frozenset[str] = frozenset({
 
 
 class TransitionError(Exception):
-    """Raised when a phase/event transition is illegal."""
+    """阶段与事件迁移不合法时抛出。"""
 
     def __init__(self, current_phase: str, event: str, reason: str = ""):
         self.current_phase = current_phase
@@ -59,7 +59,7 @@ def validate_transition(
     event_data: dict | None = None,
     language: str = "",
 ) -> str:
-    """Return the new phase after a valid transition, or raise TransitionError."""
+    """返回合法迁移后的新阶段。"""
     event = event.upper()
     current_phase = current_phase.upper()
 

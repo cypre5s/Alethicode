@@ -1,16 +1,7 @@
 /**
- * useChatComposer
+ * 封装 AI 导学与课件问答共用的输入区状态机。
  *
- * 通用聊天输入框组合式 hook，封装两个对话页（AI 导学助手、课件问答）共用的输入区状态机：
- *  - `@` 引用菜单：键盘 上下/Enter 选中，分组渲染，懒加载 provider
- *  - `/` 斜杠命令菜单：与 `@` 互斥
- *  - 上下方向键的历史输入召回：textarea 为空时按上键进入历史
- *  - 草稿暂存：scope 切换 / 输入变化 debounce 500ms 写 localStorage
- *
- * 设计原则
- * - 与 backend ReferenceResolver 完全解耦：本 hook 只负责输入框交互与 token 字符串生成
- * - failfast：参数缺失（无 atProviders / 无 slashCommands 数组）直接抛错，不静默兜底
- * - 不直接操作 DOM；只在需要时通过 textareaRef.value.selectionStart 读取
+ * 本 hook 只生成引用 token 字符串，不解析后端引用；缺少 provider 或命令数组时直接报错。
  */
 
 import { ref, computed, watch, onUnmounted, isRef } from 'vue'
@@ -131,26 +122,45 @@ export function useChatComposer(options) {
 
   const atGroups = computed(function () {
     var query = String(atQuery.value || '').toLowerCase()
-    return atProviders
-      .map(function (provider) {
-        var allItems = getProviderItems(provider)
-        var filtered = allItems.filter(function (item) {
-          if (!item || !item.token) return false
-          if (!query) return true
-          var haystack = ((item.token || '') + ' ' + (item.label || '') + ' ' + (item.desc || '')).toLowerCase()
-          return haystack.indexOf(query) !== -1
-        })
-        var maxDisplay = provider.maxInitialDisplay
-        if (!query && typeof maxDisplay === 'number' && maxDisplay > 0 && filtered.length > maxDisplay) {
-          filtered = filtered.slice(0, maxDisplay)
-        }
-        return {
+    var groups = []
+    atProviders.forEach(function (provider) {
+      var allItems = getProviderItems(provider)
+      var filtered = allItems.filter(function (item) {
+        if (!item || !item.token) return false
+        if (!query) return true
+        var haystack = ((item.token || '') + ' ' + (item.label || '') + ' ' + (item.desc || '') + ' ' + (item.subgroup || '')).toLowerCase()
+        return haystack.indexOf(query) !== -1
+      })
+      var maxDisplay = provider.maxInitialDisplay
+      if (!query && typeof maxDisplay === 'number' && maxDisplay > 0 && filtered.length > maxDisplay) {
+        filtered = filtered.slice(0, maxDisplay)
+      }
+      if (filtered.length === 0) return
+      var hasSubgroup = filtered.some(function (item) { return item && item.subgroup })
+      if (!hasSubgroup) {
+        groups.push({
           group: provider.group || provider.label || provider.key,
           key: provider.key,
           items: filtered
-        }
+        })
+        return
+      }
+      var providerGroupName = provider.group || provider.label || provider.key
+      var buckets = new Map()
+      filtered.forEach(function (item) {
+        var sub = item.subgroup || providerGroupName
+        if (!buckets.has(sub)) buckets.set(sub, [])
+        buckets.get(sub).push(item)
       })
-      .filter(function (group) { return group.items.length > 0 })
+      buckets.forEach(function (items, sub) {
+        groups.push({
+          group: sub,
+          key: provider.key + '::' + sub,
+          items: items
+        })
+      })
+    })
+    return groups
   })
 
   const flatAtItems = computed(function () {

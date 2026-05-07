@@ -21,9 +21,6 @@ class SubmissionPermissionQueryIntegrationTest extends SubmissionIntegrationTest
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.error").value("error"))
                 .andExpect(jsonPath("$.data").value("No permission for this submission"));
-
-        // SEC CRIT-2: 非 admin 角色不得看到 per-case exit_code/signal/cpu_time（侧信道泄题），
-        // 也不得看到提交者真实 IP（隐私）。
         mockMvc.perform(get("/api/submission")
                         .param("id", "sub-shared")
                         .with(user("student").roles("USER")))
@@ -73,9 +70,6 @@ class SubmissionPermissionQueryIntegrationTest extends SubmissionIntegrationTest
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.error").value("error"))
                 .andExpect(jsonPath("$.data").value("Limit is needed"));
-
-        // SEC HIGH-1: 非 admin/teacher 默认强制按 user_id 过滤，只能看自己的提交
-        // (即便不带 myself=1 / 即便站点 submission_list_show_all=true)。
         mockMvc.perform(get("/api/submissions")
                         .param("limit", "10")
                         .param("offset", "0")
@@ -85,8 +79,6 @@ class SubmissionPermissionQueryIntegrationTest extends SubmissionIntegrationTest
                 .andExpect(jsonPath("$.error").isEmpty())
                 .andExpect(jsonPath("$.data.total").value(1))
                 .andExpect(jsonPath("$.data.results[0].username").value("student"));
-
-        // SEC HIGH-1: 学生带 username 参数也只能看自己（参数被忽略）。
         mockMvc.perform(get("/api/submissions")
                         .param("limit", "10")
                         .param("offset", "0")
@@ -97,8 +89,6 @@ class SubmissionPermissionQueryIntegrationTest extends SubmissionIntegrationTest
                 .andExpect(jsonPath("$.error").isEmpty())
                 .andExpect(jsonPath("$.data.total").value(1))
                 .andExpect(jsonPath("$.data.results[0].username").value("student"));
-
-        // admin 默认仍能查全平台、用 username 过滤特定用户。
         mockMvc.perform(get("/api/submissions")
                         .param("limit", "10")
                         .param("offset", "0")

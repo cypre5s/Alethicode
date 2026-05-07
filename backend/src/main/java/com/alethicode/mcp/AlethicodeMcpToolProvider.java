@@ -16,9 +16,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Provides the business logic backing MCP tools.
- * This service is always compilable (no Spring AI MCP annotations).
- * The actual MCP tool registration happens via McpToolRegistrar when the profile is active.
+ * MCP 工具背后的业务逻辑提供者。
+ *
+ * 本服务不直接依赖 Spring AI MCP 注解；实际工具注册由启用 profile 后的 Registrar 完成。
  */
 @Service
 @ConditionalOnProperty(name = "spring.ai.mcp.server.enabled", havingValue = "true")

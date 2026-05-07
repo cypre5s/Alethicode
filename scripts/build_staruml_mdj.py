@@ -26,12 +26,12 @@ def _id(prefix: str) -> str:
     return f"AAAA-{prefix}-{_id.counter:04d}"
 
 
-# ---------- 用例图模型元素定义 ----------
+# 用例图模型元素定义。
 PROJECT_ID = _id("PRJ")
 MODEL_ID = _id("MODEL")
 USECASE_DIAGRAM_ID = _id("UCDIAG")
 
-# 三个 Actor
+# 三类参与者。
 ACTOR_DEFS = [
     {"id": _id("ACT"), "name": "学生", "x": 60, "y": 200},
     {"id": _id("ACT"), "name": "教师", "x": 60, "y": 540},
@@ -48,16 +48,16 @@ PACKAGE_DEFS = [
 ]
 PKG_BY_NAME = {p["name"]: p for p in PACKAGE_DEFS}
 
-# 用例（含坐标，便于 StarUML 渲染）
+# 用例定义含坐标，便于 StarUML 渲染。
 USECASE_DEFS = [
-    # ---- 基础 OJ ----
+    # 基础 OJ。
     {"name": "账户访问", "pkg": "基础 OJ", "x": 280, "y": 110},
     {"name": "浏览学习内容", "pkg": "基础 OJ", "x": 280, "y": 200},
     {"name": "OJ 编程闭环", "pkg": "基础 OJ", "x": 280, "y": 290},
     {"name": "真实判题", "pkg": "基础 OJ", "x": 280, "y": 380},
     {"name": "个人学习空间", "pkg": "基础 OJ", "x": 280, "y": 470},
     {"name": "数据隐私", "pkg": "基础 OJ", "x": 280, "y": 560},
-    # ---- AI 导学 ----
+    # AI 导学。
     {"name": "AI 导学会话", "pkg": "AI 导学", "x": 540, "y": 240},
     {"name": "审题导读", "pkg": "AI 导学", "x": 460, "y": 110},
     {"name": "思路分析", "pkg": "AI 导学", "x": 620, "y": 110},
@@ -69,7 +69,7 @@ USECASE_DEFS = [
     {"name": "检查点恢复", "pkg": "AI 导学", "x": 540, "y": 650},
     {"name": "可视化与代码拼装卡片", "pkg": "AI 导学", "x": 540, "y": 740},
     {"name": "学习画像标定", "pkg": "AI 导学", "x": 540, "y": 830},
-    # ---- 课件 / 学情 / 班级 ----
+    # 课件、学情与班级。
     {"name": "课件问答", "pkg": "课件 / 学情 / 班级", "x": 820, "y": 110},
     {"name": "课件原页查看", "pkg": "课件 / 学情 / 班级", "x": 820, "y": 200},
     {"name": "学情与自适应", "pkg": "课件 / 学情 / 班级", "x": 820, "y": 290},
@@ -80,7 +80,7 @@ USECASE_DEFS = [
     {"name": "课堂协作监控", "pkg": "课件 / 学情 / 班级", "x": 820, "y": 740},
     {"name": "班级学情分析", "pkg": "课件 / 学情 / 班级", "x": 820, "y": 830},
     {"name": "班级 AI 题目", "pkg": "课件 / 学情 / 班级", "x": 820, "y": 920},
-    # ---- 后台管理 / 运维 ----
+    # 后台管理与运维。
     {"name": "题库与测试用例管理", "pkg": "后台管理 / 运维", "x": 1080, "y": 110},
     {"name": "知识点 KC 管理", "pkg": "后台管理 / 运维", "x": 1080, "y": 200},
     {"name": "AI 变体题 / 误解审核", "pkg": "后台管理 / 运维", "x": 1080, "y": 290},
@@ -96,7 +96,7 @@ for uc in USECASE_DEFS:
     uc["id"] = _id("UC")
 UC_BY_NAME = {u["name"]: u for u in USECASE_DEFS}
 
-# Actor → UseCase 关联
+# 参与者与用例的关联。
 ASSOCIATIONS = []
 def assoc(actor_name, uc_name):
     ASSOCIATIONS.append((ACTOR_BY_NAME[actor_name]["id"], UC_BY_NAME[uc_name]["id"], actor_name, uc_name))
@@ -139,8 +139,8 @@ EXTENDS = [
     ("错误诊断", "AI 导学会话"),
     ("通过复盘", "AI 导学会话"),
     ("迁移练习", "通过复盘"),
-    ("错误诊断", "真实判题"),       # extension point: 判题失败
-    ("通过复盘", "真实判题"),       # extension point: 判题通过
+    ("错误诊断", "真实判题"),       # 扩展点：判题失败
+    ("通过复盘", "真实判题"),       # 扩展点：判题通过
     ("专项错题复习包", "学情与自适应"),
     ("班级 AI 题目", "班级教学"),
     ("AI 变体题 / 误解审核", "题库与测试用例管理"),
@@ -151,9 +151,7 @@ GENERALIZATIONS = [
 ]
 
 
-# ============================================================
-# 活动图1：OJ 编程提交与判题
-# ============================================================
+# 活动图1：OJ 编程提交与判题。
 ACT1_DIAGRAM_ID = _id("ACTDIAG")
 ACT1_NODES = [
     {"id": _id("ACT1N"), "type": "UMLInitialNode", "name": "", "x": 200, "y": 60},
@@ -199,9 +197,7 @@ ACT1_FLOWS = [
 ]
 
 
-# ============================================================
-# 活动图2：AI 导学会话工作流（含人工中断信号）
-# ============================================================
+# 活动图2：AI 导学会话工作流（含人工中断信号）。
 ACT2_DIAGRAM_ID = _id("ACTDIAG")
 ACT2_NODES = [
     {"id": _id("ACT2N"), "type": "UMLInitialNode", "name": "", "x": 200, "y": 60},
@@ -260,9 +256,7 @@ ACT2_FLOWS = [
 ]
 
 
-# ============================================================
-# 构造 .mdj JSON
-# ============================================================
+# 构造 .mdj JSON。
 def build_mdj():
     model_owned = []
 
@@ -320,7 +314,7 @@ def build_mdj():
             },
         })
 
-    # Include
+    # 包含关系。
     for src_name, tgt_name in INCLUDES:
         inc_id = _id("INC")
         model_owned.append({
@@ -331,7 +325,7 @@ def build_mdj():
             "target": {"$ref": UC_BY_NAME[tgt_name]["id"]},
         })
 
-    # Extend
+    # 扩展关系。
     for src_name, tgt_name in EXTENDS:
         ext_id = _id("EXT")
         model_owned.append({
@@ -342,7 +336,7 @@ def build_mdj():
             "target": {"$ref": UC_BY_NAME[tgt_name]["id"]},
         })
 
-    # Generalization（管理员 → 教师）
+    # 泛化关系（管理员 → 教师）。
     for src_id, tgt_id, src_name, tgt_name in GENERALIZATIONS:
         gen_id = _id("GEN")
         model_owned.append({
@@ -353,7 +347,7 @@ def build_mdj():
             "target": {"$ref": tgt_id},
         })
 
-    # ---- 用例图 Diagram ----
+    # 用例图视图。
     use_case_views = []
     for actor in ACTOR_DEFS:
         use_case_views.append({

@@ -1,7 +1,5 @@
 export const m = {
-  // NotFound.vue
   Go_Home: '回到首頁',
-  // Problem.vue
   Description: '題目描述',
   Input: '輸入',
   Output: '輸出',
@@ -29,7 +27,6 @@ export const m = {
   Submit_code_successfully: '成功提交程式碼',
   You_have_solved_the_problem: '你已經解決了該試題',
   Submitted_successfully: '成功提交',
-  // About.vue
   Compiler: '編譯器',
   Result_Explanation: '結果說明',
   Pending_Judging_Description: '您的答案即將進行評分，請等待結果。',
@@ -40,7 +37,6 @@ export const m = {
   Time_Limit_Exceeded_Description: '您的程式使用的 CPU 時間已超出限制。',
   Memory_Limit_Exceeded_Description: '程式實際使用的記憶體已超出限制。',
   System_Error_Description: 'Judge 系統發生錯誤。請回報系統管理員。',
-  // ACMContestRank.vue
   Menu: '選單',
   Chart: '圖表',
   Auto_Refresh: '自動重新載入',
@@ -50,7 +46,6 @@ export const m = {
   TotalTime: '總時間',
   Top_10_Teams: '前10名隊伍',
   save_as_image: '保存圖片',
-  // ACMHelper.vue
   ACM_Helper: 'ACM助手',
   AC_Time: 'AC 時間',
   ProblemID: '題目ID',
@@ -59,18 +54,14 @@ export const m = {
   Checked: '已檢查',
   Not_Checked: '還未檢查',
   Check_It: '現在檢查',
-  // ACMRank.vue
   ACM_Ranklist: 'ACM 排名',
   mood: '個人狀態',
   AC: 'AC',
   Rating: '評分',
-  // Announcements.vue
   By: '創建者',
-  // ApplyResetPassword.vue
   The_email_doesnt_exist: '此電子郵件並不存在',
   Success: '成功',
   Password_reset_mail_sent: '已發送重置密碼之電子郵件',
-  // FAQ.vue
   Frequently_Asked_Questions: '常見問題',
   Where_is_the_input_and_the_output: '輸入與輸出在哪邊?',
   Where_is_the_input_and_the_output_answer_part_1: '你的程式會從',
@@ -101,7 +92,6 @@ export const m = {
   How_to_report_bugs: '如何回報關於此OJ的錯誤?',
   How_to_report_bugs_answer_part_1: '此線上解題系統是開源的，你可以到',
   How_to_report_bugs_answer_part_2: '提交問題。請提供有關錯誤的詳細訊息(如env，版本...)，這將極大地幫助我們解決該錯誤。當然，我們十分樂意合併你的請求',
-  // Cancel.vue
   Cancel: '取消',
   Problems: '題目',
   Announcements: '公告',
@@ -113,7 +103,6 @@ export const m = {
   Problems_List: '試題列表',
   No_Problems: '暫無試題',
   Problem_Submissions: '題目提交記錄',
-  // CodeMirror.vue
   Language: '語言',
   Theme: '主題',
   Reset_to_default_code_definition: '使用預設程式碼設定',
@@ -121,7 +110,6 @@ export const m = {
   Monokai: 'Monokai',
   Solarized_Light: '日光燈',
   Material: '材料',
-  // NavBar.vue
   Home: '首頁',
   NavProblems: '試題',
   NavStatus: '狀態',
@@ -134,25 +122,19 @@ export const m = {
   Management: '後台管理',
   Logout: '登出',
   Welcome_to: '歡迎來到',
-  // announcements.vue
   Refresh: '重新整理',
   Back: '返回',
   No_Announcements: '暫無公告',
-  // Setting.vue
   Profile: '個人資訊設定',
   Account: '帳號設定',
   Security: '安全設定',
-  // AccoutSetting.vue
   ChangePassword: '更改密碼',
   ChangeEmail: '更改 E-mail',
   Update_Password: '更新密碼',
-  // ProfileSetting.vue
   Avatar_Setting: '大頭貼設定',
   Profile_Setting: '個人資訊設定',
-  // SecuritySettig
   Sessions: '登入記錄',
   Two_Factor_Authentication: '兩步驟驗證',
-  // Login.vue
   LoginUsername: '使用者名稱',
   LoginPassword: '密碼',
   TFA_Code: '兩步驟驗證碼',
@@ -160,11 +142,8 @@ export const m = {
   Forget_Password: '忘記密碼',
   UserLogin: '登入',
   Welcome_back: '歡迎回來',
-  // OIRank.vue
   OI_Ranklist: 'OI 排名',
-  // OIContestRank.vue
   Total_Score: '總分',
-  // ProblemList.vue
   Problem_List: '試題列表',
   High: '高級',
   Mid: '中級',
@@ -175,7 +154,6 @@ export const m = {
   Difficulty: '難度',
   Total: '總數',
   AC_Rate: '通過率',
-  // Register.vue
   RegisterUsername: '使用者名稱',
   Email_Address: 'E-mail',
   RegisterPassword: '密碼',
@@ -187,7 +165,6 @@ export const m = {
   The_email_already_exists: '此電子郵件地址已被註冊',
   password_does_not_match: '無密碼相符',
   Thanks_for_registering: '感謝你的註冊，現在你可以登入了',
-  // ResetPassword.vue and ApplyResetPassword.vue
   Reset_Password: '重設密碼',
   RPassword: '密碼',
   RPassword_Again: '確認密碼',
@@ -195,16 +172,12 @@ export const m = {
   ApplyEmail: 'E-mail',
   Send_Password_Reset_Email: '傳送密碼重設 E-mail',
   Your_password_has_been_reset: '你的密碼已重置',
-  // Save.vue
   Save: '存檔',
-  // Simditor.vue
   Uploading_is_in_progress: '上傳作業正在執行，你確定要離開當前頁面嗎??',
-  // SubmissionDetails.vue
   Lang: '語言',
   Succeeded: '成功',
   Real_Time: '真實時間',
   Signal: '訊號',
-  // SubmissionList.vue
   When: '時間',
   ID: 'ID',
   Time: '時間',
@@ -222,7 +195,6 @@ export const m = {
   Partial_Accepted: 'Partial Accepted',
   Compile_Error: 'Compile Error',
   Rejudge: 'Rejudge',
-  // UserHome.vue
   UserHomeSolved: '已解題數量',
   UserHomeserSubmissions: '提交次數',
   UserHomeScore: '分數',

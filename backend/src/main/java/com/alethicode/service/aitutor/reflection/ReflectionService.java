@@ -5,19 +5,18 @@ import com.alethicode.service.aitutor.contract.CardType;
 import java.util.Map;
 
 /**
- * Producer-Critic quality gate: evaluates LLM-generated output against evidence,
- * and optionally refines it if the Critic flags issues.
+ * Producer-Critic 质量门禁，用证据评估并按需修正 LLM 输出。
  */
 public interface ReflectionService {
 
     /**
-     * Runs a Critic pass on a generated card and, if it fails, a single Refine pass.
+     * 对生成卡片执行 Critic 检查，失败时执行一次 Refine。
      *
-     * @param cardType       determines which Critic rubric to apply
-     * @param evidence       original evidence/context fed to the Producer
-     * @param initialOutput  the card payload produced by the first LLM call
-     * @param maxRounds      max number of Critic→Refine cycles (typically 1-2)
-     * @return the accepted output (original if Critic passes, refined otherwise)
+     * @param cardType 用于选择 Critic Rubric 的卡片类型
+     * @param evidence 传给 Producer 的原始证据与上下文
+     * @param initialOutput 首次 LLM 生成的卡片载荷
+     * @param maxRounds 最大 Critic→Refine 轮数
+     * @return 被接受的输出，可能是原始输出或修正后输出
      */
     ReflectionResult reflectAndRefine(
             CardType cardType,

@@ -1,4 +1,4 @@
-"""Validate card output against JSON Schema — fail-fast, no field patching."""
+"""按 JSON Schema 校验卡片输出，不做字段补丁。"""
 
 from __future__ import annotations
 

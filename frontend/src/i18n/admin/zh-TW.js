@@ -1,5 +1,4 @@
 export const m = {
-  // SideMenu.vue
   Dashboard: '儀表板',
   General: '基本設定',
   System_Admin: '系統管理',
@@ -15,11 +14,9 @@ export const m = {
   Problem_List: '試題列表',
   Create_Problem: '增加題目',
   Export_Import_Problem: '匯入匯出題目',
-  // User.vue
   User_User: '使用者',
   Import_User: '匯入使用者',
   Generate_User: '生成使用者',
-  // User.vue-dialog
   User_Info: '使用者資訊',
   User_Username: '使用者名稱',
   User_Real_Name: '真實姓名',
@@ -29,12 +26,10 @@ export const m = {
   Problem_Permission: '試題權限',
   Two_Factor_Auth: '兩步驟驗證',
   Is_Disabled: '是否禁用',
-  // Announcement.vue
   General_Announcement: '公告',
   Announcement_Title: '標題',
   Announcement_Content: '內容',
   Announcement_visible: '是否可見',
-  // Conf.vue
   SMTP_Config: 'SMTP 設定',
   Server: '伺服器',
   Port: '連接埠',
@@ -47,7 +42,6 @@ export const m = {
   Footer: '頁尾',
   Allow_Register: '是否允許註冊',
   Submission_List_Show_All: '顯示全部題目的提交',
-  // JudgeServer.vue
   Judge_Server_Token: 'Judge 伺服器 Token',
   Judge_Server_Info: 'Judge 伺服器',
   IP: 'IP',
@@ -55,9 +49,7 @@ export const m = {
   Service_URL: '伺服器 URL',
   Last_Heartbeat: '上一次活動訊號',
   Create_Time: '建立時間',
-  // PruneTestCase
   Test_Case_Prune_Test_Case: '精簡測資',
-  // Problem.vue
   Display_ID: '顯示 ID',
   Title: '題目',
   Description: '描述',
@@ -90,7 +82,6 @@ export const m = {
   Real_Time_Rank: '即時排名',
   Allowed_IP_Ranges: '允許的 IP 範圍',
   CIDR_Network: 'CIDR Network',
-  // Dashboard.vue
   Last_Login: '最後登入狀態',
   System_Overview: '系統狀況',
   DashBoardJudge_Server: 'Judge 伺服器',

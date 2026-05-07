@@ -1,14 +1,7 @@
 /**
  * 公测反馈与遥测 API。
  *
- * 入口：
- *   - createBetaFeedback(data, screenshots) - multipart/form-data 提交反馈与可选截图
- *   - reportBetaTelemetryBatch(events)      - 批量遥测事件，silent 模式（不弹错误提示）
- *   - reportBetaWebVital(metric)            - 单条 Web Vital，silent
- *
- * 注意：
- *   - 截图必须按 `screenshots` 字段名追加，每个 File 一次 append。
- *   - data 部分用 `Blob` 包成 application/json，避免被 FormData 当成纯文本。
+ * 反馈表单要求 JSON 部分使用 `data` Blob，截图逐个追加到 `screenshots` 字段。
  */
 
 import { ajax } from './shared'

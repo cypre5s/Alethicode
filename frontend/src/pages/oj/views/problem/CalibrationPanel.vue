@@ -144,7 +144,7 @@ export default {
       try {
         await api.calibrationSkip({})
       } catch (e) {
-        // skip failure is non-fatal
+        void e
       }
       this.$emit('calibration-done', { skipped: true })
     }

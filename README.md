@@ -56,7 +56,7 @@ Alethicode 的回答：把 **真实判题、AI 多阶段教学、课件 RAG、�
 | **课堂协作** | WebSocket 实时编程、教师监控仪表盘、AI 自动出题 + 人审 | GA |
 | **学习者笔记本** | 错题归档、KC 视图、复盘对话 | GA |
 | **课件问答** | 学生对单个语言包的开放问答，grounded（带引用 + 拒答兜底） | GA |
-| **Career Bridging Closure** | 4 模块联动：Why 报告 / Coding Lens 专业化题面 / 微项目 Studio / 学习路径 Map；面向 12 个非 CS 专业，里程碑触发 + 真判题自验证 + 教师锁定 + 用户级关闭面板 | GA |
+| **Career 模块** | Career 全模块已下线（保留历史迁移与审计数据，不再提供前后端入口） | Removed |
 | **视频生成** | LLM 分镜 → TTS → 渲染，4–7 镜头 / 45–90 秒讲解视频 | Beta |
 | **多模型 LLM 网关** | DeepSeek（生产）/ MiniMax-M2.7（备选），Spring AI 抽象层 | GA |
 | **可观测性** | Sentry/GlitchTip 错误追踪 + Micrometer + Prometheus + Jaeger + JaCoCo | GA |
@@ -85,8 +85,8 @@ Alethicode 的回答：把 **真实判题、AI 多阶段教学、课件 RAG、�
 │  │ Service  │ │ Service  │ │ Service  │ │  Memory + RAG +      │   │
 │  └──────────┘ └──────────┘ └──────────┘ │  Reflection)         │   │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ └──────────────────────┘   │
-│  │Classroom │ │LangPack  │ │ Career   │ ┌──────────────────────┐   │
-│  │ Service  │ │ Service  │ │ Bridging │ │  AiModelGateway      │   │
+│  │Classroom │ │LangPack  │ │Notebook  │ ┌──────────────────────┐   │
+│  │ Service  │ │ Service  │ │ Service  │ │  AiModelGateway      │   │
 │  └──────────┘ └──────────┘ └──────────┘ │  (Spring AI 抽象)    │   │
 │                                         └──────────────────────┘   │
 └────────────┬───────────┬────────────┬──────────────┬───────────────┘
@@ -250,7 +250,7 @@ Alethicode/
 ├── backend/                  # Spring Boot 后端（Java 21, 581 files, 52 controllers）
 │   ├── src/main/java/
 │   │   ├── controller/       # REST 端点（52 个 controller）
-│   │   ├── service/          # 业务服务（aitutor / classroom / languagepack / career 子系统）
+│   │   ├── service/          # 业务服务（aitutor / classroom / languagepack / submission 等）
 │   │   ├── dto/              # request / response DTO
 │   │   ├── entity/           # JPA 实体
 │   │   ├── middleware/       # SessionAuthFilter / CSRF / RateLimit
@@ -438,7 +438,7 @@ Application
 | [`docs/adr/`](./docs/adr/) | 架构决策记录（ADR） |
 | [`docs/plans/`](./docs/plans/) | 设计稿（按日期归档） |
 | [`docs/todos/todo-agent-harness/`](./docs/todos/todo-agent-harness/) | Agent + Harness 工程路线图 |
-| [`docs/todos/todo-career-bridging-closure-progress.md`](./docs/todos/todo-career-bridging-closure-progress.md) | Career Bridging Closure 落地进度 |
+| [`COMMENT_AUDIT.md`](./COMMENT_AUDIT.md) | 代码注释优化审计记录 |
 | [`backend/README.md`](./backend/README.md) | 后端开发说明 |
 | [`deploy/README.md`](./deploy/README.md) | 部署运维说明 |
 | [`services/tutor-graph/README.md`](./services/tutor-graph/README.md) | tutor-graph 微服务 |
@@ -494,7 +494,7 @@ Commit        Conventional Commits（feat / fix / chore / docs / test / refactor
   - `/guide` 产品化重构 + 重置密码邮件链路
   - logout 真终止 session（HIGH 级安全加固）
   - Sentry/GlitchTip + JaCoCo + TS 渐进入口
-  - Career Bridging Closure 4 模块全量落地（12 专业 × 4 闭环）
+  - Career 相关模块已整体下线，当前版本不再提供 Career 页面与 API
   - 共享对话输入框基础设施（`@` 引用 / `/` 命令 / 历史召回 / token 用量）
   - 上下文压缩 `/compact` + 会话分叉 `/fork`
 

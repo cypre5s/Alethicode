@@ -88,8 +88,6 @@ public class AdminPreflightService {
         ));
     }
 
-    // ---- exclusive helpers ----
-
     private Map<String, PreflightDetectorMetrics> loadPreflightDetectorMetrics() {
         List<Map<String, Object>> rows = jdbcTemplate.query(
                 """
@@ -182,8 +180,6 @@ public class AdminPreflightService {
         }
         return Math.round((edit * 1000.0 / total)) / 10.0;
     }
-
-    // ---- shared utility methods ----
 
     private UserAuth resolveUser(Authentication authentication) {
         if (authentication == null || !authentication.isAuthenticated() || authentication instanceof AnonymousAuthenticationToken) {

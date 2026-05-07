@@ -128,8 +128,6 @@ public class LanguagePackProblemJudgeCheckService {
         }
     }
 
-    // --- payload construction ---
-
     private Map<String, Object> buildPayload(Map<String, Object> languageConfig,
                                              String sourceCode,
                                              int timeLimitMs,
@@ -144,8 +142,6 @@ public class LanguagePackProblemJudgeCheckService {
         payload.put("output", true);
         return payload;
     }
-
-    // --- response parsing ---
 
     private JudgeCheckResult parseJudgeResponse(Map<String, Object> response, int expectedCaseCount) {
         if (response == null || response.isEmpty()) {
@@ -179,8 +175,6 @@ public class LanguagePackProblemJudgeCheckService {
         return new JudgeCheckResult(allPassed, caseResults, "");
     }
 
-    // --- temp test case directory ---
-
     private Path prepareTempTestCaseDir(List<String> inputs) throws IOException {
         Path rootDir = Path.of(properties.getSystem().getTestCaseDir());
         Files.createDirectories(rootDir);
@@ -205,8 +199,6 @@ public class LanguagePackProblemJudgeCheckService {
         Files.writeString(tempDir.resolve("info"), writeJson(info));
         return tempDir;
     }
-
-    // --- judge server selection ---
 
     private JudgeServerCandidate pickAvailableJudgeServer() {
         List<JudgeServerCandidate> candidates = jdbcTemplate.query(
@@ -260,8 +252,6 @@ public class LanguagePackProblemJudgeCheckService {
         }
     }
 
-    // --- HTTP judge call ---
-
     private Map<String, Object> requestJudge(String serviceUrl, Map<String, Object> payload)
             throws IOException, InterruptedException {
         HttpResponse<String> response;
@@ -295,8 +285,6 @@ public class LanguagePackProblemJudgeCheckService {
             throw new IOException("Judge server returned non-JSON response: " + raw.substring(0, Math.min(200, raw.length())), e);
         }
     }
-
-    // --- language config resolution ---
 
     private Map<String, Object> resolveLanguageConfig(String language) {
         Map<String, Object> option = readMapOption("languages");
@@ -380,8 +368,6 @@ public class LanguagePackProblemJudgeCheckService {
             default -> null;
         };
     }
-
-    // --- utility methods ---
 
     private Map<String, Object> readMapOption(String key) {
         String rawJson;
@@ -481,8 +467,6 @@ public class LanguagePackProblemJudgeCheckService {
             });
         } catch (IOException ignored) {}
     }
-
-    // --- inner types ---
 
     private record JudgeServerCandidate(String hostname, String serviceUrl, String ip, Timestamp lastHeartbeat) {}
 

@@ -11,15 +11,10 @@ import org.springframework.context.annotation.Configuration;
 import java.time.Duration;
 
 /**
- * Expose the status of non-JVM dependencies on {@code /actuator/health/readiness}.
- * The default Spring Boot probes only cover DB + Redis; we also need to know
- * whether {@code tutor_graph} is reachable, otherwise an orchestrator will
- * declare the pod ready even though every tutor workflow request would 503.
+ * 在 {@code /actuator/health/readiness} 暴露非 JVM 依赖状态。
  *
- * <p>DB and Redis health indicators are already contributed by Spring Boot's
- * auto-configuration via {@code DataSourceHealthIndicator} / {@code RedisHealthIndicator}
- * and included in the {@code readiness} group via {@code management.endpoint.health.group}
- * configuration in {@code application.yml}.
+ * <p>DB 与 Redis 已由 Spring Boot 自动探测；这里补充 tutor_graph，避免导学工作流不可用时
+ * 编排器仍判定服务 ready。</p>
  */
 @Configuration
 public class ExternalDependencyHealthConfig {
@@ -27,8 +22,7 @@ public class ExternalDependencyHealthConfig {
     private static final Logger log = LoggerFactory.getLogger(ExternalDependencyHealthConfig.class);
 
     /**
-     * tutor-graph health probe. Uses the existing {@link TutorGraphClient#health()}
-     * call with a tight 2-second timeout so the readiness probe never hangs.
+     * 使用 2 秒超时探测 tutor-graph，避免 readiness 检查挂起。
      */
     @Bean
     HealthIndicator tutorGraphHealthIndicator(TutorGraphClient graphClient) {
@@ -44,7 +38,7 @@ public class ExternalDependencyHealthConfig {
                 log.debug("tutor-graph health check failed: {}", e.getMessage());
                 return Health.down()
                         .withDetail("error", e.getClass().getSimpleName())
-                        // intentionally not echoing e.getMessage() to avoid leaking URLs
+                        // 不回显异常消息，避免泄露内部 URL。
                         .build();
             }
         };

@@ -6,7 +6,6 @@
     </div>
 
     <template v-else-if="graphData && graphData.nodes && graphData.nodes.length">
-      <!-- 顶部控制条 -->
       <div class="ksm-controls">
         <div class="ksm-chapters">
           <span
@@ -28,7 +27,6 @@
         </label>
       </div>
 
-      <!-- 统计摘要 -->
       <div class="ksm-stats">
         <div class="ksm-stat-item">
           <span class="ksm-stat-num">{{ displayStats.total_kcs }}</span>
@@ -48,10 +46,8 @@
         </div>
       </div>
 
-      <!-- SVG 画布 -->
       <svg ref="svg" class="ksm-svg"></svg>
 
-      <!-- Tooltip -->
       <div
         v-show="tooltip.visible"
         class="ksm-tooltip"
@@ -82,7 +78,6 @@
         </div>
       </div>
 
-      <!-- 时间旅行滑块 -->
       <div class="ksm-timeline" v-if="safeStats.learning_days > 1">
         <span class="ksm-timeline-label">第一天</span>
         <input
@@ -405,7 +400,6 @@ export default {
         return this.resolveNodeMastery(d)
       }
 
-      // misconception pulse ring
       nodeGroup.filter(d => d.active_misconceptions && d.active_misconceptions.length > 0)
         .append('circle')
         .attr('class', 'ksm-pulse-ring')
@@ -414,7 +408,6 @@ export default {
         .attr('stroke', '#e74c3c')
         .attr('stroke-width', 2)
 
-      // main circle
       nodeGroup.append('circle')
         .attr('class', 'ksm-node-circle')
         .attr('r', d => this.getNodeRadius(d.problem_count))
@@ -423,12 +416,10 @@ export default {
         .attr('stroke', d => effectiveMastery(d) >= 0.7 ? '#ecf0f1' : 'none')
         .attr('stroke-width', d => effectiveMastery(d) >= 0.7 ? 1.5 : 0)
 
-      // glow for mastered nodes
       nodeGroup.filter(d => effectiveMastery(d) >= 0.7)
         .select('.ksm-node-circle')
         .classed('ksm-glow', true)
 
-      // highlight current problem's KCs
       const hlSet = new Set(this.highlightKcIds.map(Number))
       if (hlSet.size > 0) {
         nodeGroup.filter(d => hlSet.has(d.kc_id || d.id))
@@ -441,7 +432,6 @@ export default {
           .attr('stroke-dasharray', '4 2')
       }
 
-      // pulse animation for weak nodes
       nodeGroup.filter(d => effectiveMastery(d) < 0.35 && effectiveMastery(d) > 0)
         .append('circle')
         .attr('class', 'ksm-weak-pulse')
@@ -451,7 +441,6 @@ export default {
         .attr('stroke-width', 1.5)
         .attr('opacity', 0.6)
 
-      // label
       nodeGroup.append('text')
         .attr('class', 'ksm-node-label')
         .attr('text-anchor', 'middle')
@@ -461,7 +450,6 @@ export default {
         .attr('pointer-events', 'none')
         .text(d => this.truncateName(d.name))
 
-      // recommended badge
       nodeGroup.filter(d => d.is_recommended_next)
         .append('circle')
         .attr('cx', d => this.getNodeRadius(d.problem_count) - 3)
@@ -738,7 +726,7 @@ export default {
 .ksm-empty-icon { font-size: 48px; }
 .ksm-empty-text { font-size: 14px; text-align: center; max-width: 280px; }
 
-// D3 node animations
+/* D3 节点动画 */
 :deep(.ksm-glow ) {
   animation: ksm-breathe 3s ease-in-out infinite;
 }

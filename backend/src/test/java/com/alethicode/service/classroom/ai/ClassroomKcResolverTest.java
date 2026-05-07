@@ -56,7 +56,6 @@ class ClassroomKcResolverTest {
         when(jdbc.query(anyString(), any(RowMapper.class), eq(LP_ID))).thenAnswer(invocation -> {
             RowMapper<Map<String, Object>> rowMapper = invocation.getArgument(1);
             ResultSet rs = mock(ResultSet.class);
-            // chapter A → kc 1
             when(rs.getLong("kc_id")).thenReturn(1L, 2L, 99L);
             when(rs.getString("kc_name")).thenReturn("循环", "条件", "孤儿KC");
             when(rs.getString("kc_description")).thenReturn("desc1", "desc2", "");

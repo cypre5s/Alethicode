@@ -1,4 +1,4 @@
-"""Tests for decide_available_actions — covers action filtering under pending_human_action."""
+"""测试 decide_available_actions 在 pending_human_action 下的动作过滤。"""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ def test_ac_review_exposes_transfer():
 
 
 def test_confirm_transfer_blocks_coding_action():
-    """When a transfer interrupt is pending, we must not let the learner resume CODING."""
+    """迁移练习中断待确认时，不允许学习者恢复 CODING。"""
     state = {"current_phase": "TRANSFER", "pending_human_action": "confirm_transfer"}
     result = decide_available_actions(state)
     events = [a["event"] for a in result["available_actions"]]

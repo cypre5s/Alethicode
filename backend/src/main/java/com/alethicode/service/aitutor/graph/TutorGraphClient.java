@@ -18,17 +18,12 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * HTTP client for the Python {@code tutor_graph} service.
+ * Python {@code tutor_graph} 服务的 HTTP 客户端。
  *
- * <p>Transport is built on the JDK 11+ {@link HttpClient} with an explicit connect
- * timeout so a slow / crashed tutor-graph can never starve the Java backend's file
- * descriptors. Per-request response deadlines are enforced by callers via
- * {@code .block(Duration)} — do not remove those; this connector only controls
- * socket-level behavior, not request duration.
+ * <p>底层使用 JDK {@link HttpClient} 并设置连接超时，避免 tutor-graph 慢响应或崩溃时耗尽
+ * Java 后端文件描述符。单次响应截止时间由调用方的 {@code .block(Duration)} 控制。</p>
  *
- * <p>We intentionally do NOT pull in {@code reactor-netty} because the project is
- * servlet-stack only; adding that dependency would bring an extra event loop to
- * the runtime just for this one HTTP client.
+ * <p>项目是 servlet 栈，避免为单个内部客户端额外引入 {@code reactor-netty} 事件循环。</p>
  */
 @Component
 public class TutorGraphClient {

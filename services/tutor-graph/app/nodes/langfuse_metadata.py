@@ -1,4 +1,4 @@
-"""Helpers for attaching stable Langfuse metadata to tutor graph LLM calls."""
+"""为 tutor graph 的 LLM 调用附加稳定 Langfuse 元数据。"""
 
 from __future__ import annotations
 

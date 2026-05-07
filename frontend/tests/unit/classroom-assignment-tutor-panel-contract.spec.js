@@ -31,7 +31,7 @@ describe('Classroom assignment tutor panel contract', () => {
     expect(problem).toContain('isAITutorEnabledForCurrentProblem')
     expect(problem).toContain('isAITutorAvailableInAssignment')
     expect(problem).toContain('ai_tutor_allowed')
-    // panel rendering guarded by isAITutorEnabledForCurrentProblem
+    // 面板渲染必须受 isAITutorEnabledForCurrentProblem 保护。
     expect(problem).toMatch(/v-if=\"isAITutorEnabledForCurrentProblem\"/)
   })
 })

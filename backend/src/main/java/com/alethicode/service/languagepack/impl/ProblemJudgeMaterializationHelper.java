@@ -207,8 +207,6 @@ final class ProblemJudgeMaterializationHelper {
         }
     }
 
-    // --- internal ---
-
     /**
      * 判断所有 case 都"成功执行完毕"——即 ACCEPTED (0) 或 WRONG_ANSWER (-1)。
      * 对 materialization 而言，这两种结果都说明程序跑通了，可以从 actualOutput 拿到
@@ -346,8 +344,6 @@ final class ProblemJudgeMaterializationHelper {
 
         return pkg.withOverwrittenOutputs(List.copyOf(newSamples), List.copyOf(newTestCases));
     }
-
-    // --- prompt builders ---
 
     private String buildInputRegenerationSystemPrompt(String language) {
         return """

@@ -34,9 +34,7 @@
 
 <style scoped lang="less">
   .disabled {
-    /*background-color: #ccc;*/
     opacity: 0.6;
-    /*cursor: not-allowed;*/
     pointer-events: none;
     color: var(--text-disabled);
     &:hover {
@@ -58,7 +56,7 @@
     &:hover {
       background: var(--bg-base);
       border-left: 3px solid var(--primary-color);
-      padding-left: 17px; /* Compensate for border width to keep text aligned or shift it slightly */
+      padding-left: 17px; /* 补偿左边框宽度，保持文本对齐。 */
       color: var(--primary-color);
     }
     

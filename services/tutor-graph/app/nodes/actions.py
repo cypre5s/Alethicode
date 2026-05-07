@@ -1,4 +1,4 @@
-"""Decide available actions based on phase, pending action, and learner state."""
+"""根据阶段、待处理动作和学习者状态决定可用动作。"""
 
 from __future__ import annotations
 

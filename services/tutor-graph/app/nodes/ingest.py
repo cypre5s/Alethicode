@@ -1,4 +1,4 @@
-"""Ingest node — standardize event, init runtime state, generate trace_id."""
+"""标准化事件并初始化运行状态。"""
 
 from __future__ import annotations
 

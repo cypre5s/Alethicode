@@ -25,11 +25,10 @@ public class TutorWorkflowWebSocketHandler extends TextWebSocketHandler {
     private static final Set<String> TERMINAL_EVENTS = Set.of("TASK_COMPLETED", "TASK_FAILED", "TASK_EXPIRED");
     private static final Duration POLL_INTERVAL = Duration.ofMillis(500);
     /**
-     * Hard deadline for any single tutor run's event poller. A real tutor run finishes
-     * in seconds to a few minutes; anything longer is either an interrupt waiting for
-     * the student (handled via explicit {@code INTERRUPT_TIMEOUT_SECONDS} on the
-     * Python side) or a stuck run we shouldn't leak virtual threads for. 10 minutes
-     * keeps resource usage bounded without biting legitimate long completions.
+     * 单次导师运行事件轮询的硬截止时间。
+     *
+     * 正常运行通常在几秒到数分钟内结束；更久的情况要么由 Python 侧中断超时处理，
+     * 要么是卡死任务。10 分钟可以约束虚拟线程资源，同时覆盖合理的长响应。
      */
     private static final Duration MAX_RUN_DURATION = Duration.ofMinutes(10);
 
@@ -38,9 +37,7 @@ public class TutorWorkflowWebSocketHandler extends TextWebSocketHandler {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ConcurrentHashMap<String, WebSocketSession> sessionMap = new ConcurrentHashMap<>();
     /**
-     * Tracks the active event-poller thread per runId. A second subscription (e.g. an
-     * interrupt resume) must interrupt the previous poller so the frontend never
-     * receives duplicate runtime events.
+     * 每个运行只保留一个事件轮询线程，避免恢复中断后前端收到重复运行事件。
      */
     private final ConcurrentHashMap<String, Thread> runPollers = new ConcurrentHashMap<>();
     private volatile BiConsumer<String, String> runCompletionCallback = (sessionId, runId) -> {};
@@ -74,8 +71,7 @@ public class TutorWorkflowWebSocketHandler extends TextWebSocketHandler {
             closeQuietly(session, CloseStatus.POLICY_VIOLATION.withReason("Session not owned by user"));
             return;
         }
-        // Same session id may be opened from another tab; replace the previous handle and
-        // close it so runtime events don't fan-out to stale tabs.
+        // 同一会话可能在新标签页重连，旧连接必须关闭，避免事件发散到过期页面。
         WebSocketSession previous = sessionMap.put(sessionId, session);
         if (previous != null && previous != session) {
             closeQuietly(previous, CloseStatus.NORMAL.withReason("Replaced by newer connection"));
@@ -126,9 +122,7 @@ public class TutorWorkflowWebSocketHandler extends TextWebSocketHandler {
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         String sessionId = extractSessionId(session);
         if (sessionId == null) return;
-        // Only remove when the closing connection is still the current one, so a race
-        // between the old tab closing and a newer tab replacing it cannot drop the live
-        // entry.
+        // 仅移除当前连接，避免旧标签页关闭时误删新标签页连接。
         sessionMap.remove(sessionId, session);
         log.info("Tutor workflow WS disconnected: {}", sessionId);
     }
@@ -153,10 +147,7 @@ public class TutorWorkflowWebSocketHandler extends TextWebSocketHandler {
     }
 
     /**
-     * Stop the poller attached to {@code runId}, if any. Called by
-     * {@code TutorWorkflowController.deleteSession} to release virtual-thread /
-     * WebClient resources immediately instead of waiting for the run's terminal
-     * event (which may never arrive for a cancelled session).
+     * 中断指定运行的事件轮询线程，立即释放 WebClient 与虚拟线程资源。
      */
     public void interruptPoller(String runId) {
         if (runId == null) return;
@@ -176,8 +167,7 @@ public class TutorWorkflowWebSocketHandler extends TextWebSocketHandler {
             if (Thread.currentThread().isInterrupted()) {
                 break;
             }
-            // Bail out early if the user disconnected — otherwise we keep polling
-            // tutor-graph for up to MAX_RUN_DURATION for a session nobody is watching.
+            // 用户断开后立即停止轮询，避免为无人观看的会话占用资源。
             if (!sessionMap.containsKey(sessionId)) {
                 log.debug("Run poller {}: websocket gone for session {}, stopping", runId, sessionId);
                 break;

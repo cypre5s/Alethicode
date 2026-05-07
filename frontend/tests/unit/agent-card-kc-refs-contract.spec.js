@@ -30,21 +30,9 @@ describe('kc_error_refs in card schemas', () => {
 })
 
 /**
- * D-01：契约-实现脱节，标记为 TODO。
+ * 锁定 `kc_error_refs` 后端画像契约的待实现范围。
  *
- * 该 describe 下 3 个 spec 是 4/28 "checkpoint workspace before faded-parsons module
- * landing" 提交时引入的 TDD 风格契约：前端已经在 5 个 card schema 里加了
- * `kc_error_refs` 字段（参见上面的 SCHEMAS_WITH_KC_REFS 测试，已通过），但后端
- * `EvidencePackAssembler` 的 `buildKcErrorProfile` 实现一直没落地，全 backend grep
- * `buildKcErrorProfile` / `kc_error_profile` 均无命中。
- *
- * 业务决策：这是「学情错误画像」从前端契约渗透到后端的 backlog，需要：
- *   1. EvidencePackAssembler 新增 buildKcErrorProfile(userId, topK) 方法
- *   2. SQL 查询 ai_learner_notebook WHERE entry_type='error' ORDER BY ... LIMIT ?
- *   3. 把结果挂到 EvidencePack 让 card 模板可消费 kc_error_refs
- *
- * 当前用 xdescribe 标 pending，未来开发完成时改回 describe，这 3 个测试自然变绿。
- * 不通过硬塞代码绕过测试 = 不引入业务无意义的 buildKcErrorProfile 占位实现。
+ * 当前用 xdescribe 挂起，避免为通过测试引入无业务意义的占位实现。
  */
 xdescribe('EvidencePackAssembler kc_error_profile (backlog: 后端 buildKcErrorProfile 未实现)', () => {
   const repoRoot = path.resolve(__dirname, '../../..')
@@ -66,12 +54,9 @@ xdescribe('EvidencePackAssembler kc_error_profile (backlog: 后端 buildKcErrorP
 })
 
 /**
- * D-01：与上面同一组 backlog。
+ * 锁定 tutor-graph 消费 `kc_error_profile` 的待实现范围。
  *
- * tutor-graph 的 ideating.py / skeleton.py 节点目前没注入 `kc_error_profile`
- * 与 `kc_warning`（grep 0 命中）。该测试要求前端契约定义的「学情错误画像」字段
- * 流转到 LLM prompt 里，待 backend 实现 buildKcErrorProfile 后再让 tutor-graph
- * 节点消费。两侧同步落地后，把 xdescribe 改回 describe 即可让测试变绿。
+ * 后端画像落地后，节点 prompt 必须消费前端契约定义的学情错误画像字段。
  */
 xdescribe('tutor-graph nodes consume kc_error_profile (backlog: 节点未注入 kc_error_profile)', () => {
   const repoRoot = path.resolve(__dirname, '../../..')

@@ -6,7 +6,6 @@
     </div>
 
     <template v-else-if="riverData && !riverData.insufficient_data && riverData.submissions && riverData.submissions.length >= 2">
-      <!-- 头部统计 -->
       <div class="sr-header">
         <span class="sr-title">📊 解题过程</span>
         <span class="sr-meta">{{ riverData.stats.total_submissions }} 次提交</span>
@@ -18,12 +17,10 @@
         </span>
       </div>
 
-      <!-- SVG 河流图 -->
       <div class="sr-river-wrap" ref="riverWrap">
         <svg ref="svg" class="sr-svg"></svg>
       </div>
 
-      <!-- Misconception 轨迹 -->
       <div class="sr-misc-track" v-if="riverData.misconception_events && riverData.misconception_events.length">
         <div
           v-for="(ev, idx) in riverData.misconception_events"
@@ -38,13 +35,11 @@
         </div>
       </div>
 
-      <!-- AI 叙事 -->
       <div class="sr-narrative" v-if="riverData.narrative">
         <div class="sr-narrative-badge">AI 总结</div>
         <p class="sr-narrative-text">{{ riverData.narrative }}</p>
       </div>
 
-      <!-- 详情面板 -->
       <SemanticDiffPanel
         v-if="selectedDiffIndex !== null"
         :diff="riverData.semantic_diffs[selectedDiffIndex]"
@@ -53,7 +48,6 @@
         @close="selectedDiffIndex = null"
       />
 
-      <!-- Tooltip -->
       <div
         v-show="tooltip.visible"
         class="sr-tooltip"
@@ -162,7 +156,6 @@ export default {
       const xStart = 40
       const xs = subs.map((_, i) => xStart + i * nodeSpacing)
 
-      // Phase arcs
       const phaseY = 28
       const phaseColors = {
         '探索期': 'rgba(52,152,219,0.12)',
@@ -194,7 +187,6 @@ export default {
           .text(p.label)
       })
 
-      // Timeline line
       svg.append('line')
         .attr('x1', xs[0])
         .attr('y1', y)
@@ -203,7 +195,6 @@ export default {
         .attr('stroke', '#3a3a4a')
         .attr('stroke-width', 2)
 
-      // Edges between nodes
       for (let i = 0; i < n - 1; i++) {
         svg.append('line')
           .attr('x1', xs[i])
@@ -216,7 +207,6 @@ export default {
 
       const self = this
 
-      // Nodes
       subs.forEach((sub, i) => {
         const g = svg.append('g')
           .attr('transform', `translate(${xs[i]},${y})`)
@@ -266,7 +256,6 @@ export default {
             .text('★')
         }
 
-        // Result label below
         g.append('text')
           .attr('y', 24)
           .attr('text-anchor', 'middle')
@@ -275,7 +264,6 @@ export default {
           .attr('font-weight', '600')
           .text(sub.result_label)
 
-        // Attempt number below result
         g.append('text')
           .attr('y', 38)
           .attr('text-anchor', 'middle')
@@ -283,7 +271,6 @@ export default {
           .attr('font-size', '10px')
           .text('#' + sub.attempt_number)
 
-        // Agent marker
         if (i > 0 && data.semantic_diffs[i - 1] && data.semantic_diffs[i - 1].agent_seen_between) {
           g.append('text')
             .attr('y', -22)

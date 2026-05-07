@@ -108,9 +108,11 @@ public class LanguagePackQaController {
             @RequestParam(value = "async", required = false, defaultValue = "false") Boolean async
     ) {
         if (Boolean.TRUE.equals(async)) {
-            return ApiResponse.success(languagePackQaService.sendMessageAsync(username(authentication), sessionId, request.content()));
+            return ApiResponse.success(languagePackQaService.sendMessageAsync(
+                    username(authentication), sessionId, request.content(), request.referencesOrEmpty()));
         }
-        return ApiResponse.success(languagePackQaService.sendMessage(username(authentication), sessionId, request.content()));
+        return ApiResponse.success(languagePackQaService.sendMessage(
+                username(authentication), sessionId, request.content(), request.referencesOrEmpty()));
     }
 
     /** 压缩课件问答会话历史，用 LLM 摘要替换旧消息。 */

@@ -20,7 +20,6 @@ class TotpUtilsTest {
     void generateSecretReturnsBase32String() {
         String secret = TotpUtils.generateSecret();
         assertNotNull(secret);
-        // 20 bytes → 32 base32 chars
         assertEquals(32, secret.length());
         for (char ch : secret.toCharArray()) {
             assertTrue((ch >= 'A' && ch <= 'Z') || (ch >= '2' && ch <= '7'),
@@ -91,9 +90,6 @@ class TotpUtilsTest {
 
     @Test
     void rfc6238ReferenceVector() {
-        // RFC 6238 test vector (SHA1, secret="12345678901234567890" ASCII, T=59)
-        // The base32 of "12345678901234567890" is "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
-        // Expected OTP at T=59 (counter=1): 287082
         String secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
         byte[] key = TotpUtils.base32Decode(secret);
         String otp = computeCodeForTest(key, 1L);

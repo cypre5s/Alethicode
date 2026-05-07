@@ -11,7 +11,7 @@ from app.nodes.compact import COMPACT_K, compact_node
 
 @pytest.mark.asyncio
 async def test_compact_compresses_history_longer_than_k():
-    """History > K: older messages replaced by a single system summary + recent K turns."""
+    """历史长度超过 K 时，旧消息压缩成 system 摘要并保留最近 K 轮。"""
     history = [
         {"role": "user", "content": f"msg-{i}"}
         for i in range(10)
@@ -40,7 +40,7 @@ async def test_compact_compresses_history_longer_than_k():
 
 @pytest.mark.asyncio
 async def test_compact_noop_when_history_within_k():
-    """History <= K: returned unchanged, LLM never called."""
+    """历史长度不超过 K 时原样返回，且不调用 LLM。"""
     history = [
         {"role": "user", "content": f"msg-{i}"}
         for i in range(COMPACT_K)
@@ -65,7 +65,7 @@ async def test_compact_noop_when_history_within_k():
 
 @pytest.mark.asyncio
 async def test_compact_llm_failure_sets_failed_state():
-    """LLM call failure -> runtime_state=FAILED."""
+    """LLM 调用失败时设置 runtime_state=FAILED。"""
     history = [
         {"role": "user", "content": f"msg-{i}"}
         for i in range(10)

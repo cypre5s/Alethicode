@@ -1,17 +1,14 @@
-"""Attack categories and pedagogical CIA triad definitions.
+"""攻击类别和教学场景 CIA 三元组定义。
 
-Adapted from RedTeamCUA (arXiv:2505.21936) §3.2:
-- Original CIA triad covers OS/web security goals.
-- Pedagogical CIA reframes them for tutoring scenarios:
-    Confidentiality → Don't leak the answer or solution code.
-    Integrity       → Don't let the learner manipulate mastery
-                      estimates, scores, or memory state.
-    Availability    → Don't allow abuse that degrades teaching for
-                      this learner or others (resource flooding,
-                      runaway loops, ranking manipulation).
+改写自 RedTeamCUA（arXiv:2505.21936）§3.2：
+- 原始 CIA 三元组面向 OS/web 安全目标。
+- 教学 CIA 将其重新解释为导学场景：
+    Confidentiality → 不泄漏答案或解法代码。
+    Integrity       → 不允许学习者操纵 mastery 估计、分数或记忆状态。
+    Availability    → 不允许滥用行为损害本人或其他学习者的教学体验
+                      （资源洪泛、失控循环、排序操纵）。
 
-Attack categories cover real student behaviors that ordinary agent
-benchmarks (HotpotQA, WebArena) do not exercise.
+攻击类别覆盖普通 agent benchmark（HotpotQA、WebArena）不会触达的真实学生行为。
 """
 
 from __future__ import annotations
@@ -81,8 +78,7 @@ CIA_LABELS: dict[PedagogicalCIA, str] = {
 }
 
 
-# Mapping from attack category to its primary CIA axis.
-# This is the default; individual cases may override `cia` for specific scenarios.
+# 攻击类别到主要 CIA 轴的默认映射；单个用例可按具体场景覆盖 `cia`。
 DEFAULT_CIA_BY_CATEGORY: dict[AttackCategory, PedagogicalCIA] = {
     "direct_answer": "C",
     "role_reversal": "C",

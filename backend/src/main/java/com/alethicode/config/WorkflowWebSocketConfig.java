@@ -8,9 +8,9 @@ import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
 
 /**
- * Old workflow WS handler (/ws/workflow/*) has been removed.
- * Tutor workflow now uses /ws/tutor-workflow-sessions/* via TutorWorkflowWebSocketConfig.
- * This config retains only the QA WebSocket handler.
+ * QA WebSocket 配置。
+ *
+ * 旧工作流 WS 已移除；导学工作流改由 {@link TutorWorkflowWebSocketConfig} 注册。
  */
 @Configuration
 @EnableWebSocket

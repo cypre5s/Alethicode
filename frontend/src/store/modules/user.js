@@ -89,8 +89,7 @@ const actions = {
       profile: {}
     })
     storage.remove(STORAGE_KEY.AUTHED)
-    // 2C4G 优化（2026-04-30）：登出/会话失效时清掉用户私有 Service Worker 缓存，
-    // 避免下一个用户读到上个用户在浏览器本地缓存的提交列表 / 个人资料。
+    // 用户私有缓存必须随会话清理，避免账号切换后读到上一位用户的数据。
     if (typeof window !== 'undefined' && typeof window.caches !== 'undefined') {
       ['api-submission', 'api-profile'].forEach(name => {
         window.caches.delete(name).catch(() => {})

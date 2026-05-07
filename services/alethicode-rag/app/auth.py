@@ -1,9 +1,4 @@
-"""Internal-only auth for alethicode-rag.
-
-Every request must carry `X-Internal-Token` matching `RAG_INTERNAL_TOKEN`.
-This service is only callable by the Java backend / scripts inside the
-trust boundary; there is no end-user authentication path.
-"""
+"""校验 Java 后端访问 alethicode-rag 的内部令牌。"""
 
 from __future__ import annotations
 

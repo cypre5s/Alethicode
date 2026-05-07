@@ -127,10 +127,9 @@ public class ConversationContextServiceImpl implements ConversationContextServic
     }
 
     /**
-     * Compresses text based on distance from the current message.
-     * Near (0-1): full text
-     * Medium (2-5): first + last sentence for answers; full for questions
-     * Far (6+): question topic only; answer first sentence only
+     * 按距离当前消息的远近压缩文本。
+     *
+     * 近距离保留全文，中距离压缩回答，远距离只保留主题或首句。
      */
     private String compressByDistance(String text, int distance, boolean isAssistant) {
         String normalized = text.replaceAll("\\s+", " ").trim();

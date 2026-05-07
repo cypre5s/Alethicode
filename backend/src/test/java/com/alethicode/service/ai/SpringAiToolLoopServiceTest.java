@@ -52,8 +52,6 @@ class SpringAiToolLoopServiceTest {
 
     @Test
     void shouldAdvertiseToolCallbacksAndInternalExecutionDisabled() {
-        // Model returns a final JSON object immediately (no tool call) — we only want to
-        // inspect the options passed into the very first call.
         when(chatModel.call(any(Prompt.class))).thenReturn(finalResponse("{\"ok\":true}"));
 
         Map<String, ToolExecutor> executors = Map.of("echo", args -> Map.of("echo", args.get("message")));
@@ -80,8 +78,6 @@ class SpringAiToolLoopServiceTest {
 
     @Test
     void shouldExecuteToolAndFeedResultBackToModel() {
-        // Round 1: model asks to call echo
-        // Round 2: model returns final JSON
         AtomicInteger round = new AtomicInteger(0);
         when(chatModel.call(any(Prompt.class))).thenAnswer(inv -> {
             int r = round.incrementAndGet();
@@ -124,7 +120,6 @@ class SpringAiToolLoopServiceTest {
 
     @Test
     void shouldFailFastOnRepeatedToolBeyondLimit() {
-        // Always return same tool call — will hit repeat limit of 3
         when(chatModel.call(any(Prompt.class)))
                 .thenReturn(toolCallResponse("c1", "echo", "{\"message\":\"a\"}"));
 

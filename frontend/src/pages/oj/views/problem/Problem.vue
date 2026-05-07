@@ -275,7 +275,6 @@
     </el-dialog>
 
 
-    <!-- AST 逻辑树全屏查看器 -->
     <el-dialog v-model="astDialogVisible"
            title="AST Logic Tree"
            width="92%"
@@ -296,9 +295,6 @@
         <span class="ast-legend-item"><i style="background:#EF4444"></i> Call</span>
       </div>
     </el-dialog>
-
-
-    <!-- 热点悬浮提示 -->
     <div v-show="hotspotTooltip.visible" class="hotspot-floating-tooltip" :style="hotspotTooltipStyle">
       <div class="hft-header">
         <span class="hft-type-badge" :class="'hft-' + hotspotTooltip.type">{{ hotspotTooltip.typeLabel }}</span>
@@ -309,8 +305,6 @@
         <span class="hft-impact-val">{{ hotspotTooltip.impact }}% impact</span>
       </div>
     </div>
-
-    <!-- 统一 Agent 面板 -->
     <UnifiedAgentPanel
       v-if="isAITutorEnabledForCurrentProblem"
       ref="agentPanel"
@@ -349,6 +343,7 @@
       @switch-input-mode="handleSwitchInputMode"
       @show-warmup="handleShowWarmup"
       @request-skeleton="handleAgentRequestSkeleton"
+      @request-parsons="handleAgentRequestParsons"
       @request-transfer="handleAgentRequestTransfer"
       @highlight-errors="handleHighlightErrors"
       @insert-code="handleInsertCode"
@@ -381,7 +376,6 @@
       @fork-session="handleForkSession"
     />
 
-    <!-- Learning Twin 面板 -->
     <div v-if="isAITutorEnabledForCurrentProblem && agentPanelVisible && learningTwinVisible" class="learning-twin-wrap">
       <LearningTwinPanel
         :visible="learningTwinVisible"
@@ -392,7 +386,6 @@
       />
     </div>
 
-    <!-- Agent 面板入口按钮 -->
     <el-button
       v-if="isAITutorEnabledForCurrentProblem && !agentPanelVisible"
       class="agent-panel-fab"
@@ -403,7 +396,6 @@
       <el-icon :size="20"><School /></el-icon>
     </el-button>
 
-    <!-- Pre-flight 提交前拦截对话框 -->
     <PreflightDialog
       :visible="preflightDialog.visible"
       :question="preflightDialog.question"
@@ -415,9 +407,6 @@
       @go-edit="handlePreflightGoEdit"
       @force-submit="handlePreflightForceSubmit"
     />
-
-
-    <!-- 解题过程河流图 -->
     <el-tooltip content="查看解题过程" placement="left" v-if="showRiverButton">
       <button class="river-fab" @click="toggleRiver" aria-label="查看解题过程">
         📊
@@ -436,7 +425,6 @@
       />
     </el-dialog>
 
-    <!-- AC 提交成功动画覆盖层 -->
     <transition name="success-fade">
       <div v-if="showSuccessOverlay" class="success-overlay">
         <canvas ref="confettiCanvas" class="confetti-canvas"></canvas>
@@ -1422,6 +1410,13 @@
             this.pushAgentMessage({ type: 'system', content: '拼装挑战派发失败，请稍后重试' })
           })
         }
+      },
+      handleAgentRequestParsons () {
+        this.dispatchWorkflowEvent('PARSONS', {
+          problem_id: this.problem.id
+        }).catch(() => {
+          this.pushAgentMessage({ type: 'system', content: '拼装挑战派发失败，请稍后重试' })
+        })
       },
       handleParsonsSubmit ({ sessionId, order }) {
         if (!sessionId) {

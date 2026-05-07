@@ -1,12 +1,7 @@
-"""Pin the two non-obvious behaviours the LLM wrapper MUST preserve.
+"""锁定 LLM wrapper 必须保留的两个关键行为。
 
-These are the exact bugs the 2026-04-28 local demo discovered:
-  1. LightRAG sends `response_format=GPTKeywordExtractionFormat`. DeepSeek
-     rejects Pydantic schemas with HTTP 400 — wrapper must rewrite to
-     `{"type": "json_object"}` AND inject the field instructions in the
-     system prompt so the model still emits the expected shape.
-  2. Non-keyword calls must NOT have a Pydantic schema sneak through to
-     DeepSeek; the wrapper drops the unsupported value silently.
+关键词抽取 schema 必须改写为 DeepSeek 可接受的 `json_object`；非关键词调用中的
+Pydantic schema 必须被丢弃，避免上游 400。
 """
 
 from __future__ import annotations
@@ -89,14 +84,13 @@ async def test_non_keyword_call_drops_pydantic_schema(monkeypatch) -> None:
     )
 
     assert out == "ok"
-    # Non-keyword Pydantic schemas (deepseek can't handle them) are dropped silently.
+    # 非关键词抽取的 Pydantic schema 会被丢弃，避免 DeepSeek 直接 400。
     assert "response_format" not in captured["kwargs"]
 
 
 @pytest.mark.asyncio
 async def test_keyword_schema_triggers_rewrite_even_without_explicit_flag(monkeypatch) -> None:
-    """If LightRAG passes a keyword schema but forgets keyword_extraction=True,
-    we still detect by class name and rewrite — this is the safer default."""
+    """当 LightRAG 漏传 keyword_extraction=True 时仍按类名识别并改写。"""
     captured: dict = {}
 
     async def _fake_complete(model, prompt, system_prompt=None, **kwargs):

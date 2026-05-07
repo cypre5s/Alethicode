@@ -17,19 +17,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * Multi-tier cache (Caffeine + optional Redis) configuration.
+ * 多级缓存配置。
  *
- * <p>Tier 1 — Caffeine (in-process): fast and cheap, bounded size, short TTL
- * to limit staleness. Perfect for hot request-scope lookups like
- * "is this user allowed to access problem X" that fire on every turn.
+ * <p>当前启用 Caffeine 作为进程内 L1 缓存，使用短 TTL 和容量上限控制陈旧数据。
+ * Redis L2 暂不在此处启用，避免与 Spring Session Redis 的负载混杂。</p>
  *
- * <p>Tier 2 — Redis (process-shared): not wired here by default because our
- * Spring Session Redis instance already shoulders session load; when we take
- * ADR-0005's Redis upgrade, this configuration grows a {@code CompositeCacheManager}
- * so Caffeine remains L1 with Redis as L2.
- *
- * <p>Per-cache parameters (TTL, max size) live in {@link #caches()} so
- * Dependabot / humans can tune them without touching the manager plumbing.
+ * <p>每个缓存的 TTL 和容量集中在 {@link #CACHES}，便于调参与审计。</p>
  */
 @Configuration
 @EnableCaching
@@ -37,20 +30,19 @@ public class MultiTierCacheConfig {
 
     private static final Logger log = LoggerFactory.getLogger(MultiTierCacheConfig.class);
 
-    /** Cache name → (max entries, TTL in seconds). */
+    /** 缓存名到容量与 TTL 秒数的映射。 */
     private static final CacheSpec[] CACHES = new CacheSpec[]{
-            new CacheSpec("problemAccess", 2_000, 60),         // ownership / allowed languages
-            new CacheSpec("sessionOwnership", 5_000, 30),      // tutor session owner check
-            new CacheSpec("learnerState", 2_000, 30),          // learner profile snapshot
-            new CacheSpec("courseware", 500, 300),             // courseware retrieval result
-            new CacheSpec("aiProviderConfig", 50, 60),         // admin-mutable provider config
+            new CacheSpec("problemAccess", 2_000, 60),         // 题目所有权与语言白名单
+            new CacheSpec("sessionOwnership", 5_000, 30),      // 导学会话所有权
+            new CacheSpec("learnerState", 2_000, 30),          // 学习画像快照
+            new CacheSpec("courseware", 500, 300),             // 课件检索结果
+            new CacheSpec("aiProviderConfig", 50, 60),         // 管理端可变 provider 配置
     };
 
     /**
-     * Per-entry expiry jitter (0% .. {@value JITTER_RATIO_PERCENT}% of base TTL).
-     * Each write generates an independent expiry so cold-restart entries do not
-     * all expire simultaneously and produce a thundering herd against the upstream
-     * data source. Reads do not extend TTL — that role belongs to refresh strategies.
+     * 单条缓存的随机过期抖动比例。
+     *
+     * 冷启动批量写入后，抖动能避免同一时刻集中失效；读取不延长 TTL，刷新策略应显式处理。
      */
     static final int JITTER_RATIO_PERCENT = 30;
 
@@ -58,7 +50,7 @@ public class MultiTierCacheConfig {
     @Primary
     CacheManager caffeineCacheManager(@Autowired(required = false) MeterRegistry meterRegistry) {
         CaffeineCacheManager manager = new CaffeineCacheManager();
-        manager.setAllowNullValues(true);  // short-TTL null caching mitigates cache penetration
+        manager.setAllowNullValues(true);  // 短 TTL 空值缓存用于缓解缓存穿透。
         for (CacheSpec spec : CACHES) {
             Caffeine<Object, Object> builder = Caffeine.newBuilder()
                     .maximumSize(spec.maxSize())
@@ -69,9 +61,7 @@ public class MultiTierCacheConfig {
                     spec.name(), spec.maxSize(), spec.ttlSeconds(), JITTER_RATIO_PERCENT);
         }
         if (meterRegistry != null) {
-            // Micrometer auto-binding for Caffeine metrics happens lazily on first get;
-            // once a cache is queried, hit/miss rates show up under
-            // cache.gets{cache=...,result=...}
+            // Caffeine 指标在首次访问缓存后由 Micrometer 懒绑定。
             log.info("Caffeine metrics will be exposed via Micrometer on first cache access");
         }
         return manager;
@@ -80,9 +70,7 @@ public class MultiTierCacheConfig {
     private record CacheSpec(String name, int maxSize, int ttlSeconds) {}
 
     /**
-     * Per-entry random expiry that lives in {@code [base, base + base * jitter]}.
-     * Used by every cache in {@link #CACHES} so that mass writes (hot reload,
-     * bulk warm-up) do not produce a synchronized expiry storm.
+     * 生成 {@code [base, base + base * jitter]} 范围内的单条随机过期时间。
      */
     static final class JitteredExpiry implements Expiry<Object, Object> {
 

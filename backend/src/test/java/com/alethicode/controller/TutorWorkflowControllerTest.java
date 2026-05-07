@@ -38,12 +38,10 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
- * Unit tests for {@link TutorWorkflowController} focused on the fail-fast
- * guarantees that tutor_graph relies on: ownership, problem accessibility,
- * language whitelist, and submission ownership / AC requirements.
+ * {@link TutorWorkflowController} 的 fail-fast 契约单元测试。
  *
- * <p>This suite avoids Spring Boot context startup; every collaborator is a Mockito
- * mock so the controller is exercised in isolation.
+ * <p>重点覆盖所有权、题目可访问性、语言白名单、提交所有权和 AC 要求；测试不启动 Spring Boot 上下文，
+ * 只用 Mockito 隔离控制器协作者。</p>
  */
 class TutorWorkflowControllerTest {
 
@@ -132,7 +130,6 @@ class TutorWorkflowControllerTest {
 
     @Test
     void createSession_reusesExistingActiveSession_doesNotCallTutorGraph() {
-        // 学生切到同题 problem_id=42 时，应复用既有 session 不计配额、不调 tutor-graph
         Map<String, Object> existing = new LinkedHashMap<>();
         existing.put("session_id", "twf_existing");
         existing.put("thread_id", "thread_existing");
@@ -159,7 +156,6 @@ class TutorWorkflowControllerTest {
 
     @Test
     void createSession_activeSessionQuotaExceeded_returns429() {
-        // CRIT-3: enforceActiveSessionQuota 抛出后 controller 应返回 429。
         ResponseEntity<ApiResponse<Object>> response = controller.handleQuotaExceeded(
                 new AiTutorQuotaService.QuotaExceededException(
                         AiTutorQuotaService.QuotaKind.ACTIVE_SESSIONS, 10, "active_sessions cap reached"));
@@ -171,7 +167,6 @@ class TutorWorkflowControllerTest {
 
     @Test
     void createRun_dailyLlmRunQuotaExceeded_returns429() {
-        // CRIT-3: enforceDailyLlmRunQuota 抛出后 controller 应返回 429 + 中文提示。
         ResponseEntity<ApiResponse<Object>> response = controller.handleQuotaExceeded(
                 new AiTutorQuotaService.QuotaExceededException(
                         AiTutorQuotaService.QuotaKind.DAILY_LLM_RUNS, 50, "daily_llm_runs cap reached"));
@@ -410,9 +405,6 @@ class TutorWorkflowControllerTest {
 
     @Test
     void createRun_readsUserId_fromAuthenticationDetails_asSessionFilterDoes() {
-        // Mirror SessionAuthenticationFilter: principal = username (String),
-        // userId = Authentication.details (Long). Earlier regression reported by
-        // code review: the controller must not require Map principals.
         UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                 "alice", null, AuthorityUtils.createAuthorityList("ROLE_USER"));
         auth.setDetails(1L);
@@ -432,7 +424,6 @@ class TutorWorkflowControllerTest {
 
     @Test
     void createRun_oversizedBody_returns413() {
-        // enforceRequestBodyLimit short-circuits BEFORE ownership / validation.
         jakarta.servlet.http.HttpServletRequest req = mock(jakarta.servlet.http.HttpServletRequest.class);
         when(req.getContentLengthLong()).thenReturn(512L * 1024L);
 
@@ -445,11 +436,7 @@ class TutorWorkflowControllerTest {
         verifyNoInteractions(graphClient);
     }
 
-    // ---------- helpers ----------
-
     private static Authentication authenticationFor(long userId) {
-        // Programmatic auth shape: some integration points still pass a Map principal
-        // (e.g. API-key auth). Both shapes must work per extractUserId's contract.
         Map<String, Object> principal = Map.of("id", userId);
         return new UsernamePasswordAuthenticationToken(
                 principal, null, AuthorityUtils.createAuthorityList("ROLE_USER"));

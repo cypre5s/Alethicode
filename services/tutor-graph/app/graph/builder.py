@@ -36,7 +36,7 @@ def build_tutor_graph(
     llm_client: LlmClient,
     checkpointer: Any = None,
 ):
-    """Construct and compile the tutor workflow StateGraph."""
+    """构建并编译 tutor workflow StateGraph。"""
     from app.nodes.ingest import ingest_event
     from app.nodes.evidence import assemble_evidence_pack
     from app.nodes.reading import problem_guide_node

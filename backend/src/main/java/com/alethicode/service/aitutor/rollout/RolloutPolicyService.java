@@ -73,14 +73,6 @@ public class RolloutPolicyService {
         return new RolloutDecision("gray", scopeType + ":" + scopeKey + " ope cleared for gray rollout", new LinkedHashMap<>(metrics));
     }
 
-    /**
-     * A/B test allocation: assigns a user to treatment or control group.
-     *
-     * @param experimentId  unique experiment identifier
-     * @param userId        user to assign
-     * @param treatmentRate fraction of users in treatment group (0.0-1.0)
-     * @return assignment decision with group label
-     */
     public RolloutDecision evaluateHarnessGate(String scopeType, String scopeKey, Map<String, Object> harnessReport) {
         String forcedMode = normalizeMode(rolloutFlagService.getVariant(
                 "ai.rollout.force-mode", "", scopeType, scopeKey, harnessReport));
@@ -108,6 +100,14 @@ public class RolloutPolicyService {
         return new RolloutDecision("gray", scopeType + ":" + scopeKey + " harness gate passed", new LinkedHashMap<>(harnessReport));
     }
 
+    /**
+     * 按稳定哈希将用户分配到 A/B 实验组。
+     *
+     * @param experimentId 实验唯一标识
+     * @param userId 待分配用户
+     * @param treatmentRate treatment 组比例，范围 0.0-1.0
+     * @return 带组别标签的分配结果
+     */
     public AbTestAssignment assignAbTest(String experimentId, Long userId, double treatmentRate) {
         double hash = stableHash(experimentId, userId);
         String group = hash < treatmentRate ? "treatment" : "control";
@@ -115,13 +115,13 @@ public class RolloutPolicyService {
     }
 
     /**
-     * Records a reward signal for the bandit from user actions (thumbs up/down, AC result).
+     * 记录来自用户行为的 bandit 奖励信号。
      *
-     * @param experimentId experiment this reward applies to
-     * @param userId       user who triggered the reward
-     * @param rewardType   type of reward signal
-     * @param rewardValue  numeric reward (e.g. 1.0 for thumbs-up, 0.0 for thumbs-down)
-     * @return collected reward entry
+     * @param experimentId 奖励所属实验
+     * @param userId 触发奖励的用户
+     * @param rewardType 奖励信号类型
+     * @param rewardValue 数值奖励，例如点赞为 1.0、点踩为 0.0
+     * @return 采集到的奖励条目
      */
     public BanditReward recordReward(String experimentId, Long userId,
                                      String rewardType, double rewardValue) {

@@ -29,11 +29,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
- * Centralized Resilience4j execution chain for outbound LLM calls.
+ * 出站 LLM 调用的统一 Resilience4j 执行链。
  *
- * <p>All provider-facing operations run through the same `circuit breaker + retry +
- * bulkhead + time limiter` pipeline so policy is configured once in Spring config
- * instead of being reimplemented inside the gateway.
+ * <p>所有 provider 调用共用 circuit breaker、retry、bulkhead 和 time limiter 策略，避免在网关中重复实现。</p>
  */
 @Component
 public class AiCircuitBreaker {

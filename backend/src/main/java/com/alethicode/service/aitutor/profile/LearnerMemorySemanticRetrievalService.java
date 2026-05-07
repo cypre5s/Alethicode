@@ -140,7 +140,7 @@ public class LearnerMemorySemanticRetrievalService {
                     return summary.toString();
                 }
             } catch (Exception ignored) {
-                // fall through to memoryValue
+                // payload 解析失败时回退到 memoryValue。
             }
         }
         return memoryValue == null ? "" : memoryValue;

@@ -1,7 +1,4 @@
-"""Assemble the [Learner Profile] block to be appended to node SYSTEM_PROMPTs.
-
-Design: docs/plans/2026-04-25-persistent-memory-layer-design.md  6.3.2 / 6.4
-"""
+"""组装追加到节点 SYSTEM_PROMPT 的学习者画像块。"""
 
 from __future__ import annotations
 
@@ -26,11 +23,7 @@ LEARNER_BLOCK_TEMPLATE = """
 
 
 def assemble_learner_block(learner_state: dict[str, Any] | None) -> str:
-    """Return the learner block string to append to SYSTEM_PROMPT, or "" when disabled.
-
-    fail-fast: if learner_state is empty or personalization disabled, return empty string
-    so the node falls back to the generic prompt.
-    """
+    """生成可追加到 SYSTEM_PROMPT 的学习者画像文本。"""
     if not learner_state:
         return ""
     if not learner_state.get("personalization_enabled", True):

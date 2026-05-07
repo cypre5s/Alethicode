@@ -1,7 +1,5 @@
 export const m = {
-  // NotFound.vue
   Go_Home: '返回主页',
-  // Problem.vue
   Description: '题目描述',
   Input: '输入',
   Output: '输出',
@@ -29,7 +27,6 @@ export const m = {
   Submit_code_successfully: '成功提交代码',
   You_have_solved_the_problem: '你已经解决了该问题',
   Submitted_successfully: '成功提交',
-  // About.vue
   Compiler: '编译器',
   Result_Explanation: '结果解释',
   Pending_Judging_Description: '您的解答将很快被测评，请等待结果。',
@@ -40,7 +37,6 @@ export const m = {
   Time_Limit_Exceeded_Description: '您的程序使用的 CPU 时间已超出限制。',
   Memory_Limit_Exceeded_Description: '程序实际使用的内存已超出限制。',
   System_Error_Description: '糟糕，判题程序出了问题。请报告给管理员。',
-  // Misc
   Menu: '菜单',
   Chart: '图表',
   Auto_Refresh: '自动刷新',
@@ -61,13 +57,10 @@ export const m = {
   mood: '格言',
   AC: 'AC',
   Rating: '评分',
-  // Announcements.vue
   By: '创建人',
-  // ApplyResetPassword.vue
   The_email_doesnt_exist: '该电子邮件地址不存在',
   Success: '成功',
   Password_reset_mail_sent: '密码重置邮件已发送。',
-  // FAQ.vue
   Frequently_Asked_Questions: '常见问题',
   Where_is_the_input_and_the_output: '输入和输出在哪里？',
   Where_is_the_input_and_the_output_answer_part_1: '您的程序应从',
@@ -98,16 +91,13 @@ export const m = {
   How_to_report_bugs: '如何报告有关此 OJ 的错误？',
   How_to_report_bugs_answer_part_1: 'Alethicode 是开源的，您可以到',
   How_to_report_bugs_answer_part_2: '提交问题。需要有关错误的详细信息（例如env，版本..），这将帮助我们极大地解决该错误。当然，我们很高兴合并您的请求。',
-  // Cancel.vue
   Cancel: '取消',
-  // Navigation
   Problems: '题目',
   Announcements: '公告',
   Submissions: '提交信息',
   Rankings: '排名',
   Overview: '概要',
   Info: '信息',
-  // CodeMirror.vue
   Language: '语言',
   Theme: '主题',
   Reset_to_default_code_definition: '重设返回默认代码设置',
@@ -115,7 +105,6 @@ export const m = {
   Monokai: '物界',
   Solarized_Light: '日光灯',
   Material: '材料',
-  // NavBar.vue
   Home: '首页',
   NavProblems: '问题',
   NavStatus: '状态',
@@ -128,25 +117,19 @@ export const m = {
   Management: '后台管理',
   Logout: '退出',
   Welcome_to: '欢迎来到',
-  // announcements.vue
   Refresh: '刷新',
   Back: '返回',
   No_Announcements: '暂无公告',
-  // Setting.vue
   Profile: '个人信息设置',
   Account: '账号设置',
   Security: '安全设置',
-  // AccoutSetting.vue
   ChangePassword: '更改密码',
   ChangeEmail: '更改邮箱',
   Update_Password: '更新密码',
-  // ProfileSetting.vue
   Avatar_Setting: '头像设置',
   Profile_Setting: '个人信息设置',
-  // SecuritySettig
   Sessions: '登录记录',
   Two_Factor_Authentication: '双因素认证',
-  // Login.vue
   LoginUsername: '用户名',
   LoginPassword: '密码',
   TFA_Code: 'TFA App 双因素认证码',
@@ -154,10 +137,8 @@ export const m = {
   Forget_Password: '忘记密码',
   UserLogin: '登录',
   Welcome_back: '欢迎回来',
-  // Rank
   OI_Ranklist: 'OI 排名',
   Total_Score: '总分',
-  // ProblemList.vue
   Problem_List: '问题列表',
   Problems_List: '问题列表',
   No_Problems: '尚无问题',
@@ -171,7 +152,6 @@ export const m = {
   Total: '总数',
   AC_Rate: '通过率',
   Please_login_first: '请先登录！',
-  // Register.vue
   RegisterUsername: '用户名',
   Email_Address: '电子邮箱',
   RegisterPassword: '密码',
@@ -183,7 +163,6 @@ export const m = {
   The_email_already_exists: '该电子邮件地址已存在',
   password_does_not_match: '密码不匹配',
   Thanks_for_registering: '感谢注册，您现在可以登录了',
-  // ResetPassword.vue and ApplyResetPassword.vue
   Reset_Password: '重置密码',
   RPassword: '密码',
   RPassword_Again: '确认密码',
@@ -191,16 +170,12 @@ export const m = {
   ApplyEmail: '电子邮箱',
   Send_Password_Reset_Email: '发送重置密码到邮箱',
   Your_password_has_been_reset: '您的密码已重置',
-  // Save.vue
   Save: '保存',
-  // Simditor.vue
   Uploading_is_in_progress: '正在上传，您确定要离开当前页面吗？',
-  // SubmissionDetails.vue
   Lang: '语言',
   Succeeded: '成功',
   Real_Time: '真实时间',
   Signal: '信号',
-  // SubmissionList.vue
   When: '时间',
   ID: 'ID',
   Time: '时间',
@@ -219,13 +194,11 @@ export const m = {
   Compile_Error: '编译失败',
   Rejudge: '重新评分',
   Problem_Submissions: '题目提交记录',
-  // UserHome.vue
   UserHomeSolved: '已解决问题的数量',
   UserHomeserSubmissions: '提交次数',
   UserHomeScore: '分数',
   List_Solved_Problems: '已解决问题的列表',
   UserHomeIntro: '这个家伙太懒了，还没有做题呢...',
-  // SkillProfile.vue
   SkillProfile: '技能画像',
   SkillProfileDesc: '基于 Glicko-2 的多维能力评估',
   SkillRadar: '技能雷达图',
@@ -233,7 +206,6 @@ export const m = {
   ProblemRecommendations: '题目推荐',
   LoadingSkillData: '正在加载技能数据...',
   NoSkillData: '暂无技能数据',
-  // Classroom (Phase 8)
   Classroom: '教室',
   MyClassrooms: '我的班级',
   CreateClassroom: '创建班级',

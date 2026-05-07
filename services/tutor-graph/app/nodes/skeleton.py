@@ -1,4 +1,4 @@
-"""Skeleton node — generate scaffold code through explicit workflow event."""
+"""通过显式工作流事件生成脚手架代码。"""
 
 from __future__ import annotations
 

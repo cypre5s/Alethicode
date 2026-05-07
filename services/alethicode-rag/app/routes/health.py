@@ -1,11 +1,4 @@
-"""Liveness / readiness probe.
-
-Health does NOT require auth (Docker / k8s probes hit it from inside the
-trust boundary anyway). It checks PG connectivity and Memgraph
-connectivity, both of which must be up for the RAG layer to do useful
-work, but it does NOT force LightRAG initialisation — initialisation can
-take seconds on a cold start and would block the probe pointlessly.
-"""
+"""提供存活与就绪探针。"""
 
 from __future__ import annotations
 

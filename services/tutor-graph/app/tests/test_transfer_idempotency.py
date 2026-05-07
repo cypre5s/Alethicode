@@ -1,4 +1,4 @@
-"""Tests for transfer materialization idempotency — covers Bug 2's idempotency logic."""
+"""测试迁移练习物化的幂等逻辑。"""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from app.nodes.transfer import materialize_transfer_problem_node
 
 @pytest.mark.asyncio
 async def test_materialize_idempotency_key_format():
-    """The idempotency key must follow `{session}:{run}:transfer:materialize:v1`."""
+    """幂等键必须遵循 `{session}:{run}:transfer:materialize:v1`。"""
     java = MagicMock()
     java.create_transfer_problem = AsyncMock(return_value={
         "problem_id": 99, "problem_display_id": "T1-99", "temporary_problem": True,
@@ -37,7 +37,7 @@ async def test_materialize_idempotency_key_format():
 
 @pytest.mark.asyncio
 async def test_materialize_request_hash_deterministic():
-    """Same draft → same hash (so same key + same hash means cache hit)."""
+    """相同草稿必须得到相同 hash。"""
     java = MagicMock()
     java.create_transfer_problem = AsyncMock(return_value={
         "problem_id": 1, "problem_display_id": "T1-1", "temporary_problem": True,

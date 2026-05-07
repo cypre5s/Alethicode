@@ -6,10 +6,10 @@ import org.springframework.security.core.Authentication;
 import java.util.Map;
 
 /**
- * Retained non-workflow methods from the original domain service.
- * All workflow execution methods (session CRUD, event, checkpoint, interrupt)
- * have been migrated to LangGraph tutor-graph service and
- * {@link com.alethicode.controller.TutorWorkflowController}.
+ * 原领域服务中保留的非工作流方法。
+ *
+ * 会话、事件、checkpoint 和中断执行已迁移到 LangGraph tutor-graph 与
+ * {@link com.alethicode.controller.TutorWorkflowController}。
  */
 public interface AITutorWorkflowDomainService {
 

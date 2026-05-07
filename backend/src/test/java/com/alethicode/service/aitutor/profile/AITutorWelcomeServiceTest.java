@@ -120,8 +120,6 @@ class AITutorWelcomeServiceTest {
 
         assertThat(welcome.get("memory_tags")).isNull();
         assertThat((String) welcome.get("greeting")).contains("循环结构").contains("20%");
-
-        // weak_kcs 非空 → 起手页追加「拼装挑战」入口（Faded Parsons 自适应渐退）
         List<Map<String, Object>> starterActions = extractStarterActions(welcome);
         assertThat(starterActions).hasSize(3);
         assertThat(starterActions.get(0))
@@ -140,8 +138,6 @@ class AITutorWelcomeServiceTest {
 
     @Test
     void starterActionsOmitParsonsWhenNoWeakKcsToAvoidDistractingMasterStudents() {
-        // 学霸场景：当前题目相关 KC 上 mastery 都 >= 0.4 → 不追加「拼装挑战」入口
-        // 避免脚手架按钮干扰已经能直写的学生。设计依据见 AITutorWelcomeService.buildStarterActions。
         mockQueries(List.of(), List.of(), List.of());
 
         Map<String, Object> welcome = service.getWelcome(42L, 100L);
@@ -155,10 +151,6 @@ class AITutorWelcomeServiceTest {
 
     @Test
     void starterActionsAlwaysIncludeKnowledgeReviewEvenWithoutWeakKcs() {
-        // 知识点回顾按钮是教学闭环的元认知入口，不依赖"弱 KC"数据状态：
-        // 即便学生在当前题目相关 KC 上掌握度都 >= 0.4，按钮仍要显示，
-        // 由学生主动决定是否复习；后端 knowledge_review 节点会 fallback 到
-        // 当前题目的 current_kcs（见 services/tutor-graph/app/nodes/knowledge_review.py）。
         mockQueries(List.of(), List.of(), List.of());
 
         Map<String, Object> welcome = service.getWelcome(42L, 100L);
@@ -178,10 +170,6 @@ class AITutorWelcomeServiceTest {
 
     @Test
     void starterActionsOmitErrorChainEvenWhenRecentFailedSubmissionExists() {
-        // 起手页已下线"我遇到了错误"按钮 — 即便存在最近失败提交也不应出现，
-        // 避免学生绕过题目直接跳到错误诊断。
-        // 此用例同时覆盖"无 weak_kc + 有失败提交"场景：knowledge_review 仍展示，
-        // error_chain 始终不展示。
         mockQueries(
                 List.of(),
                 List.of(),
@@ -202,7 +190,6 @@ class AITutorWelcomeServiceTest {
 
     @Test
     void starterActionsIncludeKnowledgeReviewProblemGuideAndParsonsWhenWeakKcsExist() {
-        // weak_kcs 非空时起手页 3 个按钮：知识点回顾（恒在）+ 思路分析（恒在）+ 拼装挑战（条件追加）
         mockQueries(
                 List.of(),
                 List.of(Map.of("name", "循环结构", "mastery", 0.2)),

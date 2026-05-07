@@ -4,7 +4,7 @@
  * `manualContent.js` 数据完整性的源契约测试。
  *
  * 项目使用 jest 23.6（不会自动加载 babel.config.js 来转换 ES module
- * source files），因此沿用其他 *.spec.js 的模式：读取源文件文本，
+ * 源文件），因此沿用其他 *.spec.js 的模式：读取源文件文本，
  * 用正则与字符串匹配验证导出与结构。
  */
 
@@ -295,11 +295,13 @@ describe('manualContent.js · AI_CHARACTERS', () => {
 })
 
 describe('manualContent.js · 新增 AI 教学数据 (ai 三段式)', () => {
-  test('AI_CAPABILITIES 8 项能力', () => {
-    expect(countObjectsInArray('AI_CAPABILITIES')).toBe(8)
+  test('AI_CAPABILITIES 覆盖 10 项能力，含骨架代码 / 拼装挑战 fallback', () => {
+    expect(countObjectsInArray('AI_CAPABILITIES')).toBe(10)
     const block = extractObjectArray('AI_CAPABILITIES')
-    for (const id of ['explain-problem', 'split-io', 'split-thought', 'locate-bug',
-      'translate-error', 'review-code', 'summarize-kc', 'recommend-similar']) {
+    for (const id of ['explain-problem', 'split-io', 'split-thought',
+      'skeleton-fill', 'parsons-fallback',
+      'locate-bug', 'translate-error', 'review-code', 'summarize-kc',
+      'recommend-similar']) {
       expect(block).toMatch(new RegExp(`id:\\s*['"]${id}['"]`))
     }
   })
@@ -320,29 +322,33 @@ describe('manualContent.js · 新增 AI 教学数据 (ai 三段式)', () => {
 })
 
 describe('manualContent.js · 新增 @ 上下文引用数据', () => {
-  test('CONTEXT_TOKENS 列出 9 个 @ token (1 个 @card + 7 个 @last_* + 1 个 @courseware)', () => {
-    expect(countObjectsInArray('CONTEXT_TOKENS')).toBe(9)
+  test('CONTEXT_TOKENS 列出 10 个 @ token (1 个 @card + 7 个 @last_* + @page + @courseware)', () => {
+    expect(countObjectsInArray('CONTEXT_TOKENS')).toBe(10)
     const block = extractObjectArray('CONTEXT_TOKENS')
     for (const tok of ['@card:', '@last_guide', '@last_ideate', '@last_error',
       '@last_post_ac', '@last_transfer', '@last_review', '@last_visualize',
-      '@courseware:']) {
+      '@page:', '@courseware:']) {
       expect(block).toContain(tok)
     }
   })
 
-  test('CONTEXT_EXAMPLES 5 条示例提问，全部带 prompt 字段（含 @courseware 示例）', () => {
-    expect(countObjectsInArray('CONTEXT_EXAMPLES')).toBe(5)
+  test('CONTEXT_EXAMPLES 6 条示例提问，包含 @page 章.页 与 @courseware 示例', () => {
+    expect(countObjectsInArray('CONTEXT_EXAMPLES')).toBe(6)
     const block = extractObjectArray('CONTEXT_EXAMPLES')
-    expect((block.match(/prompt:/g) || []).length).toBe(5)
-    expect((block.match(/label:/g) || []).length).toBe(5)
+    expect((block.match(/prompt:/g) || []).length).toBe(6)
+    expect((block.match(/label:/g) || []).length).toBe(6)
     expect(block).toContain('@courseware:')
+    expect(block).toContain('@page:1.7')
   })
 
-  test('CONTEXT_TIPS 4 条使用建议', () => {
+  test('CONTEXT_TIPS 至少 5 条使用建议（含 @page 二级目录与课件包隔离提示）', () => {
     const m = SOURCE.match(/export const CONTEXT_TIPS\s*=\s*\[([\s\S]*?)\]/)
     expect(m).toBeTruthy()
-    const lines = m[1].split(',').map(s => s.trim()).filter(s => s.startsWith("'") || s.startsWith('"') || s.startsWith('`'))
-    expect(lines.length).toBeGreaterThanOrEqual(4)
+    const block = m[1]
+    const lines = block.split(',').map(s => s.trim()).filter(s => s.startsWith("'") || s.startsWith('"') || s.startsWith('`'))
+    expect(lines.length).toBeGreaterThanOrEqual(5)
+    expect(block).toContain('@page')
+    expect(block).toContain('当前题目所属的课程包')
   })
 })
 
@@ -354,18 +360,22 @@ describe('manualContent.js · 新增 课件问答数据', () => {
     expect(lines.length).toBe(7)
   })
 
-  test('COURSEWARE_QA_PROMPTS 5 个提问模板', () => {
-    expect(countObjectsInArray('COURSEWARE_QA_PROMPTS')).toBe(5)
+  test('COURSEWARE_QA_PROMPTS 6 个提问模板（含 @page:章.页 直引模板）', () => {
+    expect(countObjectsInArray('COURSEWARE_QA_PROMPTS')).toBe(6)
     const block = extractObjectArray('COURSEWARE_QA_PROMPTS')
-    expect((block.match(/label:/g) || []).length).toBe(5)
-    expect((block.match(/prompt:/g) || []).length).toBe(5)
+    expect((block.match(/label:/g) || []).length).toBe(6)
+    expect((block.match(/prompt:/g) || []).length).toBe(6)
+    expect(block).toContain('@page:1.7')
   })
 
-  test('COURSEWARE_QA_NOTES 4 条注意事项', () => {
+  test('COURSEWARE_QA_NOTES 至少 6 条注意事项（含二级目录 / page 双语法）', () => {
     const m = SOURCE.match(/export const COURSEWARE_QA_NOTES\s*=\s*\[([\s\S]*?)\]/)
     expect(m).toBeTruthy()
-    const lines = m[1].split(',').map(s => s.trim()).filter(s => s.startsWith("'") || s.startsWith('"') || s.startsWith('`'))
-    expect(lines.length).toBe(4)
+    const block = m[1]
+    const lines = block.split(',').map(s => s.trim()).filter(s => s.startsWith("'") || s.startsWith('"') || s.startsWith('`'))
+    expect(lines.length).toBeGreaterThanOrEqual(6)
+    expect(block).toContain('@page:1.7')
+    expect(block).toContain('/page')
   })
 })
 
@@ -391,11 +401,11 @@ describe('manualContent.js · HERO_CAPABILITIES (Hero 4 张能力卡)', () => {
 })
 
 describe('manualContent.js · FAQ_ITEMS', () => {
-  test('contains 8 essential FAQ entries (after removing redundant ones)', () => {
-    expect(countObjectsInArray('FAQ_ITEMS')).toBe(8)
+  test('keeps at least 8 essential FAQ entries (随功能扩展会增加)', () => {
+    expect(countObjectsInArray('FAQ_ITEMS')).toBeGreaterThanOrEqual(8)
   })
 
-  test('covers core FAQ topics (Pending / 报错 / AI / 课件问答 / 反思 / @ 引用)', () => {
+  test('covers core FAQ topics (Pending / 报错 / AI / 课件问答 / 反思 / @ 引用 / 拼装挑战 / @page)', () => {
     const block = extractObjectArray('FAQ_ITEMS')
     expect(block).toMatch(/Pending/)
     expect(block).toMatch(/报错|错误信息/)
@@ -403,6 +413,8 @@ describe('manualContent.js · FAQ_ITEMS', () => {
     expect(block).toMatch(/课件问答/)
     expect(block).toMatch(/反思|错题本/)
     expect(block).toMatch(/@ 引用|@ 引/)
+    expect(block).toMatch(/拼装挑战/)
+    expect(block).toMatch(/@page:1\.7/)
   })
 
   test('does NOT include the 4 deprecated questions (forgot pwd / mute / animation / dark)', () => {

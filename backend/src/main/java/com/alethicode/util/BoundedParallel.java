@@ -25,12 +25,10 @@ public final class BoundedParallel {
     }
 
     /**
-     * Parallel map with automatic 2^N backoff.
+     * 按 2 的幂次并发执行，并在疑似过载时自动降级。
      *
-     * Starts at nearest power-of-two <= maxConcurrency.
-     * When >= 2 tasks fail with overload/timeout, concurrency halves and retries all.
-     * When exactly 1 task fails, it retries that task sequentially (not an overload signal).
-     * Minimum parallel concurrency is 2; below that falls back to fully sequential.
+     * 起始并发取不超过 {@code maxConcurrency} 的最大 2 的幂；当多个任务同时因限流、
+     * 超时或连接问题失败时，将并发减半后整体重试。单个失败更像个例，不作为过载信号。
      */
     public static <T, R> List<R> map(List<T> items, int maxConcurrency, Function<T, R> task) {
         if (items.isEmpty()) {

@@ -145,8 +145,6 @@
 
       <el-skeleton v-else :rows="4" animated style="margin-top:8px"/>
     </Panel>
-
-    <!-- 凭据管理 -->
     <Panel title="凭据管理">
       <el-form label-position="left" label-width="160px" :model="secretsForm">
         <h4 class="sub-section-title">PostgreSQL</h4>

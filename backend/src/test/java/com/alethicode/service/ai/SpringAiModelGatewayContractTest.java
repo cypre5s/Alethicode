@@ -215,9 +215,6 @@ class SpringAiModelGatewayContractTest {
                 .hasMessageContaining("content is blank");
     }
 
-    // Phase 3 切流：原 callForEmbedding 三件套测试已删除 — 嵌入与向量检索全部
-    // 由 alethicode-rag 微服务托管，Java 端 AiModelGateway 不再持有该方法。
-
     @Test
     void callForJsonCachedFallsThroughToDirectCallWhenInvokedOnGatewayDirectly() {
         when(chatModel.call(any(Prompt.class))).thenReturn(finalResponse("{\"k\":1}"));

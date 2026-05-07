@@ -25,7 +25,7 @@ class Compiler(object):
                              max_output_size=20 * 1024 * 1024,
                              max_process_number=_judger.UNLIMITED,
                              exe_path=_command[0],
-                             # /dev/null is best, but in some system, this will call ioctl system call
+                             # 避免用 /dev/null；部分系统会因此触发 ioctl 系统调用。
                              input_path=src_path,
                              output_path=compiler_out,
                              error_path=compiler_out,

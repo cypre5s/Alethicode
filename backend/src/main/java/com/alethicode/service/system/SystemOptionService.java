@@ -39,8 +39,9 @@ public interface SystemOptionService {
     EnvSnapshotResponse getEnvSnapshot();
 
     /**
-     * Returns the raw DB-stored value for the given AI provider config field key.
-     * Returns null if not set in DB (caller should fall back to env var).
+     * 返回 AI Provider 配置字段在数据库中的原始值。
+     *
+     * 未配置时返回 null，由调用方回退到环境变量。
      */
     @Nullable
     String getRawAiConfigValue(String dbFieldKey);

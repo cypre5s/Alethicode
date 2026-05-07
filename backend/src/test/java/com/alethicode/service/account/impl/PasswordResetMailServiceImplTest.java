@@ -67,8 +67,6 @@ class PasswordResetMailServiceImplTest {
                 "",
                 ""
         )).when(systemOptionService).getWebsiteConfig();
-
-        // requestBaseUrl 为 null → 走 admin 配置的 https://oj.example.com
         newService().sendResetEmail("alice", "alice@example.com", "tok-1234567890abcdef", null);
 
         ArgumentCaptor<String> subjectCaptor = ArgumentCaptor.forClass(String.class);
@@ -117,7 +115,6 @@ class PasswordResetMailServiceImplTest {
                 org.mockito.ArgumentMatchers.anyBoolean(), anyString(), anyString(), anyString(),
                 anyString(), contentCaptor.capture()
         );
-        // 邮件链接里的 host 来自 request 推断，不是 admin 配置
         assertThat(contentCaptor.getValue())
                 .contains("https://request-host.example.com/reset-password/tok-bob")
                 .doesNotContain("admin-configured.example.com");

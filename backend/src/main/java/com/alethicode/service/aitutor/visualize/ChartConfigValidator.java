@@ -12,11 +12,9 @@ import org.springframework.stereotype.Component;
 import java.util.Set;
 
 /**
- * Validate Chart.js v4 configuration against a strict JSON Schema:
- *   - type must be one of: line / bar / radar
- *   - data.labels max 20
- *   - data.datasets length 1..3, each dataset.data max 20 items
- *   - reject options.plugins.tooltip.callbacks / onClick / onHover (function injection)
+ * 用严格 JSON Schema 校验 Chart.js v4 配置。
+ *
+ * 仅允许 line、bar、radar，限制标签与数据集规模，并拒绝函数注入入口。
  */
 @Component
 public class ChartConfigValidator {

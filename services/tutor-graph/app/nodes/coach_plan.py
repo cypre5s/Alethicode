@@ -1,4 +1,4 @@
-"""Metacognitive coaching plan loop for the tutor graph."""
+"""导师图的元认知辅导计划循环。"""
 
 from __future__ import annotations
 

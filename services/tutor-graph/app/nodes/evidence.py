@@ -1,4 +1,4 @@
-"""Assemble evidence pack by calling Java internal tool APIs."""
+"""调用 Java 内部工具 API 组装节点证据包。"""
 
 from __future__ import annotations
 
@@ -94,9 +94,7 @@ async def assemble_evidence_pack(
                     text = str(item).strip()
                     if text:
                         normalized.append(text)
-            # Pass the user's current message as the RAG query so backend can resolve any
-            # @courseware:<lpId> tokens into top-k page chunks. Backwards compat: legacy
-            # call sites that don't include @courseware tokens get empty `coursewares`.
+            # 当前消息作为 RAG query，便于后端把 @courseware 引用解析成相关页片段。
             current_query = ""
             if isinstance(event_data, dict):
                 msg = event_data.get("message")
@@ -106,13 +104,11 @@ async def assemble_evidence_pack(
                 resolved = await java_client.resolve_references(
                     session_id, normalized, current_query=current_query or None
                 )
-                # Preserve old field shape (list of cards) for downstream nodes that haven't
-                # adopted the new dict shape yet, but also expose coursewares for prompt nodes.
+                # 兼容旧卡片列表形态，同时给 prompt 节点暴露课件上下文。
                 if isinstance(resolved, dict):
                     evidence["references"] = resolved.get("cards", [])
                     evidence["coursewares"] = resolved.get("coursewares", [])
                 else:
-                    # Defensive fallback: old call site that returned a flat list.
                     evidence["references"] = resolved if isinstance(resolved, list) else []
                     evidence["coursewares"] = []
             else:
@@ -144,7 +140,7 @@ async def assemble_evidence_pack(
 
 
 def _kc_names_from_context(workflow_ctx: dict) -> list[str]:
-    """Extract human-readable KC names from workflow_context for the semantic memory query."""
+    """从 workflow_context 提取用于语义记忆查询的 KC 名称。"""
     names: list[str] = []
     candidates = workflow_ctx.get("kc_names") or workflow_ctx.get("kcs") or []
     if isinstance(candidates, list):

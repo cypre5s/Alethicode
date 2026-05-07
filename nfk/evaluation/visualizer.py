@@ -83,7 +83,7 @@ class AblationVisualizer:
         plt.close(fig)
         return path
 
-    # ── 2. 训练曲线 (per variant) ──
+    # 训练曲线（按变体）。
 
     def plot_training_curves(
         self,

@@ -1,7 +1,7 @@
 /**
- * Vue2(frontend) vs Vue3(frontend) visual compare helper.
+ * Vue2 与 Vue3 前端视觉对比工具。
  *
- * Usage:
+ * 运行示例：
  * OLD_BASE_URL=http://127.0.0.1:8084 \
  * NEW_BASE_URL=http://127.0.0.1:8085 \
  * E2E_USERNAME=root \

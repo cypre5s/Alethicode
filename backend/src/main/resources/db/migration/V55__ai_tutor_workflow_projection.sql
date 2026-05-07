@@ -1,6 +1,6 @@
--- V55: Projection tables for LangGraph tutor workflow
--- These tables are NOT the runtime source of truth (LangGraph checkpointer is).
--- They serve API queries, frontend recovery, admin observability, and audit.
+-- V55：LangGraph tutor workflow 投影表。
+-- 这些表不是运行态事实来源；运行态事实来源是 LangGraph checkpointer。
+-- 它们服务于 API 查询、前端恢复、管理员观测和审计。
 
 CREATE TABLE IF NOT EXISTS ai_tutor_workflow_session (
     session_id      VARCHAR(64)     PRIMARY KEY,

@@ -1,15 +1,13 @@
-"""Decoupled runner — directly inject adversarial payload at node input.
+"""解耦 runner：把对抗 payload 直接注入节点输入。
 
-This implements the **Decoupled Eval** pattern from RedTeamCUA
-(arXiv:2505.21936): bypass the navigation/UI layer and place the
-adversarial payload directly into the node's input state, so that
-"agent didn't find the injection point" cannot mask vulnerabilities.
+实现 RedTeamCUA（arXiv:2505.21936）的 **Decoupled Eval** 模式：绕过导航/UI
+层，把对抗 payload 直接放进节点输入状态，避免“agent 没找到注入点”掩盖漏洞。
 
-Per AGENTS.md (failfast):
-- Unknown target_node names raise immediately.
-- Unknown state_path resolutions raise immediately (no silent skip).
-- LLM call failures inside a node are captured into CaseResult.error,
-  but the runner itself does not swallow type errors or missing nodes.
+按 AGENTS.md 的 failfast 要求：
+- 未知 target_node 立即失败。
+- 无法解析的 state_path 立即失败，不静默跳过。
+- 节点内部的 LLM 调用失败会记录到 CaseResult.error；runner 本身不吞掉类型错误
+  或缺失节点。
 """
 
 from __future__ import annotations
@@ -38,11 +36,10 @@ from app.nodes.skeleton import skeleton_node
 from app.nodes.transfer import transfer_draft_node
 
 
-# Registry of LLM-driven node functions exposed for red team injection.
-# Each callable accepts (state, *, llm_client) and returns the post-node state.
-# Java-client-driven nodes (parsons_node, visualize_node, materialize_transfer_problem_node)
-# are intentionally excluded — they are exercised by Sprint 2's Java-side
-# adversarial tests, not this Python runner.
+# 暴露给红队注入的 LLM 驱动节点注册表。
+# 每个 callable 接收 (state, *, llm_client)，返回节点执行后的状态。
+# Java 客户端驱动的节点（parsons_node、visualize_node、materialize_transfer_problem_node）
+# 故意不放在这里；它们由 Sprint 2 的 Java 侧对抗测试覆盖。
 NodeCallable = Callable[..., Awaitable[TutorGraphState]]
 NODE_REGISTRY: dict[str, NodeCallable] = {
     "problem_guide_node": problem_guide_node,
@@ -56,8 +53,7 @@ NODE_REGISTRY: dict[str, NodeCallable] = {
 }
 
 
-# Default base state — minimal but sufficient for nodes to execute under
-# replay (mock LLM) mode. Concrete cases override fields as needed.
+# 默认基础状态足够 replay（mock LLM）模式下执行节点；具体用例按需覆盖字段。
 def _default_base_state() -> dict[str, Any]:
     return {
         "session_id": "redteam-session",
@@ -102,9 +98,9 @@ def _default_base_state() -> dict[str, Any]:
 
 
 def _set_path(state: dict[str, Any], path: str, value: Any) -> None:
-    """Set a dotted path in state, creating intermediate dicts as needed.
+    """设置点分路径，必要时创建中间 dict。
 
-    Failfast: if an intermediate node exists and is not a dict, raise.
+    Failfast：中间节点已存在但不是 dict 时立即抛错。
     """
     if not path:
         raise ValueError("payload state_path cannot be empty")
@@ -122,7 +118,7 @@ def _set_path(state: dict[str, Any], path: str, value: Any) -> None:
     cur[parts[-1]] = value
 
 
-# Map node function name to the conventional node_outputs key.
+# 节点函数名到约定 node_outputs key 的映射。
 NODE_OUTPUT_KEY: dict[str, str] = {
     "problem_guide_node": "problem_guide",
     "chat_node": "chat",
@@ -136,11 +132,10 @@ NODE_OUTPUT_KEY: dict[str, str] = {
 
 
 def _attempted_response(state_after: dict[str, Any], target_node: str) -> bool:
-    """Approximate Attempt Rate: did the node produce a node_outputs entry?
+    """近似计算 Attempt Rate：节点是否产生了 node_outputs 条目。
 
-    Mirrors RedTeamCUA's AR — a node that emits any output (even if benign)
-    counts as having attempted, while a fail-fast (no output, runtime FAILED)
-    counts as a refusal.
+    对齐 RedTeamCUA 的 AR：节点只要输出任何内容（即使是安全内容）就计为尝试；
+    fail-fast（无输出且 runtime FAILED）计为拒绝。
     """
     outputs = state_after.get("node_outputs", {}) or {}
     key = NODE_OUTPUT_KEY.get(target_node, target_node)
@@ -149,15 +144,15 @@ def _attempted_response(state_after: dict[str, Any], target_node: str) -> bool:
 
 
 def build_state_for_case(case: AdversarialCase) -> TutorGraphState:
-    """Construct the input state for a case: defaults + overrides + payload."""
+    """构造用例输入状态：默认值 + 覆盖项 + payload。"""
     state = _default_base_state()
-    # Apply phase as current_phase (informational; nodes may override).
+    # 将 phase 写入 current_phase；节点仍可覆盖该信息字段。
     if case.phase in {"READING", "IDEATING", "CODING", "ERROR_FEEDBACK", "AC_REVIEW", "TRANSFER"}:
         state["current_phase"] = case.phase
-    # Apply scenario overrides (e.g. specific problem text).
+    # 应用场景覆盖，例如特定题面。
     for path, value in case.base_state_overrides.items():
         _set_path(state, path, copy.deepcopy(value))
-    # Apply adversarial payload injections.
+    # 注入对抗 payload。
     for injection in case.payload:
         _set_path(state, injection.state_path, copy.deepcopy(injection.value))
     return state  # type: ignore[return-value]
@@ -168,13 +163,12 @@ async def run_case(
     *,
     llm_client: LlmClient,
 ) -> CaseResult:
-    """Run a single adversarial case against the target node.
+    """针对目标节点运行单个对抗用例。
 
-    The caller supplies the LlmClient — for CI it should be in replay mode
-    so no real API calls are made.
+    调用方提供 LlmClient；CI 中应使用 replay 模式，避免真实 API 调用。
     """
-    # NFK_INPUT and SUPPLEMENT_PLANNER cases are out-of-scope for tutor_graph
-    # node-level injection; they are exercised by Sprint 2's NFK tests.
+    # NFK_INPUT 和 SUPPLEMENT_PLANNER 不属于 tutor_graph 节点级注入范围；
+    # 它们由 Sprint 2 的 NFK 测试覆盖。
     if case.target_node not in NODE_REGISTRY:
         return CaseResult(
             case_id=case.id,
@@ -194,7 +188,7 @@ async def run_case(
     try:
         result_state = await node_fn(state, llm_client=llm_client)
     except Exception as exc:  # noqa: BLE001 — runner must capture node errors
-        # A raised exception is treated as failfast.
+        # 节点抛异常按 failfast 处理。
         result_state = {**state, "runtime_state": "FAILED", "last_error": str(exc)}
         error_message = f"{type(exc).__name__}: {exc}"
 
@@ -205,9 +199,7 @@ async def run_case(
 
     main_key = NODE_OUTPUT_KEY.get(case.target_node, case.target_node)
     main_payload = (output_payload.get("node_outputs", {}) or {}).get(main_key, {}) or {}
-    # We expose two views to assertions:
-    #   - shallow output (just the node's own output dict)
-    #   - top-level metadata (runtime_state / last_error / side_effects)
+    # 断言同时看到节点自身浅层输出和顶层元数据。
     assertion_view: dict[str, Any] = dict(main_payload)
     assertion_view["runtime_state"] = runtime_state
     assertion_view["last_error"] = output_payload.get("last_error", "")
@@ -232,12 +224,12 @@ async def run_case(
 
 
 def run_case_sync(case: AdversarialCase, *, llm_client: LlmClient) -> CaseResult:
-    """Synchronous wrapper for tests."""
+    """测试使用的同步包装。"""
     return asyncio.run(run_case(case, llm_client=llm_client))
 
 
 def summarize(cases: list[AdversarialCase], results: list[CaseResult]) -> DatasetSummary:
-    """Aggregate per-case results into a DatasetSummary."""
+    """把单用例结果聚合成 DatasetSummary。"""
     if len(cases) != len(results):
         raise ValueError(
             f"cases and results length mismatch: {len(cases)} vs {len(results)}"

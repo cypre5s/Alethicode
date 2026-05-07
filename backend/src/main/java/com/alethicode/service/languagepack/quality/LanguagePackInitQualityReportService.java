@@ -21,10 +21,9 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Persists and queries language_pack_init_quality_report.
+ * 持久化并查询 {@code language_pack_init_quality_report}。
  *
- * Aggregation grain: one row per init task. Re-running the gate overwrites the
- * existing row (see {@link #upsert}) so the report never drifts.
+ * 聚合粒度是一条 init task 一行；重新运行质量门禁会覆盖旧行，避免报告漂移。
  */
 @Service
 public class LanguagePackInitQualityReportService {
@@ -220,8 +219,7 @@ public class LanguagePackInitQualityReportService {
     }
 
     /**
-     * In-memory aggregator used by ProblemValidationServiceImpl while processing candidates.
-     * After the loop completes, call {@link #toRecord} once and pass to {@link #upsert}.
+     * ProblemValidationServiceImpl 处理候选题时使用的内存聚合器。
      */
     public static final class Aggregator {
         private int totalPackages = 0;

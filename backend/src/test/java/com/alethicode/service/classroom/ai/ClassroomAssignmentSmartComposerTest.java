@@ -74,7 +74,6 @@ class ClassroomAssignmentSmartComposerTest {
         assertThat((List<Long>) result.get("kc_ids")).containsExactly(1L, 2L);
         List<Map<String, Object>> sections = (List<Map<String, Object>>) result.get("sections");
         assertThat(sections).hasSize(2);
-        // section 1: 200, 201; section 2: 202 (200 deduped)
         assertThat(((List<?>) sections.get(0).get("problems"))).hasSize(2);
         assertThat(((List<?>) sections.get(1).get("problems"))).hasSize(1);
         assertThat(result.get("total_picked")).isEqualTo(3);

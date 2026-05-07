@@ -12,19 +12,28 @@
         <el-icon :size="14"><Download /></el-icon>
         插入编辑器，开始填写
       </button>
+
+      <button
+        type="button"
+        class="skeleton-btn-parsons"
+        @click.stop.prevent="handleParsonsClick"
+      >
+        <el-icon :size="14"><Grid /></el-icon>
+        有点难？试试拼装版
+      </button>
     </template>
   </BaseAgentCard>
 </template>
 
 <script>
 import { markRaw } from 'vue'
-import { Monitor, Download } from '@element-plus/icons-vue'
+import { Monitor, Download, Grid } from '@element-plus/icons-vue'
 import BaseAgentCard from './BaseAgentCard.vue'
 
 export default {
   name: 'SkeletonCodeCard',
-  emits: ['insert-code'],
-  components: { BaseAgentCard, Download },
+  emits: ['insert-code', 'request-parsons'],
+  components: { BaseAgentCard, Download, Grid },
   props: {
     data: {
       type: Object,
@@ -38,6 +47,9 @@ export default {
     handleInsertClick () {
       if (!this.data || !this.data.skeleton) return
       this.$emit('insert-code', { code: this.data.skeleton, position: 'append' })
+    },
+    handleParsonsClick () {
+      this.$emit('request-parsons')
     }
   }
 }
@@ -78,5 +90,24 @@ export default {
   &:hover { filter: brightness(0.92); }
   &:active { filter: brightness(0.85); }
   &:focus-visible { outline: 2px solid rgba(59, 130, 246, 0.28); outline-offset: 2px; }
+}
+
+.skeleton-btn-parsons {
+  width: 100%; margin-top: 8px;
+  padding: 8px 14px;
+  border: 1px solid rgba(59, 130, 246, 0.32);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  background: transparent;
+  color: var(--card-accent);
+  font-size: var(--card-font-body); font-weight: 500;
+  font-family: inherit; cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+  &:hover {
+    background: rgba(59, 130, 246, 0.08);
+    border-color: rgba(59, 130, 246, 0.48);
+  }
+  &:active { background: rgba(59, 130, 246, 0.14); }
+  &:focus-visible { outline: 2px solid rgba(59, 130, 246, 0.32); outline-offset: 2px; }
 }
 </style>

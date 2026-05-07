@@ -8,13 +8,9 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Locks the {@link FailureBucket} enumeration shape that frontend
- * {@code FAILURE_BUCKETS} (frontend/src/utils/runtimeContract.js) and
- * the WebSocket payload contract both depend on.
+ * 锁定 {@link FailureBucket} 枚举形态。
  *
- * <p>Adding/removing a value here is a contract-breaking change that
- * must be mirrored in {@code frontend/src/utils/runtimeContract.js}
- * and {@code frontend/tests/unit/runtime-contract.spec.js}.
+ * <p>前端 {@code FAILURE_BUCKETS} 和 WebSocket 载荷契约都依赖这些值；增删枚举属于破坏性合约变更。</p>
  */
 class FailureBucketTest {
 

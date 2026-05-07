@@ -49,12 +49,12 @@ Alethicode 是一个面向 **非计算机专业 Python 初学者** 的智能在�
 │ Python 微服务     │ tutor-graph + alethicode-rag + judge     │
 │ 数据库迁移        │ 91 Flyway versions (V1 – V91)            │
 │ REST 端点         │ 170+ endpoints across 35+ controllers    │
-│ AI 卡片类型       │ 11 CardTypes (含 4 Career)               │
+│ AI 卡片类型       │ 7 CardTypes（已移除 Career 扩展卡片）      │
 │ 工作流阶段        │ 7 Phases (FSM) + 17 ClientEvents         │
 │ 工作流引擎        │ Java FSM + LangGraph 双轨                │
 │ 教学 Agent 节点   │ 15 LangGraph nodes (含 compact)          │
-│ 评估维度          │ 12 LLM-as-Judge dimensions               │
-│ Career 专业       │ 12 majors × 4 模块闭环                   │
+│ 评估维度          │ 8 LLM-as-Judge dimensions                │
+│ Career 专业       │ 已下线（仅保留历史迁移与审计数据）          │
 │ 支持语言          │ Python3, C, C++, Java                    │
 │ 可观测性          │ Prometheus + Grafana + Jaeger + Langfuse  │
 └──────────────────┴───────────────────────────────────────────┘
@@ -225,7 +225,7 @@ Client Request
 │ Workflow Engine │ Java FSM (Phase/Event) + tutor-graph         │
 │                 │ (LangGraph 17 events, 15 nodes) 双轨         │
 │ Context Mgmt    │ /compact 上下文压缩 + /fork 会话分叉         │
-│ Evaluation      │ LLM-as-Judge (12 维度) + Career Eval Harness│
+│ Evaluation      │ LLM-as-Judge (8 维度)                         │
 │ A/B Testing     │ RolloutPolicyService（5 experiment_id）      │
 │ Observability   │ Langfuse tracing + Prometheus metrics        │
 │ Video Gen       │ LLM 分镜 + 外部 TTS/Render (可插拔)          │
@@ -255,12 +255,8 @@ com.alethicode/
 │   ├── AITutorController            # /api/ai/tutor/*, /api/ai/skill/*
 │   ├── TutorWorkflowController      # /api/ai/tutor-workflow-sessions/*
 │   ├── LanguagePackQaController     # /api/language-pack-qa/*
-│   ├── CareerController             # /api/career/profile, /api/career/preferences
-│   ├── CareerStudioController       # /api/career/studio/*
-│   ├── CodingLensController         # /api/coding-lens/*
 │   ├── AdminProblemController       # /api/admin/problems
 │   ├── AdminLanguagePackController  # /api/admin/language-packs/*
-│   ├── AdminCareerEvalController    # /api/admin/ai/evaluations/career
 │   ├── PublicAssetController        # /public/*
 │   └── classroom/                   # 课堂子控制器 (7 个)
 │
@@ -300,12 +296,6 @@ com.alethicode/
 │   │   ├── PageRetrievalService     #   混合检索
 │   │   ├── AnswerSynthesisService   #   答案合成
 │   │   └── impl/                    #   实现 (15+ 文件)
-│   │
-│   ├── career/                      # Career 3 模块子系统
-│   │   ├── bridging/               #   Why 报告 (CareerBridgingService)
-│   │   ├── lens/                   #   Coding Lens (DomainLensService)
-│   │   ├── studio/                 #   微项目工作室 (MicroProjectStudioService)
-│   │   └── preference/             #   模块开关 (CareerPreferenceService)
 │   │
 │   ├── impl/                        # 核心服务实现
 │   │   ├── AITutorWorkflowAdminServiceImpl  # Java FSM 主链路
@@ -350,9 +340,6 @@ com.alethicode/
 │   └── /classroom/:id/collab/:sessionId  ─── 协作编程
 ├── /language-packs         ─── 语言包目录
 ├── /language-pack-qa       ─── 课件问答 (需登录)
-├── /career                 ─── Career 概览 + 专业设置
-│   ├── /career/studio      ─── 微项目工作室
-│   └── /career/reports     ─── 专业报告
 ├── /review-package/:id     ─── 错误审查 (需登录)
 └── /*                      ─── 404
 ```
@@ -388,37 +375,14 @@ com.alethicode/
                └──────────────┘         └──────────────┘  └──────────────┘
 ```
 
-### 5.2 Career Bridging Closure（专业 × 编程 3 模块闭环）
+### 5.2 Career 模块状态（已下线）
 
-为 12 个非 CS 专业（生物 / 化学 / 医学 / 药学 / 临床医学 / 工商管理 / 经济 / 金融 / 统计 / 心理 / 机械工程 / 土木工程）补齐 Why / How / What 三层闭环，**判题不动、Judge Server 协议不动、IO schema 不动**。
+Career 相关能力（Career Bridging / Coding Lens / Project Studio / Path）已在当前主线版本整体下线：
 
-| 模块 | 触发链路 | 关键产物 | 灰度 experiment_id |
-|---|---|---|---|
-| **Career Bridging（Why）** | 5 类里程碑（enrollment / kc_cluster_graduated / chapter_entered / project_completed / path_node_unlocked）→ A/B 分组 → LLM + Reflection critic → `career_bridging_report` | Why 报告 | `career_bridging_v1`（A/B） |
-| **Coding Lens（How / Variant）** | 学生在题目页切「我专业版」→ rollout → LLM 重写题面（IO schema 不变 + 测试样例语义不偏移）→ `problem_domain_variant` | 专业化题面变体 | `coding_lens` |
-| **Project Studio（What）** | 学生在 Studio 选 KC → LLM 出题 + critic → **reference solution 真判题自验证**（100% AC 自身 test_cases）→ 落 `problem` 表 + `career_micro_project` | Python 微项目 + 作品集 Markdown 卡片 | `career_micro_project` |
-
-**触发联动（todo 10 + 13）**：
-1. `JudgeCompletedEventListener` 在 mastery 写入后调用 `CareerMilestoneEventListener.onMasteryUpdated`，KC 跨过 0.7 触发 `kc_cluster_graduated`
-2. `LearnerCourseProgressService.getOrCreateProgress` 首次访问课件包触发 `chapter_entered`
-3. AC 微项目对应 problem → `JudgeCompletedEventListener.handleMicroProjectCompletion` → `MicroProjectStudioService.markCompletedByJudgeProblem` → 写 `project_completed` + 立即 `generateForMilestone` 重激活 Why 报告
-
-**关闭路径（todo 15）**：
-- 教师锁定（考试模式）：`POST /api/coding-lens/variants/{id}/lock` 后任意 major 请求都返回锁定 variant，确保所有学生看同一份题面
-- 学生级面板：`PUT /api/career/preferences` 可独立关闭 3 个模块；配置入口已迁移到 `/setting/profile`
-
-```
-关键 Flyway 表（V83 / V84 / V85 / V86 / V88）
-├── user_profile (扩展) ── major_code / career_intent / career_profile_completed_at
-│                       └─ 4 个 disabled BOOLEAN 列（V88）
-├── career_major_dictionary ── 12 专业字典 + seed_use_cases
-├── career_bridging_milestone (4 类 type) + career_bridging_report
-├── problem_domain_variant ── (problem_id, major_code) 题面变体缓存 + locked_for_exam
-├── career_micro_project ── (user_id, judge_problem_id, status, rollout_mode, trace_id)
-└── （已下线）career_path_node 历史表保留，仅用于审计追溯
-```
-
-进度详见 [`docs/todos/todo-career-bridging-closure-progress.md`](./docs/todos/todo-career-bridging-closure-progress.md)。
+- 前端：已移除 Career 页面、路由、导航与 API 入口。
+- 后端：已移除 Career 相关 controller、service、dto 与评测入口。
+- 配置：已清理 Career 专项 `CardType`、`EvalDimension` 与配置项。
+- 数据：历史迁移与表结构仍保留，用于审计与历史追踪，不再参与在线主流程。
 
 ### 5.3 学习者画像
 
@@ -871,6 +835,7 @@ V88 ─── Career 用户级面板关闭列
 V89 ─── 课件问答 session token usage 三列
 V90 ─── session compact_count + parent_session_id + fork_from_message_id
 V91 ─── user_profile career preferences 4 disabled 列
+注：V83/V84/V85/V86/V88/V91 为 Career 历史迁移，当前功能已下线，仅保留数据审计用途。
 ```
 
 ### 9.2 核心表关系
@@ -1224,10 +1189,6 @@ API:
 | KC_ALIGNMENT | KC 对齐 | related_kcs 与题目知识点一致 |
 | COMPREHENSIBILITY | 可理解性 | 语言清晰初学者能懂 |
 | ENCOURAGEMENT | 鼓励性 | 包含合适情感支持 |
-| GROUNDING_ACCURACY | grounding 准确性 | Career Why 报告事实溯源 |
-| SEMANTIC_DRIFT | 语义漂移 | Coding Lens 题面改写偏移度 |
-| SOLVABILITY | 可解性 | Project Studio 微项目自验 |
-| PATH_CONSISTENCY | 路径一致性 | Career Path 拓扑与 KC 对齐 |
 
 ### C. RAG 检索（前置 retrieval，已替代旧 ReAct 工具调用循环）
 

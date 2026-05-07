@@ -2,14 +2,7 @@ import { ref } from 'vue'
 import api from '@oj/api'
 
 /**
- * Composable wrapping the P1 Persistent Memory profile dashboard API.
- *
- * Exposes:
- *   - state: profile, loading, error, saving
- *   - methods: load(), refresh(), updatePreferences(enabled), overrideSummary(text)
- *
- * Designed to be instantiated at the place where the dashboard renders
- * (typically the ProfileDrawer.vue component) — no global state.
+ * 封装学习者画像 API 状态；调用方各自实例化，避免引入全局状态。
  */
 export function useProfileApi() {
   const profile = ref(null)

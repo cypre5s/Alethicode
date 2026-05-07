@@ -38,7 +38,6 @@ class LearnerProfileProjectorTest {
     );
 
     {
-        // Default: every test starts with no narrative summary persisted (empty / personalization on).
         when(narrativeSummaryService.loadOrGenerate(anyLong()))
                 .thenReturn(LearnerNarrativeSummaryService.NarrativeSummary.empty(0L));
     }

@@ -1,9 +1,7 @@
-"""Pin the embedding-dim-2048 contract.
+"""锁定 2048 维 embedding 契约。
 
-If the wrapper accidentally hands LightRAG the decorated `openai_embed`
-(which is wrap_embedding_func_with_attrs(embedding_dim=1536)), pgvector
-tables will be created with the wrong column dimension and every insert
-will fail. This test guards against that regression.
+LightRAG 自带 `openai_embed` 声明为 1536 维；本测试防止包装层误用它导致
+pgvector 表维度错误。
 """
 
 from __future__ import annotations

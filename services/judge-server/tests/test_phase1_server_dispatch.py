@@ -1,4 +1,4 @@
-"""Phase 1 server.py 路由层 dispatch 集成测试。
+"""Phase 1 server.py 路由层分发集成测试。
 
 只测路由分流契约（priority / stream / callback_url 三模式 + 互斥校验），
 不跑真实判题（``JudgeServer.judge`` 被 monkeypatch 成返回固定数据的 stub）。
@@ -32,7 +32,7 @@ def client(monkeypatch):
 
 @pytest.fixture
 def auth_token():
-    """test_client 上要带的 X-Judge-Server-Token 值，与 utils.token 保持一致。"""
+    """test_client 请求必须携带与 utils.token 一致的 X-Judge-Server-Token。"""
     return hashlib.sha256(b"alethicode-host-test-token").hexdigest()
 
 
@@ -97,7 +97,7 @@ def test_judge_sync_default_path_preserves_upstream_contract(client, auth_token,
     assert isinstance(body["data"], list)
     assert len(body["data"]) == 2
     assert stub_judge["priority"] == "formal"
-    # 默认同步模式不传 on_case_done
+    # 默认同步模式不传 on_case_done。
     assert stub_judge["on_case_done_present"] is False
 
 
@@ -146,7 +146,7 @@ def test_judge_stream_returns_sse_with_case_then_done(client, auth_token, stub_j
 
 
 def test_judge_callback_url_returns_202_immediately(client, auth_token, stub_judge, monkeypatch):
-    """callback_url 模式必须立即 202 + accepted=true，并把 case/done 推到 callback。"""
+    """callback_url 模式必须立即返回 202 + accepted=true，并把 case/done 推到 callback。"""
     posted_events = []
 
     class _FakeResp:
@@ -171,7 +171,7 @@ def test_judge_callback_url_returns_202_immediately(client, auth_token, stub_jud
     submission_id = body["data"]["submission_id"]
     assert isinstance(submission_id, str) and submission_id
 
-    # 等 background thread 把 case + done 推完
+    # 等后台线程推完 case 和 done。
     import time
     deadline = time.time() + 2
     while time.time() < deadline and len(posted_events) < 3:
@@ -199,7 +199,7 @@ def test_judge_stream_and_callback_are_mutually_exclusive(client, auth_token):
 
 
 def test_judge_business_error_maps_to_known_err_field(client, auth_token, monkeypatch):
-    """JudgeClientError 子类必须按 ret={err, data} 协议返回，不能 500。"""
+    """JudgeClientError 子类必须按 ret={err, data} 协议返回，不能变成 500。"""
     from exception import JudgeClientError
 
     def boom(**kwargs):

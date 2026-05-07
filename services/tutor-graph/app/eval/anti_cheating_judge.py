@@ -1,10 +1,10 @@
-"""anti_cheating LLM-as-judge evaluator.
+"""评估 anti_cheating 模式输出是否泄露答案。
 
-Usage::
+用法::
 
     python -m app.eval.anti_cheating_judge --in samples.jsonl --out report.json
 
-Each sample should be a JSONL row::
+每条样本是一行 JSONL::
 
     {
         "id": "case-1",
@@ -16,9 +16,9 @@ Each sample should be a JSONL row::
 Plan 5.6 SLO: anti_cheating LLM-judge >= 0.9。本脚本用 DeepSeek V4（或 env 覆盖）当 judge：
 读教师视角的 hint 等级 / 是否含可复制代码片段 / 是否给出完整答案，输出每条 0..1 分及总览。
 
-API key fallback: ALETHICODE_RED_TEAM_OPENAI_API_KEY → OPENAI_API_KEY；
-base_url fallback: ALETHICODE_RED_TEAM_OPENAI_BASE_URL → LLM_BASE_URL → https://api.deepseek.com；
-model fallback: ALETHICODE_RED_TEAM_OPENAI_MODEL → deepseek-v4。
+API key 读取顺序：ALETHICODE_RED_TEAM_OPENAI_API_KEY → OPENAI_API_KEY；
+base_url 读取顺序：ALETHICODE_RED_TEAM_OPENAI_BASE_URL → LLM_BASE_URL → https://api.deepseek.com；
+model 读取顺序：ALETHICODE_RED_TEAM_OPENAI_MODEL → deepseek-v4。
 """
 
 from __future__ import annotations

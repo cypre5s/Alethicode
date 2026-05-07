@@ -113,7 +113,6 @@ class JudgeServer:
 
         if not (test_case or test_case_id) or (test_case and test_case_id):
             raise JudgeClientError("invalid parameter")
-        # init
         compile_config = language_config.get("compile")
         run_config = language_config["run"]
         submission_id = uuid.uuid4().hex
@@ -122,7 +121,7 @@ class JudgeServer:
 
         if is_spj:
             spj_exe_path = os.path.join(SPJ_EXE_DIR, spj_config["exe_name"].format(spj_version=spj_version))
-            # spj src has not been compiled
+            # SPJ 源码尚未编译时立即补编译。
             if not os.path.isfile(spj_exe_path):
                 logger.warning("%s does not exists, spj src will be recompiled")
                 cls.compile_spj(spj_version=spj_version, src=spj_src,
@@ -136,19 +135,17 @@ class JudgeServer:
             if compile_config:
                 src_path = os.path.join(submission_dir, compile_config["src_name"])
 
-                # write source code into file
                 with open(src_path, "w", encoding="utf-8") as f:
                     f.write(src)
                 os.chown(src_path, COMPILER_USER_UID, 0)
                 os.chmod(src_path, 0o400)
 
-                # compile source code, return exe file path
                 exe_path = Compiler().compile(compile_config=compile_config,
                                               src_path=src_path,
                                               output_dir=submission_dir)
                 try:
-                    # Java exe_path is SOME_PATH/Main, but the real path is SOME_PATH/Main.class
-                    # We ignore it temporarily
+                    # Java 的 exe_path 是 SOME_PATH/Main，真实产物是 SOME_PATH/Main.class；
+                    # 此处保持上游判题机约定，不额外修正路径。
                     os.chown(exe_path, RUN_USER_UID, 0)
                     os.chmod(exe_path, 0o500)
                 except Exception:
@@ -160,7 +157,6 @@ class JudgeServer:
 
             if init_test_case_dir:
                 info = {"test_case_number": len(test_case), "spj": is_spj, "test_cases": {}}
-                # write test case
                 for index, item in enumerate(test_case):
                     index += 1
                     item_info = {}
@@ -210,7 +206,7 @@ class JudgeServer:
 
         spj_src_path = os.path.join(SPJ_SRC_DIR, spj_compile_config["src_name"])
 
-        # if spj source code not found, then write it into file
+        # SPJ 源码不存在时写入工作目录再编译。
         if not os.path.exists(spj_src_path):
             with open(spj_src_path, "w", encoding="utf-8") as f:
                 f.write(src)
@@ -223,7 +219,7 @@ class JudgeServer:
                                           output_dir=SPJ_EXE_DIR)
             os.chown(exe_path, SPJ_USER_UID, 0)
             os.chmod(exe_path, 0o500)
-        # turn common CompileError into SPJCompileError
+        # 将通用 CompileError 转为 SPJ 专用异常，方便上层按协议返回。
         except CompileError as e:
             raise SPJCompileError(e.message)
         return "success"
@@ -415,6 +411,6 @@ except Exception:
 if DEBUG:
     logger.info("DEBUG=ON")
 
-# gunicorn -w 4 -b 0.0.0.0:8080 server:app
+# gunicorn 启动示例：gunicorn -w 4 -b 0.0.0.0:8080 server:app
 if __name__ == "__main__":
     app.run(debug=DEBUG)

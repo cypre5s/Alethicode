@@ -31,7 +31,7 @@ public class AdminNfkController {
     /**
      * 下载指定课程包的 NFK 训练 CSV。
      *
-     * <p>Response：
+     * <p>响应：
      * <ul>
      *   <li>{@code Content-Type: text/csv;charset=UTF-8}；</li>
      *   <li>{@code Content-Disposition: attachment; filename="nfk_training_pack_{id}.csv"}；</li>

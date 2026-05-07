@@ -98,8 +98,6 @@ class AgentTraceRecorderTest {
 
         AgentTraceRecorder.SpanHandle handle = recorder.startSpan(
                 "trace-err", AgentTraceRecorder.SpanType.GUARDRAIL, "sess-err", null, null);
-
-        // Should NOT throw even if JDBC blows up
         recorder.endSpan(handle, AgentTraceRecorder.SpanStatus.FAILED, "db error", null);
     }
 

@@ -29,15 +29,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Verifies the worker's promotion-failure-give-up state machine.
+ * 验证 worker 的成功、失败重试和放弃状态机。
  *
- * <p>The contract under test:
+ * <p>被测契约：
  * <ul>
- *   <li>Successful row → {@code indexed_at = now()}, success counter +1.</li>
- *   <li>Failed row, attempts &lt; 4 → next_retry_at advances by
- *       60 × 2^(attempts-1) seconds (capped at 1h).</li>
- *   <li>Failed row, attempts == 4 → next failure parks the row with
- *       {@code given_up_at = now()}, give-up counter +1.</li>
+ *   <li>成功行写入 {@code indexed_at = now()}，成功计数加 1。</li>
+ *   <li>未达最大次数的失败行推进 {@code next_retry_at}，退避上限 1 小时。</li>
+ *   <li>达到最大次数后写入 {@code given_up_at = now()}，放弃计数加 1。</li>
  * </ul>
  */
 class RagIndexOutboxWorkerTest {
@@ -101,7 +99,6 @@ class RagIndexOutboxWorkerTest {
                 args.capture()
         );
         List<Object> values = args.getAllValues();
-        // values[0] = attempts (1), values[1] = error msg, values[2] = backoffSeconds, values[3] = id
         assertThat((int) values.get(0)).isEqualTo(1);
         assertThat((long) values.get(2)).isEqualTo(60L); // 60s × 2^(1-1) = 60s
         assertThat((long) values.get(3)).isEqualTo(11L);
@@ -111,11 +108,9 @@ class RagIndexOutboxWorkerTest {
 
     @Test
     void backoffCapsAtOneHour() {
-        // attempts=20 means next attempt would be 60s × 2^19 way over an hour.
         Map<String, Object> row = pendingIndexRow(13L, "memory", "1:bar", 20);
         when(jdbcTemplate.queryForList(anyString(), eq(RagIndexOutboxWorker.BATCH_SIZE)))
                 .thenReturn(List.of(row));
-        // attempts=20 already hit MAX_ATTEMPTS, so this would actually give up. Use 3 to exercise cap-style scaling.
         row.put("attempts", 3);
         when(ragServiceClient.indexNow(any(), anyString(), anyString(), any()))
                 .thenThrow(new RagServiceException("still down"));
@@ -131,13 +126,11 @@ class RagIndexOutboxWorkerTest {
                 args.capture()
         );
         long backoff = (long) args.getAllValues().get(2);
-        // attempts becomes 4, 60 × 2^3 = 480s, still under 1h cap
         assertThat(backoff).isEqualTo(480L);
     }
 
     @Test
     void fifthFailureParksRowAndIncrementsGiveupCounter() {
-        // attempts=4 means this is the 5th attempt → MAX_ATTEMPTS → give up
         Map<String, Object> row = pendingIndexRow(99L, "memory", "1:dead", 4);
         when(jdbcTemplate.queryForList(anyString(), eq(RagIndexOutboxWorker.BATCH_SIZE)))
                 .thenReturn(List.of(row));

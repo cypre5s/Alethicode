@@ -208,9 +208,6 @@ abstract class AITutorWorkflowIntegrationTestSupport extends AbstractJdbcIntegra
                     "target_kcs", List.of("循环", "边界条件")
             );
         });
-        // Phase 3 切流：callForEmbedding 已从 AiModelGateway 删除；
-        // similar-error / memory-semantic 检索改由 alethicode-rag 微服务托管，
-        // 集成测试若需 mock 这些路径，注入 RagServiceClient 的 Mockito stub。
 
         long rootId = insertUser("root", "Admin");
         long studentId = insertUser("student", "Regular User");

@@ -31,14 +31,10 @@ import java.time.Duration;
 import java.util.Map;
 
 /**
- * WebClient-backed implementation. Mirrors {@code TutorGraphClient}'s
- * connector setup so we have a single place that decides socket-level
- * behaviour for outbound internal HTTP traffic.
+ * 基于 WebClient 的 RAG 服务客户端实现。
  *
- * <p>All calls are synchronous (use {@code .block(...)}). The RAG service
- * is in the trust boundary; failures bubble up as {@link RagServiceException}
- * so callers (worker / retrieval services) can decide between retry,
- * fail-fast, or degrade.
+ * <p>所有调用都是同步阻塞；RAG 服务位于内部信任边界，失败统一抛出
+ * {@link RagServiceException}，由调用方决定重试或 fail fast。</p>
  */
 @Component
 public class HttpRagServiceClient implements RagServiceClient {
@@ -64,12 +60,7 @@ public class HttpRagServiceClient implements RagServiceClient {
                 .version(HttpClient.Version.HTTP_1_1)
                 .build();
 
-        // The alethicode-rag wire format is snake_case. Spring Boot's global Jackson
-        // builder applies SNAKE_CASE via JacksonConfig, but WebClient builds its own
-        // codecs that bypass that customizer — every record we ship would end up
-        // emitting camelCase ("languagePackId" instead of "language_pack_id"),
-        // failing the FastAPI Pydantic schema validation. Force the codec to use
-        // the same naming strategy explicitly.
+        // WebClient 自建 codec 不读取全局 Jackson 命名策略，必须显式使用 snake_case。
         ObjectMapper snakeMapper = new ObjectMapper()
                 .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
         ExchangeStrategies strategies = ExchangeStrategies.builder()
@@ -167,7 +158,7 @@ public class HttpRagServiceClient implements RagServiceClient {
                     .toBodilessEntity()
                     .block(indexTimeout);
         } catch (WebClientResponseException ex) {
-            // 404 on delete is not an error: the row was never indexed.
+            // 删除时 404 表示该行从未入索引，不需要重试。
             if (ex.getStatusCode() == HttpStatus.NOT_FOUND) {
                 return;
             }
@@ -221,7 +212,7 @@ public class HttpRagServiceClient implements RagServiceClient {
     }
 
     private static String endpointTag(String uri) {
-        // /v1/rag/query/courseware → "courseware"
+        // 将 /v1/rag/query/courseware 压缩为指标标签 courseware。
         int slash = uri.lastIndexOf('/');
         return slash >= 0 && slash + 1 < uri.length() ? uri.substring(slash + 1) : uri;
     }

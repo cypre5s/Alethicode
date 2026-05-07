@@ -423,8 +423,6 @@ public class ClassroomAnalyticsService {
         return result;
     }
 
-    // ── auth ──
-
     private void requireStaff(String classroomId, Authentication authentication) {
         if (authentication == null || !authentication.isAuthenticated()
                 || authentication instanceof AnonymousAuthenticationToken) {

@@ -25,12 +25,12 @@ source "$BACKEND_ENV"
 set +a
 
 DEPLOY_ENV_CONTENT="$(cat <<ENVEOF
-# === Database & Redis ===
+# 数据库与 Redis
 DB_PASSWORD=${DB_PASSWORD:-alethicode_db_local_2026}
 REDIS_PASSWORD=${REDIS_PASSWORD:-alethicode_redis_local_2026}
 JUDGE_SERVER_TOKEN=${JUDGE_SERVER_TOKEN:-dev-judge-token-change-me}
 
-# === Runtime paths inside containers ===
+# 容器内运行时路径
 TEST_CASE_DIR=/test_case
 UPLOAD_DIR=/data/public/upload
 CLASSROOM_LESSON_DIR=/data/classroom_lessons
@@ -38,7 +38,7 @@ SUBMISSION_DATA_DIR=/data/submission
 LANGUAGE_PACK_STORAGE_ROOT=/data/language_pack
 LANGUAGE_PACK_PREVIEW_DIR=/data/language_pack/preview
 
-# === AI Provider ===
+# AI Provider
 OPENAI_API_KEY=${OPENAI_API_KEY:-}
 EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-}
 EMBEDDING_BASE_URL=${EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
@@ -48,18 +48,18 @@ LLM_BASE_URL=${LLM_BASE_URL:-https://api.deepseek.com}
 LLM_API_TIMEOUT_SECONDS=${LLM_API_TIMEOUT_SECONDS:-300}
 LLM_API_MAX_RETRIES=${LLM_API_MAX_RETRIES:-5}
 
-# === Init LLM ===
+# 初始化 LLM
 INIT_LLM_API_KEY=${INIT_LLM_API_KEY:-}
 INIT_LLM_MODEL=${INIT_LLM_MODEL:-deepseek-v4-flash}
 INIT_LLM_BASE_URL=${INIT_LLM_BASE_URL:-https://api.deepseek.com}
 
-# === Agent Architecture ===
+# Agent 架构
 TUTOR_REACT_ENABLED=${TUTOR_REACT_ENABLED:-false}
 TUTOR_REACT_MAX_ITERATIONS=${TUTOR_REACT_MAX_ITERATIONS:-4}
 QA_REACT_ENABLED=${QA_REACT_ENABLED:-false}
 QA_REACT_MAX_ITERATIONS=${QA_REACT_MAX_ITERATIONS:-3}
 
-# === Video Generation ===
+# 视频生成
 VIDEO_TTS_PROVIDER=${VIDEO_TTS_PROVIDER:-stub}
 VIDEO_RENDER_PROVIDER=${VIDEO_RENDER_PROVIDER:-stub}
 ENVEOF

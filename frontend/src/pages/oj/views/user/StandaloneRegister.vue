@@ -9,7 +9,6 @@
     <div class="toasts" ref="toastContainer"></div>
 
     <div class="card-wrap">
-      <!-- Left brand panel -->
       <div class="brand-panel">
         <div class="brand-deco deco-1"></div>
         <div class="brand-deco deco-2"></div>
@@ -29,7 +28,6 @@
         </div>
       </div>
 
-      <!-- Right form panel -->
       <div class="form-panel">
         <div class="form-top">
           <div class="form-top-brand">Alethicode</div>
@@ -41,7 +39,6 @@
         </div>
 
         <div class="form-body">
-          <!-- Username -->
           <div class="field">
             <div class="field-label">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -65,7 +62,6 @@
             </div>
           </div>
 
-          <!-- Email -->
           <div class="field">
             <div class="field-label">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
@@ -89,7 +85,6 @@
             </div>
           </div>
 
-          <!-- Password -->
           <div class="field">
             <div class="field-label">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
@@ -118,7 +113,6 @@
             </div>
           </div>
 
-          <!-- Confirm Password -->
           <div class="field">
             <div class="field-label">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
@@ -147,7 +141,6 @@
             </div>
           </div>
 
-          <!-- Captcha -->
           <div class="field">
             <div class="field-label">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
@@ -176,7 +169,6 @@
             </div>
           </div>
 
-          <!-- Register button -->
           <button class="login-btn rip"
             :class="{loading: btnLoading, success: regSuccess}"
             @click="handleRegister"

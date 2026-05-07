@@ -115,7 +115,6 @@ public class NfkInferenceService {
                 session.close();
             }
         } catch (OrtException ignored) {
-            // noop: shutdown path
         }
         session = null;
         environment = null;

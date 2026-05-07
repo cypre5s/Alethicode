@@ -24,8 +24,7 @@ class BetaFeedbackControllerContractTest extends AbstractControllerContractTest 
     private static final String DATA_PNG = "{\"type\":\"button_dead\",\"severity\":\"medium\",\"description\":\"按钮无响应\"}";
 
     /**
-     * Reproduces the production auth shape: principal=username, details=Long userId,
-     * which is what {@code SessionAuthenticationFilter} stamps onto each request.
+     * 复现生产认证形态：principal 为用户名，details 为数字用户 ID。
      */
     private static RequestPostProcessor studentAuth(long userId) {
         UsernamePasswordAuthenticationToken token = new UsernamePasswordAuthenticationToken(
@@ -110,8 +109,6 @@ class BetaFeedbackControllerContractTest extends AbstractControllerContractTest 
 
     @Test
     void mailFailureDoesNotBlockSuccess() throws Exception {
-        // 即便邮件发送失败，service 也应吞掉异常并返回 reportId（fail-soft）。
-        // 这里用 mock 直接模拟 service 已处理失败：返回 id；客户端拿到 200。
         when(betaFeedbackService.createReport(any(BetaFeedbackCreateRequest.class), any(), any())).thenReturn(99L);
         MockMultipartFile data = new MockMultipartFile(
                 "data", "data", MediaType.APPLICATION_JSON_VALUE, DATA_PNG.getBytes()

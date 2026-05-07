@@ -10,9 +10,7 @@ import org.springframework.stereotype.Service;
 import java.util.Map;
 
 /**
- * Workflow execution methods (session CRUD, event, checkpoint, interrupt)
- * have been fully migrated to LangGraph tutor-graph service.
- * Only non-workflow convenience methods remain.
+ * 仅保留非工作流便捷方法的委托实现。
  */
 @Service
 public class AITutorWorkflowDomainServiceImpl implements AITutorWorkflowDomainService {

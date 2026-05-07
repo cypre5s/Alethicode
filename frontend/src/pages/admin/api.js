@@ -6,7 +6,6 @@ import { notify } from '@/utils/notifications'
 const httpClient = getHttpClient()
 
 export default {
-  // 登录
   login(username, password) {
     return ajax('login', 'post', {
       data: {
@@ -24,7 +23,6 @@ export default {
   getProfile() {
     return ajax('profile', 'get')
   },
-  // 获取公告列表
   getAnnouncementList(offset, limit) {
     return ajax('admin/announcements', 'get', {
       params: {
@@ -34,7 +32,6 @@ export default {
       }
     })
   },
-  // 删除公告
   deleteAnnouncement(id) {
     return ajax('admin/announcements', 'delete', {
       params: {
@@ -42,19 +39,16 @@ export default {
       }
     })
   },
-  // 修改公告
   updateAnnouncement(data) {
     return ajax('admin/announcements', 'put', {
       data
     })
   },
-  // 添加公告
   createAnnouncement(data) {
     return ajax('admin/announcements', 'post', {
       data
     })
   },
-  // 获取用户列表
   getUserList(offset, limit, keyword) {
     let params = { paging: true, offset, limit }
     if (keyword) {
@@ -64,7 +58,6 @@ export default {
       params: params
     })
   },
-  // 获取单个用户信息
   getUser(id) {
     return ajax('admin/users', 'get', {
       params: {
@@ -72,7 +65,6 @@ export default {
       }
     })
   },
-  // 编辑用户
   editUser(data) {
     return ajax('admin/users', 'put', {
       data
@@ -298,7 +290,7 @@ export default {
     return ajax('language-packs/visible', 'get')
   },
 
-  // ============ AI 变体题审核 ============
+  // AI 变体题审核
   getAIVariantList(params = {}) {
     params = utils.filterEmptyValue(params)
     return ajax('admin/ai/variant-review', 'get', {
@@ -317,7 +309,7 @@ export default {
     return ajax('admin/ai/review-packages/stats', 'get')
   },
 
-  // ============ KC Management ============
+  // KC 管理
   getKCList(params = {}) {
     return ajax('admin/ai/kc-list', 'get', { params })
   },
@@ -328,7 +320,7 @@ export default {
     return ajax(`admin/ai/kc/${kcId}/problems`, 'get')
   },
 
-  // ============ McMining (Phase 9) ============
+  // 错误概念挖掘
   getMcMiningPending() {
     return ajax('admin/ai/mcmining/pending', 'get')
   },
@@ -351,7 +343,7 @@ export default {
     return ajax('admin/ai/preflight/diagnose', 'post', { data: { detector_name: detectorName } })
   },
 
-  // ============ Language Pack Init ============
+  // 语言包初始化
   createLanguagePackInitTask(formData) {
     return httpClient.post('admin/language-packs/init-tasks', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
@@ -423,7 +415,7 @@ export default {
     })
   },
 
-  // ============ Beta Features ============
+  // 公测功能开关
   getBetaFeatures() {
     return ajax('admin/beta-features', 'get')
   },
@@ -433,7 +425,7 @@ export default {
     })
   },
 
-  // ============ Beta Feedback (公测反馈处理) ============
+  // 公测反馈处理
   getBetaFeedbackList(params) {
     return ajax('admin/beta/feedback-reports', 'get', { params, notifyOnSuccess: false })
   },
@@ -447,7 +439,7 @@ export default {
     return `/api/admin/beta/feedback-reports/${reportId}/screenshots/${attachmentId}`
   },
 
-  // ============ Usage Stats (公测使用统计) ============
+  // 公测使用统计
   getUsageStats(range) {
     return ajax('admin/usage-stats', 'get', {
       params: { range: range || '7d' },
@@ -457,10 +449,11 @@ export default {
 }
 
 /**
- * @param url
- * @param method get|post|put|delete...
- * @param params like queryString. if a url is index?a=1&b=2, params = {a: '1', b: '2'}
- * @param data post data, use for method put|post
+ * 统一处理管理端业务错误、登录跳转和成功提示。
+ *
+ * @param {string} url 相对后端前缀的路径。
+ * @param {string} method HTTP 方法。
+ * @param {Object} [options] 请求参数、请求体和通知选项。
  * @returns {Promise}
  */
 function ajax(url, method, options) {
@@ -497,7 +490,7 @@ function ajax(url, method, options) {
         }
       }
     }, err => {
-      // API请求异常，一般为Server error 或 network error
+      // axios 层异常没有统一业务错误体，只能从响应或异常对象提取提示。
       reject(err)
       var msg = (err.response && err.response.data && err.response.data.data) || err.message || 'Network Error'
       if (notifyOnError) {

@@ -1,4 +1,4 @@
-"""Tests for runtime event envelope and enum."""
+"""测试 runtime event 信封和枚举。"""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def test_build_runtime_event_has_required_fields():
 
 
 def test_all_server_events_present():
-    """Ensure the contract's 13 standard events are all declared."""
+    """确保契约要求的 13 个标准事件全部声明。"""
     expected = {
         "TASK_QUEUED", "TASK_STARTED", "TASK_PROGRESS",
         "TOOL_CALL_STARTED", "TOOL_CALL_COMPLETED", "CARD_GENERATED",

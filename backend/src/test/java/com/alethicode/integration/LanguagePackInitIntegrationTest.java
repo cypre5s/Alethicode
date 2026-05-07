@@ -86,7 +86,6 @@ class LanguagePackInitIntegrationTest extends AbstractJdbcIntegrationTest {
         );
         stubLlmDefaults();
         stubJudgeCheckDefaults();
-        // Phase 3 切流：callForEmbedding 已从 AiModelGateway 删除，本 stub 一并清理。
     }
 
     @Test

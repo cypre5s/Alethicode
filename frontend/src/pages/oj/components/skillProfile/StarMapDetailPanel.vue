@@ -32,7 +32,6 @@
         </div>
 
         <div class="smd-body">
-          <!-- 关联题目 -->
           <section class="smd-section">
             <h4 class="smd-section-title">关联题目 ({{ kcDetail.problems.length }})</h4>
             <div v-if="!kcDetail.problems.length" class="smd-empty-hint">暂无关联题目</div>
@@ -49,8 +48,6 @@
               </span>
             </div>
           </section>
-
-          <!-- 前置依赖 -->
           <section class="smd-section" v-if="kcDetail.prerequisites.length">
             <h4 class="smd-section-title">前置依赖</h4>
             <div
@@ -69,8 +66,6 @@
               </div>
             </div>
           </section>
-
-          <!-- 活跃 Misconception -->
           <section class="smd-section" v-if="kcDetail.active_misconceptions.length">
             <h4 class="smd-section-title">
               易错点 ({{ kcDetail.active_misconceptions.length }})
@@ -90,8 +85,6 @@
               </div>
             </div>
           </section>
-
-          <!-- 掌握度趋势 -->
           <section class="smd-section" v-if="kcDetail.mastery_history && kcDetail.mastery_history.length > 1">
             <h4 class="smd-section-title">掌握度趋势</h4>
             <div ref="trendChart" class="smd-trend-chart"></div>
@@ -430,7 +423,7 @@ export default {
   margin-top: 4px;
 }
 
-/* Misconception */
+/* 易错概念 */
 .smd-misc-card {
   padding: 10px 12px;
   border-radius: 8px;
@@ -474,7 +467,7 @@ export default {
   height: 140px;
 }
 
-/* Transition */
+/* 过渡动画 */
 .smd-slide-enter-active,
 .smd-slide-leave-active {
   transition: opacity 0.3s ease;

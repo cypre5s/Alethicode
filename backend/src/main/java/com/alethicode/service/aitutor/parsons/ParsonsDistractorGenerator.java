@@ -17,7 +17,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 错题驱动的 Parsons distractor 生成器。
+ * 错题驱动的 Parsons 干扰块生成器。
  *
  * <p>数据源优先级（设计稿创新点 2）：</p>
  * <ol>
@@ -25,7 +25,7 @@ import java.util.Set;
  *   <li>不足时由 LLM 受控生成，prompt 注入 reference_code + KC 名称 + 已抽取的真实错题模式</li>
  * </ol>
  *
- * <p>所有 distractor 与 reference block 做字符级 LCS 相似度过滤：相似度 ≥ {@code lcs-similarity-threshold} 直接丢弃，
+ * <p>所有干扰块与参考块做字符级 LCS 相似度过滤：相似度 ≥ {@code lcs-similarity-threshold} 直接丢弃，
  * 防止 LLM 产出"接近正确答案"的伪干扰块导致漏题。</p>
  */
 @Service

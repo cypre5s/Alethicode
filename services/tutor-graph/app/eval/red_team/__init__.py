@@ -1,9 +1,9 @@
-"""Red team adversarial testing for tutor_graph nodes.
+"""tutor_graph 节点的红队对抗测试。
 
-This package implements the Decoupled Eval pattern from RedTeamCUA
-(arXiv:2505.21936) adapted to Alethicode's pedagogical scenarios.
+本包实现 RedTeamCUA（arXiv:2505.21936）的 Decoupled Eval 模式，并适配
+Alethicode 的教学场景。
 
-Inspired by:
+参考来源：
 - ALETH-PLAN-2026-0428-AP01 §三 痛点 P2
 - RedTeamCUA: Realistic Adversarial Testing of Computer-Use Agents
 """

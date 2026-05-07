@@ -3,15 +3,14 @@ package com.alethicode.service.aitutor.react;
 import java.util.Map;
 
 /**
- * Executes a tool call issued by the LLM and returns a serializable result.
- * Implementations are registered by tool name in the ReAct loop.
+ * 执行 LLM 发起的工具调用，并返回可序列化结果。
  */
 @FunctionalInterface
 public interface ToolExecutor {
 
     /**
-     * @param arguments parsed JSON arguments from the LLM tool_call
-     * @return result object that will be serialized to JSON and fed back as an observation
+     * @param arguments 从 LLM {@code tool_call} 解析出的 JSON 参数
+     * @return 会被序列化为 JSON 并作为观察结果回传的对象
      */
     Object execute(Map<String, Object> arguments);
 

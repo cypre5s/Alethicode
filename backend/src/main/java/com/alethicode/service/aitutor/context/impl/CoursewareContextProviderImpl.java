@@ -86,7 +86,7 @@ public class CoursewareContextProviderImpl implements CoursewareContextProvider 
     /**
      * RAG 异常时返回空 chunks 但不阻断：CoursewareSummary 仍然返回（带 lp 信息），
      * 由 chat 入口决定是把空 chunks 拼进 prompt（让 LLM 知道引用了课件但检索失败）
-     * 还是 silent 降级。这与 plan §三「Failfast 原则」一致：越权 fail-fast，
+     * 还是静默降级。这与 plan §三「Failfast 原则」一致：越权 fail-fast，
      * 但 RAG 服务级故障不应阻断用户对话主链路。
      */
     private List<CoursewareSummary.RetrievedChunk> retrieveChunksOrDegrade(

@@ -93,18 +93,21 @@ export default {
 
 <style lang="less" scoped>
 .at-mention-menu {
-  position: relative;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 8px);
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 320px;
+  max-height: min(320px, calc(100vh - 220px));
   overflow-y: auto;
   padding: 8px 6px;
   background: var(--bg-card, #fff);
   border: 1px solid var(--border-color, #e5e7eb);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
-  z-index: 30;
+  z-index: 60;
 }
 
 .at-mention-group + .at-mention-group {

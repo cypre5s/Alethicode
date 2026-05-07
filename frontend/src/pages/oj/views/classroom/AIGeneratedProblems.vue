@@ -111,8 +111,6 @@
               layout="prev, pager, next, jumper"/>
       </div>
     </el-card>
-
-    <!-- 生成题目 Dialog -->
     <el-dialog v-model="showGenerateModal" title="基于课件生成题目" width="600">
       <el-form :model="generateForm" :label-width="100">
         <el-form-item label="选择课件">
@@ -190,8 +188,6 @@
         <el-button type="primary" :loading="submitGenerating" @click="startGenerate">开始生成</el-button>
       </div></template>
     </el-dialog>
-
-    <!-- 发布前 KC 标注 Dialog -->
     <el-dialog v-model="showKcLabelModal" title="发布前请标注题目 KC" width="520" class="kc-label-dialog">
       <el-alert type="warning" show-icon :closable="false" style="margin-bottom: 14px;">
         <template #title>
@@ -220,8 +216,6 @@
         </el-button>
       </div></template>
     </el-dialog>
-
-    <!-- 题目详情 Dialog -->
     <el-dialog 
       v-model="showDetailModal" 
       :title="currentProblem.title" 
@@ -441,8 +435,6 @@
         </el-button>
       </div></template>
     </el-dialog>
-
-    <!-- 手动编辑 Dialog -->
     <el-dialog
       v-model="showEditModal"
       title="手动调整 AI 题目"

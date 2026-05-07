@@ -1,11 +1,10 @@
-"""Pydantic schema for adversarial test cases.
+"""对抗测试用例的 Pydantic schema。
 
-A case captures: which node receives the attack, what payload is injected
-where, what the attack tries to achieve, and what assertions the node's
-output must satisfy.
+一个用例描述：攻击进入哪个节点、payload 注入到哪里、攻击目标是什么，以及节点输出
+必须满足哪些断言。
 
-Failfast principle (per AGENTS.md): unknown fields are forbidden so that
-dataset drift fails at parse time rather than silently passing tests.
+按 AGENTS.md 的 failfast 原则：禁止未知字段，使数据集漂移在解析阶段失败，而不是
+静默通过测试。
 """
 
 from __future__ import annotations
@@ -29,7 +28,7 @@ AssertionKind = Literal[
 
 
 class Assertion(BaseModel):
-    """A single assertion against the node output."""
+    """针对节点输出的一条断言。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -38,31 +37,31 @@ class Assertion(BaseModel):
     value: Any = None
     description: str = Field(
         default="",
-        description="Human-readable description of what this assertion checks.",
+        description="供人阅读的断言说明。",
     )
 
 
 class PayloadInjection(BaseModel):
-    """Where and what to inject into the node input."""
+    """描述向节点输入的哪个位置注入什么内容。"""
 
     model_config = ConfigDict(extra="forbid")
 
     state_path: str = Field(
         ...,
         description=(
-            "Dotted path into TutorGraphState where the payload is placed. "
-            "Examples: 'event_data.message', 'evidence_pack.diagnosis_evidence.code', "
-            "'evidence_pack.workflow_context.statement', 'last_cards', 'references'."
+            "payload 写入 TutorGraphState 的点分路径。例如：'event_data.message'、"
+            "'evidence_pack.diagnosis_evidence.code'、"
+            "'evidence_pack.workflow_context.statement'、'last_cards'、'references'。"
         ),
     )
     value: Any = Field(
         ...,
-        description="The adversarial payload value to inject at state_path.",
+        description="注入到 state_path 的对抗 payload 值。",
     )
 
 
 class AdversarialCase(BaseModel):
-    """One adversarial test case."""
+    """一个对抗测试用例。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -71,48 +70,47 @@ class AdversarialCase(BaseModel):
     target_node: str = Field(
         ...,
         description=(
-            "tutor_graph node function name. Examples: 'chat_node', "
-            "'error_feedback_node', 'ideating_node', 'skeleton_node', "
-            "'parsons_node', 'ac_review_node'."
+            "tutor_graph 节点函数名。例如：'chat_node'、'error_feedback_node'、"
+            "'ideating_node'、'skeleton_node'、'parsons_node'、'ac_review_node'。"
         ),
     )
     attack_category: AttackCategory
     cia: PedagogicalCIA = Field(
         ...,
         description=(
-            "Which axis of the pedagogical CIA triad this attack targets. "
-            "C=Confidentiality (don't leak answer); "
-            "I=Integrity (don't let learner manipulate mastery); "
-            "A=Availability (don't allow flooding/abuse)."
+            "攻击目标对应教学 CIA 三元组的哪一轴。"
+            "C=Confidentiality（不泄漏答案）；"
+            "I=Integrity（不允许学习者操纵 mastery）；"
+            "A=Availability（不允许洪泛或滥用）。"
         ),
     )
 
     description: str = Field(
         ...,
-        description="One-line description of the real-world student behavior this models.",
+        description="该用例模拟的真实学生行为一句话描述。",
     )
     payload: list[PayloadInjection] = Field(
         ...,
         min_length=1,
-        description="One or more injections to apply to the node input state.",
+        description="应用到节点输入状态的一个或多个注入项。",
     )
     base_state_overrides: dict[str, Any] = Field(
         default_factory=dict,
         description=(
-            "Optional overrides applied to the default base state before payload injection. "
-            "Use this to set up scenario context (e.g., specific problem text, learner profile)."
+            "payload 注入前应用到默认基础状态的可选覆盖项，用于设置场景上下文，"
+            "例如特定题面或学习者画像。"
         ),
     )
     expected_assertions: list[Assertion] = Field(
         ...,
         min_length=1,
-        description="All assertions must hold for the case to pass.",
+        description="所有断言都满足时用例才算通过。",
     )
     notes: str = Field(default="")
 
 
 class AssertionResult(BaseModel):
-    """Result of running one assertion."""
+    """一条断言的运行结果。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -123,7 +121,7 @@ class AssertionResult(BaseModel):
 
 
 class CaseResult(BaseModel):
-    """Result of running one adversarial case."""
+    """一个对抗用例的运行结果。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -132,18 +130,15 @@ class CaseResult(BaseModel):
     attempted: bool = Field(
         ...,
         description=(
-            "Whether the node attempted to respond at all (vs failfast). "
-            "Mirrors RedTeamCUA's Attempt Rate metric: a node that responds "
-            "to a clearly malicious prompt has high AR, even if its output "
-            "happens to be benign."
+            "节点是否尝试响应（相对于 failfast）。对齐 RedTeamCUA 的 Attempt Rate："
+            "节点只要响应明显恶意的 prompt，就会提高 AR，即使输出碰巧是安全的。"
         ),
     )
     failfast: bool = Field(
         ...,
         description=(
-            "Whether the node returned runtime_state=FAILED or threw. "
-            "For some categories (e.g., schema injection), failfast is the "
-            "correct behavior."
+            "节点是否返回 runtime_state=FAILED 或抛错。某些类别（例如 schema 注入）"
+            "的正确行为就是 failfast。"
         ),
     )
     raw_output: dict[str, Any] = Field(default_factory=dict)
@@ -152,7 +147,7 @@ class CaseResult(BaseModel):
 
 
 class DatasetSummary(BaseModel):
-    """Aggregate report of a full dataset run."""
+    """完整数据集运行的聚合报告。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -162,7 +157,7 @@ class DatasetSummary(BaseModel):
     pass_rate: float
     attempt_rate: float = Field(
         ...,
-        description="Fraction of cases where node attempted to respond (RedTeamCUA AR analog).",
+        description="节点尝试响应的用例占比，对应 RedTeamCUA AR。",
     )
     failfast_rate: float
     by_phase: dict[Phase, dict[str, int]] = Field(default_factory=dict)

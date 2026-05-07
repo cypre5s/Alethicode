@@ -1,11 +1,12 @@
 import moment from 'moment'
 
-// convert utc time to localtime
 function utcToLocal (utcDt, format = 'YYYY-M-D  HH:mm:ss') {
   return moment.utc(utcDt).local().format(format)
 }
 
-// get duration from startTime to endTime, return like 3 days, 2 hours, one year ..
+/**
+ * 返回两个时间点之间的可读时长。
+ */
 function duration (startTime, endTime) {
   let start = moment(startTime)
   let end = moment(endTime)

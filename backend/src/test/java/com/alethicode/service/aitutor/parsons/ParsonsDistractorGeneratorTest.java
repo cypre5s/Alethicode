@@ -98,7 +98,6 @@ class ParsonsDistractorGeneratorTest {
 
     @Test
     void retriesLlmUpToMaxRetriesAndReturnsWhatWasGathered() {
-        // 默认 maxLlmRetries=2 → 1 次首调 + 2 次重试 = 3 次总调用
         when(jdbcTemplate.queryForList(anyString(), any(Object[].class))).thenReturn(List.of());
         when(aiModelGateway.callForJson(anyString(), anyString()))
                 .thenThrow(new RuntimeException("simulated LLM outage"));
@@ -111,8 +110,6 @@ class ParsonsDistractorGeneratorTest {
 
     @Test
     void filtersDistractorsTooSimilarToReferenceBlocks() {
-        // row 1 = reference 完全一致 → 必被 LCS 过滤；
-        // row 2 = 结构性完全不同（控制流而非表达式）→ 必被保留
         when(jdbcTemplate.queryForList(anyString(), any(Object[].class))).thenReturn(List.of(
                 notebookRow(1L, "print(a + b)", "完全一致 — 应被 LCS 过滤丢弃"),
                 notebookRow(2L, "for i in range(10):", "结构性差异巨大 — 应被保留")
@@ -165,10 +162,6 @@ class ParsonsDistractorGeneratorTest {
 
     @Test
     void emptyKcIdsBypassesNotebookSqlButLlmFallbackPathIsIndependent() {
-        // 当题目无任何 KC 关联时，pickFromNotebook 早退不发 SQL（避免拼一条
-        // ARRAY[] 这种边界 SQL 给 PG），但 generate() 主流程仍会按 targetCount
-        // 走 LLM 兜底；这里只断言"SQL 不被调"这一边界行为，LLM 调与不调是
-        // distractor 数量决策的责任，不归 kcIds 是否空管。
         when(aiModelGateway.callForJson(anyString(), anyString()))
                 .thenReturn(Map.of("distractors", List.of(
                         Map.of("code", "while True: pass", "indent", 0, "kc_hint", "无 KC fallback"))));
@@ -211,8 +204,6 @@ class ParsonsDistractorGeneratorTest {
                 .as("SQL 中字面 ? 的数量必须等于 buildArgs 长度，否则 pgjdbc 报 No value specified for parameter")
                 .isEqualTo(argsCaptor.getValue().length);
     }
-
-    // ---- helpers ----
 
     private static Map<String, Object> notebookRow(long id, String snippetCode, String description) {
         Map<String, Object> row = new LinkedHashMap<>();

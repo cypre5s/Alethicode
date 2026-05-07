@@ -1,12 +1,7 @@
 /**
  * 公测前端遥测客户端。
  *
- * 设计要点：
- *   - 单例。`initBetaTelemetry({ apiClient, router })` 由 OJ 端 `index.js` 启动时调用一次。
- *   - 事件队列每 5 秒或满 20 条 flush 一次；关闭页面时通过 `navigator.sendBeacon` 兜底。
- *   - 同步保留最近 50 条到 RECENT 队列，反馈表单提交时附在 `recentActions` 字段。
- *   - 严禁记录代码全文 / 聊天对话 / 密码 / token；前端错误只截 message 前 500 字。
- *   - 上报失败 silent，不影响主流程。
+ * 仅上报脱敏元数据；代码、聊天内容、密码和 token 不进入 payload。
  */
 
 const QUEUE = []
@@ -33,7 +28,9 @@ export function initBetaTelemetry({ apiClient, router, isAuthenticated } = {}) {
     router.afterEach((to) => {
       try {
         recordEvent('page_view', { route: to && to.fullPath ? to.fullPath : '' })
-      } catch (_) { /* silent */ }
+      } catch (err) {
+        void err
+      }
     })
   }
 
@@ -46,7 +43,9 @@ export function initBetaTelemetry({ apiClient, router, isAuthenticated } = {}) {
           line: event ? event.lineno : null,
           col: event ? event.colno : null
         })
-      } catch (_) { /* silent */ }
+      } catch (err) {
+        void err
+      }
     })
     window.addEventListener('unhandledrejection', (event) => {
       try {
@@ -56,7 +55,9 @@ export function initBetaTelemetry({ apiClient, router, isAuthenticated } = {}) {
           type: 'unhandled_rejection',
           message: trimText(message, 500)
         })
-      } catch (_) { /* silent */ }
+      } catch (err) {
+        void err
+      }
     })
     window.addEventListener('beforeunload', flushSync)
   }
@@ -98,7 +99,9 @@ export async function flush() {
   const batch = QUEUE.splice(0, MAX_BATCH)
   try {
     await api.reportBetaTelemetryBatch(batch)
-  } catch (_) { /* silent */ }
+  } catch (err) {
+    void err
+  }
 }
 
 export function flushSync() {
@@ -112,7 +115,9 @@ export function flushSync() {
       { type: 'application/json' }
     )
     navigator.sendBeacon('/api/beta/telemetry/events', blob)
-  } catch (_) { /* silent */ }
+  } catch (err) {
+    void err
+  }
 }
 
 export function _resetForTest() {

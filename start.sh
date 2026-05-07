@@ -289,6 +289,10 @@ start_alethicode_rag() {
     echo "[INFO] removing existing alethicode-rag container so it picks up the resolved DB_PASSWORD"
     docker rm -f "$ALETHICODE_RAG_CONTAINER_NAME" >/dev/null 2>&1 || true
   fi
+  # 本地 start.sh 不启动 PgBouncer（CHANGELOG 2026-05-03 决议直连模式），让
+  # alethicode-rag 与 backend / tutor-graph 一致直连 PG 5436。生产 docker compose
+  # 全栈部署时不设此变量，回到默认 PgBouncer 6432。
+  ALETHICODE_RAG_POSTGRES_PORT="${ALETHICODE_RAG_POSTGRES_PORT:-${POSTGRES_HOST_PORT}}" \
   docker compose -f "$ROOT_DIR/deploy/docker-compose.yml" up -d --no-deps alethicode-rag
 }
 
@@ -742,6 +746,45 @@ resolve_postgres_credentials() {
   export DB_PASSWORD
 }
 
+sync_comment_only_flyway_history() {
+  local history_table
+  history_table="$(
+    docker exec java-oj-postgres \
+      psql -U "$POSTGRES_USER_ACTUAL" -d "$POSTGRES_DB_NAME" -At -v ON_ERROR_STOP=1 \
+      -c "select to_regclass('public.flyway_schema_history')" 2>/dev/null \
+      | tr -d '[:space:]'
+  )"
+  if [[ "$history_table" != "flyway_schema_history" ]]; then
+    return 0
+  fi
+
+  # 这些版本仅发生注释本地化，SQL 语句未变；只在本地历史仍是已知旧 checksum 时同步元数据。
+  local updated
+  updated="$(
+    docker exec -i java-oj-postgres \
+      psql -U "$POSTGRES_USER_ACTUAL" -d "$POSTGRES_DB_NAME" -qAt -v ON_ERROR_STOP=1 <<'SQL'
+WITH expected(version, old_checksum, new_checksum) AS (
+    VALUES
+        ('55', 2003548345, -1059707173),
+        ('56', 354711983, 932694347),
+        ('58', -16692049, 205823870),
+        ('65', -244807946, 2131728962),
+        ('74', -32722472, -659287958)
+)
+UPDATE flyway_schema_history history
+SET checksum = expected.new_checksum
+FROM expected
+WHERE history.version = expected.version
+  AND history.success = TRUE
+  AND history.checksum = expected.old_checksum
+RETURNING history.version;
+SQL
+  )"
+  if [[ -n "$updated" ]]; then
+    echo "[INFO] synchronized comment-only Flyway checksums: $(printf '%s' "$updated" | tr '\n' ',' | sed 's/,$//')"
+  fi
+}
+
 hash_with_sha256() {
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum | awk '{print $1}'
@@ -1028,6 +1071,7 @@ check_port_free "$TUTOR_GRAPH_PORT"
 echo "[INFO] starting infra (postgres + redis + nats + temporal)..."
 start_infra
 resolve_postgres_credentials
+sync_comment_only_flyway_history
 start_alethicode_rag
 if ! wait_nats_ready; then
   echo "[ERROR] nats did not become ready on ${NATS_MONITOR_PORT}" >&2
@@ -1167,9 +1211,8 @@ fi
 echo "[OK] backend ready: http://127.0.0.1:${BACKEND_PORT}"
 echo "[INFO] backend log: $BACKEND_LOG"
 
-# Register EXIT/INT/TERM trap right after the backend is confirmed ready. Any
-# later failure (judge / tutor-graph / frontend bootstrap) then still cleans up
-# the mvn child process instead of leaving a stray Java listener on BACKEND_PORT.
+# 后端确认就绪后立即注册退出清理；后续 judge / tutor-graph / frontend 任一步失败，
+# 都能回收 mvn 子进程，避免遗留占用 BACKEND_PORT 的 Java 监听。
 trap cleanup EXIT INT TERM
 
 echo "[INFO] starting local judge container..."

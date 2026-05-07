@@ -114,7 +114,9 @@ function writeStorage (version) {
   if (typeof window === 'undefined' || !window.localStorage) return
   try {
     window.localStorage.setItem(STORAGE_KEY, version)
-  } catch (_) { /* silent */ }
+  } catch (err) {
+    void err
+  }
 }
 </script>
 

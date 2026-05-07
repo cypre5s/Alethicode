@@ -25,28 +25,20 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Drains {@code rag_index_outbox} and forwards each pending row to
- * alethicode-rag.
+ * 消费 {@code rag_index_outbox}，并把待处理行转发给 alethicode-rag。
  *
- * <p>Backoff and give-up policy:
+ * <p>失败退避策略：
  * <ul>
- *   <li>Each failure increments {@code attempts} and schedules
+ *   <li>每次失败递增 {@code attempts}，并按
  *       {@code next_retry_at = now() + min(60s × 2^(attempts-1), 1h)}.</li>
- *   <li>After {@link #MAX_ATTEMPTS} failures the row is parked with
- *       {@code given_up_at = now()} and a Micrometer counter
- *       {@code rag_outbox_giveup_total} is incremented for alerting.</li>
- *   <li>Successful calls set {@code indexed_at = now()} so the row is no
- *       longer picked up.</li>
+ *   <li>达到 {@link #MAX_ATTEMPTS} 后写入 {@code given_up_at = now()}，并递增
+ *       {@code rag_outbox_giveup_total} 用于告警。</li>
+ *   <li>转发成功后写入 {@code indexed_at = now()}，该行不再被扫描。</li>
  * </ul>
  *
- * <p>Spring's {@code @EnableScheduling} is intentionally not enabled
- * project-wide (see {@code KcCoverageRegistry} for the rationale), so we
- * self-host a single-threaded {@link ScheduledExecutorService} the same
- * way that class does. The worker batch-fetches up to {@link #BATCH_SIZE}
- * pending rows per tick and processes them sequentially; if a single
- * row's HTTP call takes a long time (LightRAG insert can be 60-90s for
- * one chunk), the rest of the batch waits — that's fine because index
- * throughput is gated by alethicode-rag itself anyway.
+ * <p>项目未全局启用 {@code @EnableScheduling}，因此这里自持单线程调度器。每轮最多
+ * 处理 {@link #BATCH_SIZE} 行并顺序执行；索引吞吐本身由 alethicode-rag 限制，顺序处理
+ * 更容易保证失败隔离和数据库状态清晰。</p>
  */
 @Component
 public class RagIndexOutboxWorker {
@@ -129,8 +121,7 @@ public class RagIndexOutboxWorker {
                 log.debug("rag_outbox drain processed={}", processed);
             }
         } catch (RuntimeException ex) {
-            // Top-level guard — never let the scheduler thread die. Individual row
-            // failures are already isolated below.
+            // 顶层保护不能让调度线程退出；单行失败已在下层隔离。
             log.warn("rag_outbox drain unexpected failure", ex);
         }
     }

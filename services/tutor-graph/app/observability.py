@@ -1,14 +1,4 @@
-"""OpenTelemetry bootstrap for tutor_graph.
-
-Setting this up in a dedicated module (rather than inline in ``app.main``) keeps
-``main`` readable and makes it easy to skip OTel in unit tests by leaving the
-``OTEL_EXPORTER_OTLP_ENDPOINT`` environment variable unset.
-
-Defaults are aligned with the Java side so a request that enters Java and then
-hops to tutor_graph shows up as a single distributed trace. Service names use the
-``service.name`` resource attribute so Jaeger / Tempo / 阿里云 ARMS / SLS Trace
-all render them with the same label.
-"""
+"""为 tutor_graph 按需启用 OpenTelemetry。"""
 
 from __future__ import annotations
 
@@ -24,7 +14,7 @@ def configure_otel(app) -> None:
         )
         return
 
-    # Imported lazily so unit tests without the OTel packages still import app.main.
+    # 懒加载，避免未安装 OTel 依赖的单测无法导入 app.main。
     from opentelemetry import trace
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
     from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor

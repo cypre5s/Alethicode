@@ -15,7 +15,6 @@
       <div v-if="loading && !data" class="loading-block">加载中…</div>
       <div v-else-if="error" class="error-block">{{ error }}</div>
       <div v-else-if="data" class="dashboard-stack">
-        <!-- 顶部 KPI 总览：一屏看完核心指标 -->
         <div class="surface-card">
           <div class="section-head">
             <h4>核心指标</h4>
@@ -49,8 +48,6 @@
             </div>
           </div>
         </div>
-
-        <!-- 每日活跃曲线（全宽） -->
         <div class="surface-card">
           <div class="section-head">
             <h4>每日活跃趋势</h4>
@@ -61,8 +58,6 @@
             <div v-else class="chart-empty">暂无活跃数据</div>
           </div>
         </div>
-
-        <!-- 学习效果 + AI 卡片分布（两列并列） -->
         <div class="row-split">
           <div class="surface-card">
             <div class="section-head">
@@ -103,8 +98,6 @@
             </div>
           </div>
         </div>
-
-        <!-- 痛点：高 WA / 高重试 两表并列 -->
         <div class="row-split">
           <div class="surface-card">
             <div class="section-head">
@@ -149,8 +142,6 @@
             </ElTable>
           </div>
         </div>
-
-        <!-- 反馈聚类：按严重 / 按类型 两块并列 -->
         <div class="row-split">
           <div class="surface-card">
             <div class="section-head">

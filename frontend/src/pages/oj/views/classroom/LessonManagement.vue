@@ -54,8 +54,6 @@
         @update:pageSize="lessonPageSize = $event"
       />
     </el-card>
-
-    <!-- 上传课件 Dialog -->
     <el-dialog v-model="showUploadModal" title="上传课件" width="640"
                :close-on-click-modal="!uploading" :show-close="!uploading">
       <el-form :label-width="100">
@@ -113,8 +111,6 @@
         </el-button>
       </div></template>
     </el-dialog>
-
-    <!-- 课件查看 Dialog -->
     <el-dialog v-model="showViewModal" :title="currentLesson.title" width="90%" fullscreen>
       <div class="lesson-viewer">
         <div class="viewer-toolbar">
@@ -172,7 +168,6 @@
       </div></template>
     </el-dialog>
 
-    <!-- AI 出题 Dialog -->
     <el-dialog v-model="showAIGenerateModal" title="AI 智能出题" width="700">
       <el-form :model="aiForm" :label-width="100">
         <el-form-item label="课件">

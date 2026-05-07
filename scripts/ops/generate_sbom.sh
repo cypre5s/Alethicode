@@ -18,8 +18,7 @@ SYFT_IMAGE="${SYFT_IMAGE:-anchore/syft:latest}"
 OUTPUT_DIR="${OUTPUT_DIR:-./build/sbom}"
 OUTPUT_FORMAT="${CYCLONEDX_OUTPUT:-cyclonedx-json}"
 
-# Fail fast when neither syft nor docker is available — half-empty SBOMs are worse
-# than no SBOM because they silently claim coverage in compliance reports.
+# syft 和 docker 都不可用时直接失败；半截 SBOM 会在合规报告里误报覆盖范围。
 if ! command -v syft >/dev/null 2>&1 && ! command -v docker >/dev/null 2>&1; then
     echo "error: neither 'syft' nor 'docker' is installed. Install syft from" >&2
     echo "       https://github.com/anchore/syft or pull ${SYFT_IMAGE} via docker." >&2

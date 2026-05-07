@@ -1,5 +1,4 @@
 export const m = {
-  // SideMenu.vue
   Dashboard: 'Dashboard',
   General: 'General',
   System_Admin: 'System',
@@ -15,11 +14,9 @@ export const m = {
   Problem_List: 'Problem List',
   Create_Problem: 'Create Problem',
   Export_Import_Problem: 'Export Or Import Problem',
-  // User.vue
   User_User: 'User',
   Import_User: 'Import User',
   Generate_User: 'Generate User',
-  // User.vue-dialog
   User_Info: 'User',
   User_Username: 'Username',
   User_Real_Name: 'Real Name',
@@ -29,12 +26,10 @@ export const m = {
   Problem_Permission: 'Problem Permission',
   Two_Factor_Auth: 'Two Factor Auth',
   Is_Disabled: 'Is Disabled',
-  // Announcement.vue
   General_Announcement: 'Announcement',
   Announcement_Title: 'Title',
   Announcement_Content: 'Content',
   Announcement_visible: 'Visible',
-  // Conf.vue
   SMTP_Config: 'SMTP Config',
   Server: 'Server',
   Port: 'Port',
@@ -47,7 +42,6 @@ export const m = {
   Footer: 'Footer',
   Allow_Register: 'Allow Register',
   Submission_List_Show_All: 'Submission List Show All',
-  // JudgeServer.vue
   Judge_Server_Token: 'Judge Server Token',
   Judge_Server_Info: 'Judge Server',
   IP: 'IP',
@@ -55,9 +49,7 @@ export const m = {
   Service_URL: 'Service URL',
   Last_Heartbeat: 'Last Heartbeat',
   Create_Time: 'Create Time',
-  // PruneTestCase
   Test_Case_Prune_Test_Case: 'Prune Test Case',
-  // Problem.vue
   Display_ID: 'Display ID',
   Title: 'Title',
   Description: 'Description',
@@ -97,14 +89,12 @@ export const m = {
   Real_Time_Rank: 'Real Time Rank',
   Allowed_IP_Ranges: 'Allowed IP Ranges',
   CIDR_Network: 'CIDR Network',
-  // Dashboard.vue
   Last_Login: 'Last Login',
   System_Overview: 'System Overview',
   DashBoardJudge_Server: 'Judge Server',
   HTTPS_Status: 'HTTPS Status',
   Force_HTTPS: 'Force HTTPS',
   CDN_HOST: 'CDN HOST',
-  // Login.vue
   Welcome_to_Login: 'Welcome to Login',
   GO: 'GO',
   username: 'username',

@@ -1,5 +1,5 @@
 /**
- * 前端 AST Pre-flight 检测器
+ * 前端 Pre-flight 检测器。
  *
  * 10 个基于文本/正则的检测器，在浏览器本地同步执行（< 10ms）。
  * 每个检测器返回 { hit: boolean, line_number: number, code_snippet: string }。
@@ -16,7 +16,6 @@ function getLines (code) {
   return code.split('\n')
 }
 
-// ─── input_returns_int ─────────────────────────────────────────
 register('input_returns_int', function (code) {
   const lines = getLines(code)
   const inputVars = new Set()
@@ -39,7 +38,6 @@ register('input_returns_int', function (code) {
   return null
 })
 
-// ─── range_inclusive_end ────────────────────────────────────────
 register('range_inclusive_end', function (code) {
   const lines = getLines(code)
   for (let i = 0; i < lines.length; i++) {
@@ -56,7 +54,6 @@ register('range_inclusive_end', function (code) {
   return null
 })
 
-// ─── missing_int_conversion ────────────────────────────────────
 register('missing_int_conversion', function (code) {
   const lines = getLines(code)
   const rawInputVars = new Set()
@@ -81,7 +78,6 @@ register('missing_int_conversion', function (code) {
   return null
 })
 
-// ─── global_var_no_keyword ─────────────────────────────────────
 register('global_var_no_keyword', function (code) {
   const lines = getLines(code)
   const moduleVars = new Set()
@@ -131,7 +127,6 @@ register('global_var_no_keyword', function (code) {
   return null
 })
 
-// ─── append_vs_extend ──────────────────────────────────────────
 register('append_vs_extend', function (code) {
   const lines = getLines(code)
   for (let i = 0; i < lines.length; i++) {
@@ -142,7 +137,6 @@ register('append_vs_extend', function (code) {
   return null
 })
 
-// ─── mutable_default_arg ───────────────────────────────────────
 register('mutable_default_arg', function (code) {
   const lines = getLines(code)
   for (let i = 0; i < lines.length; i++) {
@@ -154,7 +148,6 @@ register('mutable_default_arg', function (code) {
   return null
 })
 
-// ─── equality_vs_assignment ────────────────────────────────────
 register('equality_vs_assignment', function (code) {
   const lines = getLines(code)
   for (let i = 0; i < lines.length; i++) {
@@ -174,7 +167,6 @@ register('equality_vs_assignment', function (code) {
   return null
 })
 
-// ─── dict_key_not_found ────────────────────────────────────────
 register('dict_key_not_found', function (code) {
   const lines = getLines(code)
   const dictVars = new Set()
@@ -200,7 +192,6 @@ register('dict_key_not_found', function (code) {
   return null
 })
 
-// ─── file_not_closed ───────────────────────────────────────────
 register('file_not_closed', function (code) {
   const lines = getLines(code)
   let hasWithOpen = false
@@ -229,7 +220,6 @@ register('file_not_closed', function (code) {
   return null
 })
 
-// ─── print_vs_return ───────────────────────────────────────────
 register('print_vs_return', function (code) {
   const lines = getLines(code)
   let inFunc = false
@@ -280,12 +270,11 @@ register('print_vs_return', function (code) {
   return null
 })
 
-// ─── 公开 API ──────────────────────────────────────────────────
-
 /**
  * 对代码运行全部检测器，返回命中列表。
- * @param {string} code - 学生代码
- * @returns {Array<{detector_name: string, line_number: number, code_snippet: string}>}
+ *
+ * @param {string} code 学生代码。
+ * @returns {Array<{detector_name: string, line_number: number, code_snippet: string}>} 命中列表。
  */
 export function runPreflightDetectors (code) {
   if (!code || !code.trim()) return []

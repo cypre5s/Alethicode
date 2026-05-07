@@ -1,10 +1,6 @@
-"""LightRAG singleton factory.
+"""创建进程内唯一 LightRAG 实例。
 
-A single LightRAG instance is created lazily on first use and reused for
-the lifetime of the FastAPI process. LightRAG owns its own connection
-pools (PG via asyncpg + Memgraph via neo4j-bolt) and pipeline-status
-locks; instantiating more than one in the same process duplicates state
-and causes write conflicts.
+LightRAG 持有存储连接池和 pipeline lock，同进程多实例会复制状态并引发写入冲突。
 """
 
 from __future__ import annotations
@@ -30,7 +26,7 @@ _RAG_LOCK = asyncio.Lock()
 
 
 def _apply_storage_env(settings: RagSettings) -> None:
-    """Push storage config into the env LightRAG inspects on init."""
+    """把存储配置写入 LightRAG 初始化时读取的环境变量。"""
     os.environ.setdefault("POSTGRES_HOST", settings.postgres_host)
     os.environ.setdefault("POSTGRES_PORT", str(settings.postgres_port))
     os.environ.setdefault("POSTGRES_USER", settings.postgres_user)
@@ -69,9 +65,9 @@ async def build_rag(settings: RagSettings | None = None) -> LightRAG:
         doc_status_storage=settings.doc_status_storage,
         graph_storage=settings.graph_storage,
         default_llm_timeout=settings.llm_timeout_seconds,
-        # Backfill 加速：LightRAG 默认 llm_model_max_async=8,
+        # 回填加速：LightRAG 默认 llm_model_max_async=8，
         # max_parallel_insert=2，KG 抽取调 LLM 串行严重，整批 561 doc 要跑 4-5h。
-        # Deepseek-v4-flash TPM/RPM 上限较宽（"flash" 系列高吞吐型号），把 LLM
+        # deepseek-v4-flash TPM/RPM 上限较宽（"flash" 系列高吞吐型号），把 LLM
         # 并发提到 16，文档并行处理提到 6，预期 ~3× 加速；embedding 并发同步提
         # 到 24，避免成为 KG 抽取流水线瓶颈。
         llm_model_max_async=int(os.environ.get("LIGHTRAG_LLM_MAX_ASYNC", "16")),
@@ -100,18 +96,14 @@ async def shutdown_rag() -> None:
         return
     try:
         await _RAG.finalize_storages()
-    except Exception as exc:  # pragma: no cover - defensive shutdown
+    except Exception as exc:  # pragma: no cover - 防御性关闭路径
         logger.warning("rag finalize failed: %s", exc)
     _RAG = None
 
 
 def default_query_param() -> QueryParam:
-    """The single QueryParam shape every internal endpoint must use.
+    """返回内部查询端点统一使用的 LightRAG 查询参数。
 
-    `only_need_context=True` means LightRAG returns the structured
-    entities + relations + chunks blob and skips the final LLM "generate
-    answer" call. The Java tutor / agent layer assembles the actual
-    prompt. This drops query LLM calls from 2 → 1 and shaves off the
-    second-scale tail latency.
+    `only_need_context=True` 让 Java tutor 层负责最终 prompt 组装，避免 RAG 服务额外生成答案。
     """
     return QueryParam(mode="mix", only_need_context=True, enable_rerank=False)

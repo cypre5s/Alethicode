@@ -171,7 +171,6 @@ class MasteryNfkProjectionServiceTest {
 
     @SuppressWarnings("unchecked")
     private void stubBktForKc(long kcId, double mastery) {
-        // p_init query path
         lenient().when(jdbcTemplate.query(anyString(), any(ResultSetExtractor.class), eq(kcId)))
                 .thenAnswer(invocation -> {
                     ResultSetExtractor<Double> extractor = invocation.getArgument(1);
@@ -179,20 +178,9 @@ class MasteryNfkProjectionServiceTest {
                     when(emptyRs.next()).thenReturn(false);
                     return extractor.extractData(emptyRs);
                 });
-        // outcomes query: return enough true outcomes for EMA to land near `mastery`
-        // We approximate by directly forcing the EMA to converge: feed alternating outcomes
-        // is brittle, instead override by stubbing the outcome query path with a list
-        // sized to push mastery there. For simplicity we stub it as a constant list of true
-        // outcomes whose count makes the EMA land at >= 0.99 (cap), then override expected.
-        // Simpler: bypass the outcome query by returning empty list so mastery == p_init default 0.5.
-        // To match arbitrary `mastery`, we instead patch via mocking outcome query and using p_init.
-        // Easiest: stub the outcomes query to return empty list; then mastery == pInit.
-        // We achieve `mastery` by stubbing pInit directly via the `query(..., extractor, kcId)` call above.
-        // Pre-compute a pInit that produces target mastery (no outcomes ⇒ mastery = pInit).
         lenient().when(jdbcTemplate.query(anyString(), any(ResultSetExtractor.class), eq(kcId)))
                 .thenAnswer(invocation -> {
                     ResultSetExtractor<Double> extractor = invocation.getArgument(1);
-                    // simulate p_init = `mastery` by returning a row
                     ResultSet rs = mock(ResultSet.class);
                     when(rs.next()).thenReturn(true);
                     when(rs.getDouble("p_init")).thenReturn(mastery);

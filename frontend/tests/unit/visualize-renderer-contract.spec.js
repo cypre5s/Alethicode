@@ -53,16 +53,16 @@ describe('visualize renderer contracts', () => {
   test('SvgRenderer relies on backend sanitizer and never injects scripts itself', () => {
     const source = readSource('../../src/pages/oj/views/problem/cards/visualize/SvgRenderer.vue')
 
-    // Frontend trust boundary: payload must be string from backend SvgSanitizer.
+    // 前端信任边界：payload 必须是后端 SvgSanitizer 输出的字符串。
     expect(source).toContain("payload: {")
     expect(source).toContain("type: String,")
 
-    // No dynamic script injection anywhere in the renderer.
+    // 渲染器内禁止任何动态脚本注入。
     expect(source).not.toContain('eval(')
     expect(source).not.toContain('new Function')
     expect(source).not.toContain('document.write')
 
-    // No additional unfiltered HTML sinks beyond v-html=svgText (which is sanitized upstream).
+    // 除已由上游清洗的 v-html=svgText 外，禁止新增未过滤 HTML sink。
     const vHtmlMatches = source.match(/v-html\s*=/g) || []
     expect(vHtmlMatches.length).toBe(1)
   })

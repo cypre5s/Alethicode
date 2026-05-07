@@ -17,8 +17,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * Offline evaluation harness for Tutor-generated cards.
- * Uses LLM-as-Judge with an 8-dimension pedagogy rubric.
+ * 导学卡片的离线评估工具，使用八维教学 Rubric 进行 LLM-as-Judge。
  */
 @Service
 public class TutorEvalHarness {
@@ -56,8 +55,7 @@ public class TutorEvalHarness {
     }
 
     /**
-     * Entropy Control: detects quality degradation by comparing recent eval scores
-     * with historical baseline. Triggers rollback if degradation exceeds threshold.
+     * 对比近期评估分与历史基线，发现质量退化后触发回滚门禁。
      */
     private void checkQualityTrend(Map<String, Object> currentReport) {
         try {
@@ -152,11 +150,11 @@ public class TutorEvalHarness {
     }
 
     /**
-     * Evaluates a batch of historical (evidence, card) pairs from the generation log.
+     * 从生成日志中批量评估历史证据和卡片样本。
      *
-     * @param cardType filter by card type (null = all)
-     * @param limit    max number of samples to evaluate
-     * @return aggregated evaluation report
+     * @param cardType 卡片类型过滤条件，null 表示全部
+     * @param limit 最大评估样本数
+     * @return 聚合评估报告
      */
     public Map<String, Object> evaluateBatch(String cardType, int limit) {
         List<Map<String, Object>> samples = loadSamples(cardType, limit);
@@ -236,7 +234,7 @@ public class TutorEvalHarness {
     }
 
     /**
-     * Evaluates a single (evidence, card) pair using the LLM judge.
+     * 使用 LLM 裁判评估单个证据和卡片样本。
      */
     public EvalResult evaluateSingle(Map<String, Object> sample) {
         String sampleCardType = String.valueOf(sample.getOrDefault("card_type", "unknown"));

@@ -1,4 +1,4 @@
-"""Tests for phase/event transition validation."""
+"""测试 phase / event 状态迁移校验。"""
 
 import pytest
 

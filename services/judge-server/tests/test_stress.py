@@ -62,7 +62,7 @@ class TestWorkerPoolStress:
         assert set(results) == set(range(100))
         assert len(completed) == 100
 
-        # 等 stats 归零
+        # 等 stats 归零。
         deadline = time.time() + 3
         while time.time() < deadline and pool.stats()["running_total"] > 0:
             time.sleep(0.01)
@@ -73,7 +73,7 @@ class TestWorkerPoolStress:
         pool.shutdown(wait=True, timeout=2)
 
     def test_queue_full_under_sustained_pressure(self):
-        """worker 被占满 + 队列被填满时，后续 submit 必须全部 QueueFull。"""
+        """worker 和队列都满时，后续 submit 必须全部 QueueFull。"""
         pool = WorkerPool(max_workers=2, max_queue_depth=4)
         block = threading.Event()
 
@@ -136,7 +136,7 @@ class TestWorkerPoolStress:
 
 class TestDiagnosisCacheStress:
     def test_1000_concurrent_puts_and_gets(self):
-        """1000 个并发读写到同一个 cache 实例，无 crash 无数据损坏。"""
+        """1000 个并发读写同一个 cache 实例时，不应 crash 或损坏数据。"""
         cache = DiagnosisCache(max_size=200, ttl_seconds=60)
         errors = []
         barrier = threading.Barrier(8)
@@ -163,7 +163,7 @@ class TestDiagnosisCacheStress:
 
 class TestDiagnosisEngineStress:
     def test_100_diagnose_calls_never_crash(self):
-        """100 次 diagnose 调用（覆盖各种 result code），没有一次 raise。"""
+        """100 次 diagnose 调用覆盖各种 result code，不应抛错。"""
         cases = [
             {"result": 0, "signal": 0, "exit_code": 0},
             {"result": -1, "signal": 0, "exit_code": 0, "output": "wrong"},
@@ -186,7 +186,7 @@ class TestDiagnosisEngineStress:
 
 class TestTraceStress:
     def test_10_concurrent_traces(self):
-        """10 个线程同时 trace 不同程序，全部 ok、结果不互相污染。"""
+        """10 个线程同时 trace 不同程序，结果必须全部 ok 且互不污染。"""
         results = {}
         lock = threading.Lock()
 
@@ -218,7 +218,7 @@ class TestTraceStress:
 
 class TestMetricsStress:
     def test_1000_concurrent_recordings(self):
-        """1000 次并发 record，stats 合计一致。"""
+        """1000 次并发 record 后，stats 合计必须一致。"""
         mc = MetricsCollector()
         barrier = threading.Barrier(8)
 
@@ -239,7 +239,7 @@ class TestMetricsStress:
 
 class TestServerStress:
     def test_50_concurrent_sync_requests(self, client, auth_token, monkeypatch):
-        """50 个并发同步 /judge 请求，全部 200。"""
+        """50 个并发同步 /judge 请求必须全部返回 200。"""
         call_count = {"n": 0}
         call_lock = threading.Lock()
 

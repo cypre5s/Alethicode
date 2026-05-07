@@ -2,11 +2,41 @@
 
 本项目遵循 Keep a Changelog 思想并使用中文记录，版本语义以迁移里程碑为主。
 
-## [Unreleased] - 2026-05-06
+## [Unreleased] - 2026-05-07
+
+### AI 导学拼装挑战入口与课件 @ 引用二级目录
+
+- 2026-05-07 **[修复/Tutor /usage 500]** `GET /api/ai/tutor-workflow-sessions/{id}/usage` 在生产与本地都返回 500，触发链路是骨架代码后续的拼装挑战派发。根因：历史 V87 版本号被 `learning_health_summary_view.sql` 占用，后续替换为 `ai_tutor_session_token_usage` 时 Flyway history 仍记录 `success=true`，但实际 `ai_tutor_workflow_session` 没有 `tokens_used` / `tokens_limit` / `model_name` 三列，`InternalAITutorToolServiceImpl#getSessionUsage` 直接抛 SQL 异常。修：新增 `V93__ai_tutor_workflow_session_token_usage_columns.sql`，使用 `ADD COLUMN IF NOT EXISTS` 幂等补齐三列；不动 V87 历史 checksum，开发与生产一次启动即可对齐。
+- 2026-05-07 **[修复/快捷按钮图标]** AI 导学输入栏快捷按钮（题目导读 / 思路分析 / 骨架代码 / 教学可视化等）图标全部错位，因为 `UnifiedAgentPanel.vue#ICON_COMPONENTS` 没注册 `Grid` / `Collection` / `Document`，所有 backend `available_actions` 的图标都 fallback 到 `Lightning`。补齐三个图标到 `markRaw` 注册表，恢复正确视觉。
+- 2026-05-07 **[变更/拼装挑战入口下沉]** 把「拼装挑战」从输入栏快捷动作中移除，改成 `SkeletonCodeCard` 卡片底部的「有点难？试试拼装版」次级按钮：`isHiddenTutorAction` 增加 `key === 'parsons'` 屏蔽快捷入口，`SkeletonCodeCard.vue` 新增 `request-parsons` emit + 描边按钮样式；`UnifiedAgentPanel` 转发事件给 `Problem.vue#handleAgentRequestParsons`，复用既有 `dispatchWorkflowEvent('PARSONS')` 链路，避免双入口造成的语义冲突。
+- 2026-05-07 **[新增/@ 引用二级目录]** `ReferenceResolver.PAGE_REF` 扩展为 `@page:(?:lpId:)?(?:章\.页|globalPage)`，新增 `chapter` 字段到 `PageReference` record；`PageContextProviderImpl` 在 `chapter != null` 时按 `(sort_order, id)` 1-based 排序的 normalized 文档查询对应章页，旧 `@page:n` 全局页号语义保留。前端 `useChatComposer.atGroups` 支持 `item.subgroup` 拆出二级目录小节；`UnifiedAgentPanel`（题目页 AI 导学助手）与 `LanguagePackQaPage`（独立课件问答页）的 @ 菜单同步改造：候选项 token 形如 `@page:章.页`，subgroup 标签 `第 X 章 · 文件名` 让 AtMentionMenu 渲染独立小节；课件包仅暴露当前题目/会话所属语言包，`refreshProvider` 切包时失效缓存；`/page` 命令同时接受 `/page 1.7` 与 legacy `/page 7`；`useReferenceParse.js` 识别 `@page:章.页`。
+- 2026-05-07 **[文档/新手指南同步]** `/guide` 文案中心 `manualContent.js` 与 `SectionContext.vue` 同步今天的实际改动：`CONTEXT_TOKENS` 新增 `@page:章.页`，`@courseware` 描述补「只暴露当前题目所属课件包」；`CONTEXT_EXAMPLES` 加 `@page:1.7` 直引示例；`CONTEXT_TIPS` 加二级目录与课件隔离两条提示；`AI_CAPABILITIES` 拆出「生成骨架代码」与「骨架太难时切到拼装版」两项，与 `LEARNING_LOOP_STEPS` 第 4 步「写代码」呼应；`COURSEWARE_QA_PROMPTS` / `_NOTES` 加 `@page` 直引模板与 `/page 章.页 ↔ /page 全局页` 双语法说明；`FAQ_ITEMS` 新增「拼装挑战在哪」「@ 菜单为何只显当前课件」「@page:1.7 怎么写」三条；`SectionContext.vue` 示意 SVG 改为按二级目录展示「会话卡片 + 第 X 章 · 文件名 → @page:1.7」。
+- 2026-05-07 **[测试]** 后端：`ReferenceResolverTest` 新增 chapter.page 解析与边界用例，`PageContextProviderImplTest` 新增章页 SQL 路径断言；前端：`chat-composer.spec.js` 新增 subgroup 拆分契约测试，`problem-skeleton-card-contract.spec.js` 同步 `request-parsons` emit 与拼装版按钮约束，`oj-language-pack-qa-contract.spec.js` 同步 `@page:章.页` token 与 `/page` 双语法约束，`manual-content-data.spec.js` 同步 `AI_CAPABILITIES`(10) / `CONTEXT_TOKENS`(10) / `CONTEXT_EXAMPLES`(6) / `CONTEXT_TIPS`(≥5) / `COURSEWARE_QA_PROMPTS`(6) / `COURSEWARE_QA_NOTES`(≥6) / `FAQ_ITEMS`(≥8 + 拼装挑战 + @page) 的新契约。
+
+### 工程规范
+
+- 2026-05-06 **[文档/ECS 排障]** `AGENTS.md` 新增 ECS 部署排障易错点：区分浏览器扩展日志与后端故障、记录 `/api/*` 502 的 Nginx upstream 旧 IP 根因、RAG embedding 源与索引表匹配规则，以及 `rag_initialized=false` 的验证注意事项。
+- 2026-05-06 **[规范/注释]** 扩展注释审计到全仓库可读文本文件：清理部署脚本、NFK/research、Python 微服务红队评测、判题机 fork、前端测试与后端 SQL 迁移中的英文或冗余注释，并持续同步 `COMMENT_AUDIT.md`。
+- 2026-05-06 **[规范/注释]** 更新 `AGENTS.md` 注释规范，明确注释只服务程序员理解代码；首批清理 `services/alethicode-rag/app/**` 与 `services/tutor-graph/app/**` 中主要 Python 模块和相关测试的英文、冗余注释，并同步 `COMMENT_AUDIT.md`。
+
+### 课件 QA 引用闭环 + 启动链路修复
+
+- 2026-05-07 **[修复/课件 QA @page 多章节]** 课件问答 `@page` 候选原先对每个文档都从 1 开始生成 token，且默认只展示前 6 条；后端解析 `@page:n` 时按 `language_pack_id + page_no` 查询并 `LIMIT 1`，多章节/多文档课件会固定命中第一份文档。修复为包内全局页码：前端按文档排序连续生成 `@page:1..N` 并不再裁剪页码候选，`/page <n>` 同步映射到对应文档内页码；后端用同一文档排序计算 `global_page_no`，确保引用证据与前端候选一致。
+- 2026-05-07 **[修复/start.sh Flyway 注释漂移]** `V55` / `V56` / `V58` / `V65` / `V74` 仅发生注释本地化，SQL 语句未变，但本地 dev DB 的 `flyway_schema_history` 仍记录旧 checksum，导致 `./start.sh` 后端启动阶段 Flyway validate 失败。`start.sh` 新增本地启动前同步步骤：只在版本号、success 状态和已知旧 checksum 精确匹配时更新到当前 checksum，不执行通用 repair、不跳过 validate、不重跑迁移。
+- 2026-05-06 **[新增/课件 QA references]** 课件问答 ChatComposer 的 `@page:<n>` / `@kc:<id>` / `@notebook:<id>` 引用 token 此前只在前端 UI 层补全，后端 `LanguagePackQaServiceImpl.sendMessage` / `sendMessageAsync` 把它们当字面字符串塞进 RAG 查询，LLM 看到 `@page:1` 不知道指哪一页。补：`LanguagePackQaMessageRequest` 新增 `references: List<String>`、`LanguagePackQaService` 接口扩参、`LanguagePackQaServiceImpl` 注入 `PageContextProvider` / `KcContextProvider` / `NotebookContextProvider`（@Lazy 打破 PageContextProviderImpl 反向依赖 LanguagePackQaService 的循环），新增 `appendReferenceEvidence` 把 page 正文 / KC 描述+掌握度 / 笔记原文按引用顺序追加到 `effectiveQuery`；`LanguagePackQaController` 透传 `request.referencesOrEmpty()`；`LanguagePackQaPage.vue` 在两处 `sendLanguagePackQaMessage` 调用前用 `parseReferences(question)` 抽出 token。
+- 2026-05-06 **[修复/PageContextProvider SQL]** `PageContextProviderImpl` 的 `loadPage` SQL 引用了不存在的 `language_pack_document.title` 列（实际列名是 `original_filename`），未被既有调用路径覆盖，今天接入课件 QA references 后立刻触发 `bad SQL grammar`。修：将两处 `d.title AS document_title` 改为 `d.original_filename AS document_title`。
+- 2026-05-06 **[修复/start.sh alethicode-rag PG 连接]** start.sh 走直连模式（CHANGELOG 2026-05-03 决议），但 `deploy/docker-compose.yml` 把 `alethicode-rag` 的 `POSTGRES_PORT` 硬编码为 PgBouncer 的 6432，本地启动时 PgBouncer 未拉起，RAG 服务持续 `ConnectionRefusedError`，HTTP `/health` lenient 通过让 start.sh 误判 ready。修：把 `POSTGRES_HOST` / `POSTGRES_PORT` 改为 `${ALETHICODE_RAG_POSTGRES_HOST:-127.0.0.1}` / `${ALETHICODE_RAG_POSTGRES_PORT:-6432}`，`start.sh` 在 `start_alethicode_rag` 中导出 `ALETHICODE_RAG_POSTGRES_PORT="${POSTGRES_HOST_PORT}"`（默认 5436）覆盖；docker compose 全栈部署时不设此变量，回到默认 PgBouncer 6432，生产配置无副作用。
+- 2026-05-06 **[修复/Flyway 历史漂移]** 本地数据库残留已弃置 twin 系列的 V92 (`twin portable phase d`) / V93 (`twin customization phase e`) / V94 (`twin weekly digest`)，与当前代码分支的 `V92__career_major_other.sql` 校验失败 + V93/V94 missing。决议直接 `DELETE FROM flyway_schema_history WHERE version IN ('92','93','94')`，让 Flyway 把本地新 V92 当 pending 重跑（INSERT ... ON CONFLICT DO NOTHING 幂等）。本地代码 / 后续迁移均未引用残留的 6 张 twin_* 表，孤立 schema 对象保留不动。
+- 2026-05-06 **[验证/自测]** `backend`：`mvn -q -o compile -Dmaven.test.skip=true` 通过；浏览器实测三组组合：`@page:3` 拿到课件第 3 页原文；`@kc:2021` 准确识别为 lambda 函数；`@page:3 + @kc:2021` 组合时 LLM 正确推理出"第 3 页章节总纲 → lambda 函数为本章后续具体工具"。
 
 ### 前端体验优化
 
+- 2026-05-06 **[修复/课件问答状态]** `LanguagePackQaPage.vue` 当前课程包解析改为直接读取组件 `$data.packs` / `$data.selectedLanguagePackId`，切换课程包时用已解析包对象判断 `qa_ready`，修复接口已返回可问答包但页面仍显示“当前课程内容包暂不可问答”的前端误判。
+- 2026-05-06 **[优化/ChatComposer 浮层]** `AtMentionMenu.vue` 与 `SlashCommandMenu.vue` 改为脱离文档流的上展浮层，`LanguagePackQaPage.vue` 与 `UnifiedAgentPanel.vue` 输入容器提供定位上下文；触发 `@` 或 `/` 时输入框保持原位，选择栏向上展开并内部滚动。
+- 2026-05-06 **[修复/Nginx upstream]** `deploy/frontend-nginx.conf` 改为通过 Docker DNS `127.0.0.11` 运行时解析 `backend`，避免后端容器重建换 IP 后前端 Nginx 继续持有旧 upstream，导致 `/api/*` 502。
 - 2026-05-06 **[重构/模块下线]** 按统一下线策略删除 Career 前后端全部功能：移除后端 `Career*` / `CodingLens*` / `DomainLens*` 相关 controller、service、dto 与测试，移除前端 Career 页面、路由、导航、API 与管理端 Domain Lens 入口；同时清理 `CardType`、`EvalDimension` 与配置中的 Career 残留定义。
+- 2026-05-06 **[文档/同步]** `README.md`、`PROJECT.md` 同步 Career 全量下线状态：核心特性、架构模块、路由与评估维度均更新为无 Career 入口版本，并明确历史迁移仅用于审计。
+- 2026-05-06 **[验证/自测]** Career 下线后执行 `backend`：`mvn -q -DskipTests compile && mvn -q test-compile`，`frontend`：`npm run typecheck`，均通过。
 - 2026-05-06 **[重构/Career 路径下线]** 前后端安全删除 Career 学习路径模块：移除后端 `CareerPathController` 与 `service.career.path` 全部实现及对应单测；前端移除 `api/career.js` 的 `getCareerPath` 调用，避免残留访问 `/api/career/path`。
 - 2026-05-06 **[调整/Career 设置迁移]** Career「模块设置」入口统一迁移至 `/setting/profile`，复用 `CareerPreferencesPanel` 并保持设置页视觉风格一致；导航层移除原 `/career/preferences` 入口，减少信息分散。
 - 2026-05-06 **[重组/数据洞察]** 管理后台「使用统计」与「AI 助教工作台」按视角重组：「学生学习数据」只保留注册/活跃/提交/AC 率/痛点/反馈等纯学生指标，移除 AI 覆盖率、AI 辅导调用、诊断 hit 率、AI 卡片分布；「AI 助教工作台」接收这些 AI 指标（覆盖率 + 诊断 hit 率），与响应时间、失败率、Agent 维度、评测质量组成完整的 AI 系统运维视图。

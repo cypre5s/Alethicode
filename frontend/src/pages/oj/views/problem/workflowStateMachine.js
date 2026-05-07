@@ -34,12 +34,8 @@ const EVENT_MAP = {
   6: 'TRANSFER'
 }
 
-// 统一工作流启用实时通道，异步节点结果通过 /ws/tutor-workflow-sessions/* 回推到当前会话。
 const ENABLE_WORKFLOW_WS = true
-// Watchdog timings aligned with backend MAX_RUN_DURATION = 10 minutes; previous
-// 90 retries at 2s each left the user waiting 3 minutes before seeing a failure,
-// long after the backend had given up. 30 retries = ~1 minute, which matches the
-// real UX expectation and still covers most slow-but-valid runs.
+// 看门狗要早于后端 10 分钟上限暴露失败，同时覆盖常见慢任务。
 const WS_RESULT_WATCHDOG_DELAY_MS = 6000
 const WS_RESULT_WATCHDOG_RETRY_DELAY_MS = 1000
 const WS_RESULT_WATCHDOG_MAX_RETRY = 30
@@ -114,8 +110,7 @@ export default {
       agentLoading: false,
       agentInputMode: 'chat',
       agentUserInput: '',
-      // Unified Chat (P3): the user-facing Mode mirrored from the server. ModeBar reads
-      // this and `dispatchWorkflowEvent('CHAT', ...)` injects it into event_data.mode.
+      // ModeBar 展示后端同步的 ConversationMode，CHAT 事件也复用该值。
       activeConversationMode: 'reading',
       lastConversationCards: [],
       pendingHumanAction: '',
@@ -1028,7 +1023,7 @@ export default {
           try {
             await this.createFreshWorkflowSession(problemId)
           } catch {
-            // createFreshWorkflowSession 失败 → session_id 仍为 null，走下面的守卫
+            // 会话创建失败时保持 null，让后续守卫统一处理。
           } finally {
             this._sessionRetrying = false
           }
@@ -1478,8 +1473,7 @@ export default {
       } catch (e) {
         console.warn('[workflow] fetch checkpoints failed', e)
       }
-      // Unified Chat (P3): refresh ModeBar / last cards after every successful run so the
-      // chip group reflects whichever Mode the latest projection stamped.
+      // 每次 run 成功后刷新 ModeBar 与最近卡片，保证投影状态回显到对话区。
       this.refreshConversationContext()
     },
 
@@ -1962,7 +1956,7 @@ export default {
       }
     },
 
-    // Plan/steering methods removed — LangGraph uses interrupt/resume instead.
+    // 计划控制统一交给 LangGraph interrupt/resume。
 
     _handleWsResult(data) {
       if (!data) return

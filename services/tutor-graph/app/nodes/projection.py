@@ -1,4 +1,4 @@
-"""Persist projection to Java — projection failure = run failure."""
+"""将投影持久化到 Java，投影失败即 run 失败。"""
 
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ async def persist_projection(
 
 
 class _VisualizeDispatchFailed(Exception):
-    """Raised when a node-declared visualize_intent cannot produce a valid card."""
+    """节点声明的可视化意图无法生成合法卡片时抛出。"""
 
     def __init__(self, node_name: str, reason: str):
         super().__init__(f"visualize dispatch failed for node {node_name}: {reason}")
@@ -85,7 +85,7 @@ async def _dispatch_visualize_cards(
 ) -> dict:
     if not node_outputs:
         return node_outputs
-    # VISUALIZE event already materializes node_outputs["visualize"] directly.
+    # VISUALIZE 事件已直接物化 node_outputs["visualize"]。
     if "visualize" in node_outputs:
         return node_outputs
 
@@ -96,7 +96,7 @@ async def _dispatch_visualize_cards(
         prompt = _normalize(output.get("visualize_prompt"))
         if not intent and not prompt:
             continue
-        # Fail-fast: nodes declaring partial intent/prompt are misconfigured prompts.
+        # 只声明部分 intent / prompt 表示 prompt 配置错误，直接 fail-fast。
         if not intent or not prompt:
             raise _VisualizeDispatchFailed(
                 node_name,

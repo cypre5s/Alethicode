@@ -1,4 +1,4 @@
-"""KG / track diagnostics endpoint for backend RagDiagnosticsService."""
+"""提供后端 RagDiagnosticsService 使用的 KG / track 诊断端点。"""
 
 from __future__ import annotations
 
@@ -25,8 +25,7 @@ router = APIRouter(
 async def get_track_stats(
     language_pack_id: int = Query(..., gt=0),
 ) -> dict[str, Any]:
-    """Count entities and relations in Memgraph KG that belong to
-    the given language_pack_id's pages (via track_id matching)."""
+    """统计指定语言包页对应的 KG 实体和关系数量。"""
     settings = get_settings()
 
     pg_conn = await asyncpg.connect(

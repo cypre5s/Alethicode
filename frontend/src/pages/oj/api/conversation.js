@@ -1,7 +1,5 @@
 /**
- * Unified Chat (P3) Conversation API – ModeBar + last cards source of truth.
- *
- * Backend: TutorWorkflowController, mounted at /api/ai/tutor-workflow-sessions/{id}/...
+ * Unified Chat 会话接口，对齐 TutorWorkflowController 的会话路径。
  */
 
 import { ajax } from './shared'

@@ -19,9 +19,9 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.atLeastOnce;
 
 /**
- * Targets the handshake-time guarantees of {@link TutorWorkflowWebSocketHandler}:
- * only an authenticated user that owns the session projection may receive runtime
- * events. Anything else is closed before the first message is buffered.
+ * 覆盖 {@link TutorWorkflowWebSocketHandler} 的握手期安全契约。
+ *
+ * 只有已认证且拥有会话投影的用户可以接收运行时事件，其余连接在缓冲消息前关闭。
  */
 class TutorWorkflowWebSocketHandlerTest {
 
@@ -68,10 +68,6 @@ class TutorWorkflowWebSocketHandlerTest {
         when(session.isOpen()).thenReturn(true);
 
         handler.afterConnectionEstablished(session);
-
-        // sendRuntimeEvent is the only legal way for the handler to reach the session,
-        // so verifying that it now addresses this session proves the sessionMap slot
-        // was populated by afterConnectionEstablished.
         handler.sendRuntimeEvent("twf_x", Map.of(
                 "type", "runtime_event",
                 "session_id", "twf_x",

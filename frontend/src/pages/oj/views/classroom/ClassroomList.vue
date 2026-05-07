@@ -92,8 +92,6 @@
               layout="total, prev, pager, next"/>
       </div>
     </div>
-
-    <!-- 创建班级 Dialog -->
     <el-dialog v-model="showCreateModal" title="创建班级" class="leetcode-modal">
         <el-form ref="createForm" :model="createForm" :rules="createRules" :label-width="100">
         <el-form-item label="班级名称" prop="name">
@@ -133,8 +131,6 @@
         <el-button type="primary" @click="createClassroom">确定</el-button>
       </template>
     </el-dialog>
-
-    <!-- 编辑班级 Dialog -->
     <el-dialog v-model="showEditModal" title="编辑班级" class="leetcode-modal">
       <el-form ref="editForm" :model="editForm" :rules="createRules" :label-width="100">
         <el-form-item label="班级名称" prop="name">
@@ -155,8 +151,6 @@
         <el-button type="primary" @click="updateClassroom">确定</el-button>
       </template>
     </el-dialog>
-
-    <!-- 邀请码 Dialog -->
     <el-dialog v-model="showInviteModalVisible" title="邀请成员" width="600" class="leetcode-modal">
       <div v-if="currentInvitation" class="invite-content">
         <el-alert show-icon :closable="false" class="invite-alert">

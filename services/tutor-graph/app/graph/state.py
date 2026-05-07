@@ -50,7 +50,7 @@ class TutorGraphState(TypedDict, total=False):
     node_outputs: dict
     evidence_pack: dict
     learner_state: dict
-    # Unified Chat (P3): cross-card context surfaced to chat node.
+    # 跨卡片上下文供对话节点使用。
     user_mode: str
     references: list[dict]
     last_cards: list[dict]
@@ -68,7 +68,7 @@ class TutorGraphState(TypedDict, total=False):
     recommended_by: str
     trigger_features: dict
 
-    # Cross-run context attached at thread creation (e.g. classroom_assignment, anti_cheating)
+    # 创建 thread 时附加的跨 run 上下文。
     context: dict
 
     pending_human_action: str

@@ -151,7 +151,7 @@ class TutorWorkflowAuthorizerTest {
         authorizer.assertSubmissionAccepted(ac);
     }
 
-    /** Mockito {@code ArgumentMatchers.any(MapSqlParameterSource.class)} is the correct overload. */
+    /** 使用 Mockito 指定 {@code MapSqlParameterSource} 重载，避免匹配到错误方法。 */
     private static final class ArgMatchers {
         static MapSqlParameterSource any() {
             return org.mockito.ArgumentMatchers.any(MapSqlParameterSource.class);

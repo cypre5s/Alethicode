@@ -49,8 +49,7 @@ export const FEEDBACK_LABELS = Object.freeze([
 ])
 
 /**
- * Unified Chat (P3) Mode keys – mirrors backend `ConversationMode`.
- * Mode is the user-facing view of "what do I want now"; switching Mode does NOT change Phase.
+ * ConversationMode 与后端保持同名；切换 Mode 不改变工作流 Phase。
  */
 export const CONVERSATION_MODES = Object.freeze([
   'reading',

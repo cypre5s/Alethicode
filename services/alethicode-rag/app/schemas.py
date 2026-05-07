@@ -1,10 +1,4 @@
-"""Public request/response shapes for alethicode-rag HTTP endpoints.
-
-These mirror the data contract the Java `RagServiceClient` will speak.
-Defining them here means the FastAPI layer enforces the schema and the
-contract tests on the Java side can pin against the JSON form rendered
-by `model_dump_json()` — no hand-rolled JSON in either side.
-"""
+"""定义 alethicode-rag HTTP 请求与响应结构。"""
 
 from __future__ import annotations
 
@@ -86,7 +80,7 @@ class RetrievedRelation(BaseModel):
 
 
 class QueryHits(BaseModel):
-    """Structured RAG hits shared by all four query endpoints."""
+    """四类查询端点共用的结构化 RAG 命中项。"""
 
     entities: list[RetrievedEntity] = Field(default_factory=list)
     relations: list[RetrievedRelation] = Field(default_factory=list)

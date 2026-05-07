@@ -28,12 +28,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Runs a user-controlled ReAct tool loop on top of Spring AI.
+ * 基于 Spring AI 执行由平台接管的 ReAct 工具循环。
  *
- * <p>Tool definitions are advertised to the model via {@link OpenAiChatOptions#getToolCallbacks()}
- * while {@code internalToolExecutionEnabled=false} stops Spring AI from auto-executing anything.
- * We drive tool execution through project-native {@link ToolExecutor} instances so that
- * {@code ToolTraceEntry}, guards, and stopping conditions stay under our control.
+ * <p>工具定义交给模型选择，但禁用 Spring AI 自动执行；实际执行由平台 {@link ToolExecutor}
+ * 负责，以便统一记录轨迹、守卫条件和停止条件。</p>
  */
 @Service
 public class SpringAiToolLoopService {
@@ -67,8 +65,7 @@ public class SpringAiToolLoopService {
     }
 
     /**
-     * Execute with an explicit {@code tool_choice} value (e.g. {@code "auto"}, {@code "required"},
-     * {@code "none"}). Useful for validation contracts that must force a tool call.
+     * 使用显式 {@code tool_choice} 执行，支持需要强制工具调用的验证合约。
      */
     public ReactResult execute(
             String systemPrompt,
@@ -243,10 +240,9 @@ public class SpringAiToolLoopService {
     }
 
     /**
-     * {@link ToolCallback} that advertises a tool's schema to the LLM but refuses
-     * to auto-execute — execution is driven by {@link ToolExecutor} in the outer loop.
-     * Spring AI will never call {@link #call(String)} because we set
-     * {@code internalToolExecutionEnabled=false}; it remains as a fail-fast guard.
+     * 只向 LLM 暴露工具 schema，禁止由 Spring AI 自动执行。
+     *
+     * 实际执行由外层 {@link ToolExecutor} 驱动；{@link #call(String)} 只是 fail-fast 保护。
      */
     private static final class UserControlledToolCallback implements ToolCallback {
         private final ToolDefinition definition;

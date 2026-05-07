@@ -184,7 +184,7 @@ class IntegrationTest(base.BaseTestCase):
         config["max_memory"] = 64 * 1024 * 1024
         config["exe_path"] = self._compile_c("memory1.c")
         result = _judger.run(**config)
-        # malloc succeeded
+        # malloc 成功
         self.assertTrue(result["memory"] > 80 * 1024 * 1024)
         self.assertEqual(result["result"], _judger.RESULT_MEMORY_LIMIT_EXCEEDED)
 
@@ -193,9 +193,9 @@ class IntegrationTest(base.BaseTestCase):
         config["max_memory"] = 64 * 1024 * 1024
         config["exe_path"] = self._compile_c("memory2.c")
         result = _judger.run(**config)
-        # malloc failed, return 1
+        # malloc 失败时返回 1
         self.assertEqual(result["exit_code"], 1)
-        # malloc failed, so it should use a little memory
+        # malloc 失败后只应占用少量内存
         self.assertTrue(result["memory"] < 12 * 1024 * 1024)
         self.assertEqual(result["result"], _judger.RESULT_RUNTIME_ERROR)
 
@@ -208,9 +208,9 @@ class IntegrationTest(base.BaseTestCase):
         self.assertTrue(result["memory"] >= 102400000 * 4)
 
     def test_memory4(self):
-        """parent process memory should not affect child process"""
+        """父进程内存不应影响子进程。"""
         a = ["test" for i in range(2000000)]
-        # get self maxrss
+        # 获取自身 maxrss
         max_rss = resource.getrusage(resource.RUSAGE_SELF)[2]
         self.assertTrue(max_rss > 28000)
         result = _judger.run(**self.base_config)
@@ -232,7 +232,7 @@ class IntegrationTest(base.BaseTestCase):
         config = self.base_config
         config["exe_path"] = self._compile_c("re1.c")
         result = _judger.run(**config)
-        # re1.c return 25
+        # re1.c 返回 25
         self.assertEqual(result["exit_code"], 25)
 
     def test_re2(self):

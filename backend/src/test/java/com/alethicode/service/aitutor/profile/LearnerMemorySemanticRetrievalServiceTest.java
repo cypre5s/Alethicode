@@ -94,8 +94,6 @@ class LearnerMemorySemanticRetrievalServiceTest {
     void clampsTopKToFive() {
         when(ragClient.queryMemory(any(RagMemoryQueryRequest.class)))
                 .thenReturn(new RagQueryHits(List.of(), List.of(), List.of(), null));
-
-        // request 100 → contract clamps to 5 inside the request DTO; assertion is "no NPE / no oversized fan-out"
         List<Map<String, Object>> hits = service.retrieveByContext(42L, List.of(), "some err", 100);
         assertThat(hits).isEmpty();
     }

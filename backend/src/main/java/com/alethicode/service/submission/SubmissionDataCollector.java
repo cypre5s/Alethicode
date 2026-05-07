@@ -37,8 +37,8 @@ public class SubmissionDataCollector {
     }
 
     /**
-     * @param result   judge verdict: 0=AC, -1=WA, -2=CE, 1-4=TLE/MLE/RE, 5=SE
-     * @param response raw judge HTTP response (null on system error)
+     * @param result 判题结果码：0=AC，-1=WA，-2=CE，1-4=TLE/MLE/RE，5=SE
+     * @param response 原始 Judge HTTP 响应，系统错误时为 null
      */
     public void collect(String submissionId,
                         long userId,

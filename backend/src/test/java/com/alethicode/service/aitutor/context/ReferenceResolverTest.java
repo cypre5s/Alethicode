@@ -86,7 +86,6 @@ class ReferenceResolverTest {
 
     @Test
     void coursewareAndCardPatternsDoNotCollide() {
-        // 互不识别：@card:* 不被 courseware 识别，@courseware:* 不被 card / shorthand 识别
         assertThat(ReferenceResolver.isCoursewareRef("@card:C-V-001")).isFalse();
         assertThat(ReferenceResolver.isExplicitCardRef("@courseware:42")).isFalse();
         assertThat(ReferenceResolver.classifyShorthand("@courseware:42")).isNull();
@@ -97,6 +96,7 @@ class ReferenceResolverTest {
         ReferenceResolver.PageReference ref = ReferenceResolver.extractPageRef("@page:42:7");
         assertThat(ref).isNotNull();
         assertThat(ref.lpId()).isEqualTo(42L);
+        assertThat(ref.chapter()).isNull();
         assertThat(ref.pageNo()).isEqualTo(7);
     }
 
@@ -105,6 +105,25 @@ class ReferenceResolverTest {
         ReferenceResolver.PageReference ref = ReferenceResolver.extractPageRef("@page:7");
         assertThat(ref).isNotNull();
         assertThat(ref.lpId()).isNull();
+        assertThat(ref.chapter()).isNull();
+        assertThat(ref.pageNo()).isEqualTo(7);
+    }
+
+    @Test
+    void parsesChapterPageReferenceWithoutLpId() {
+        ReferenceResolver.PageReference ref = ReferenceResolver.extractPageRef("@page:1.7");
+        assertThat(ref).isNotNull();
+        assertThat(ref.lpId()).isNull();
+        assertThat(ref.chapter()).isEqualTo(1);
+        assertThat(ref.pageNo()).isEqualTo(7);
+    }
+
+    @Test
+    void parsesChapterPageReferenceWithExplicitLpId() {
+        ReferenceResolver.PageReference ref = ReferenceResolver.extractPageRef("@page:42:1.7");
+        assertThat(ref).isNotNull();
+        assertThat(ref.lpId()).isEqualTo(42L);
+        assertThat(ref.chapter()).isEqualTo(1);
         assertThat(ref.pageNo()).isEqualTo(7);
     }
 
@@ -116,6 +135,10 @@ class ReferenceResolverTest {
         assertThat(ReferenceResolver.extractPageRef("@page:abc")).isNull();
         assertThat(ReferenceResolver.extractPageRef("@page:42:")).isNull();
         assertThat(ReferenceResolver.extractPageRef("@page:42:0")).isNull(); // pageNo 必须 > 0
+        assertThat(ReferenceResolver.extractPageRef("@page:0.7")).isNull(); // chapter 必须 > 0
+        assertThat(ReferenceResolver.extractPageRef("@page:1.0")).isNull(); // chapter 内页号必须 > 0
+        assertThat(ReferenceResolver.extractPageRef("@page:1.")).isNull();
+        assertThat(ReferenceResolver.extractPageRef("@page:.7")).isNull();
         assertThat(ReferenceResolver.extractPageRef("@card:7")).isNull();
     }
 
@@ -153,13 +176,11 @@ class ReferenceResolverTest {
 
     @Test
     void newPatternsDoNotCollideWithLegacyOnes() {
-        // 新的 @page / @kc / @notebook 不会被旧 token 识别
         assertThat(ReferenceResolver.isExplicitCardRef("@page:7")).isFalse();
         assertThat(ReferenceResolver.isExplicitCardRef("@kc:KC-001")).isFalse();
         assertThat(ReferenceResolver.isExplicitCardRef("@notebook:N-001")).isFalse();
         assertThat(ReferenceResolver.isCoursewareRef("@page:7")).isFalse();
         assertThat(ReferenceResolver.classifyShorthand("@page:7")).isNull();
-        // 反向：旧 token 也不被新 extractor 识别
         assertThat(ReferenceResolver.extractPageRef("@card:7")).isNull();
         assertThat(ReferenceResolver.extractKcId("@last_error")).isNull();
         assertThat(ReferenceResolver.extractNotebookEntryId("@courseware:42")).isNull();

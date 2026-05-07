@@ -84,8 +84,6 @@
         @update:pageSize="assignmentPageSize = $event"
       />
     </el-card>
-
-    <!-- 创建/编辑作业 Modal -->
     <el-dialog v-model="showCreateModal" :title="formMode === 'create' ? '发布新作业' : '编辑作业'" width="800px">
       <el-form :model="form" label-width="100px">
         <el-form-item label="作业标题">
@@ -186,8 +184,6 @@
             </el-table>
           </div>
         </div>
-
-        <!-- 分段管理 -->
         <div class="sections-manager">
           <h4>作业板块</h4>
           <div v-for="(section, index) in form.sections" :key="index" class="section-item">
@@ -197,8 +193,6 @@
                 <el-icon><DeleteIcon /></el-icon>
               </el-button>
             </div>
-
-            <!-- 题目列表 -->
             <div class="section-problems">
               <div v-for="(problem, pIndex) in section.problems" :key="pIndex" class="problem-item">
                 <span class="problem-link" @click="openProblemPage(problem)">
@@ -229,8 +223,6 @@
         <el-button type="primary" :loading="submitting" @click="submitAssignment">确定</el-button>
       </template>
     </el-dialog>
-
-    <!-- 题目选择器 -->
     <el-dialog v-model="showProblemSelector" title="选择题目" width="800px">
       <div style="margin-bottom: 15px;">
         <el-input v-model="searchProblemKeyword" placeholder="输入题目 ID 或标题进行搜索" style="width: 300px" @keyup.enter="loadClassroomProblems">
@@ -255,12 +247,9 @@
         <el-button type="primary" @click="confirmAddProblems">确定添加</el-button>
       </template>
     </el-dialog>
-
-    <!-- 作业统计弹窗 -->
     <el-dialog v-model="showStatsDialog" :title="statsTitle" width="860px" top="4vh" destroy-on-close>
       <div v-loading="statsLoading" class="stats-dialog-body">
         <template v-if="stats">
-          <!-- 1. 概览统计条 -->
           <div class="stats-overview">
             <div class="stats-card">
               <div class="stats-card-value">{{ stats.submitted_count }}<span class="stats-card-sub">/{{ stats.total_students }}</span></div>
@@ -289,8 +278,6 @@
               <div class="stats-card-label">待批阅</div>
             </div>
           </div>
-
-          <!-- 2. 逐题得分率 -->
           <div class="stats-section">
             <div class="stats-section-title">逐题得分率</div>
             <div v-for="(p, idx) in stats.problem_stats" :key="idx" class="problem-stat-row">
@@ -304,14 +291,10 @@
             </div>
             <el-empty v-if="!stats.problem_stats || !stats.problem_stats.length" description="暂无题目数据" :image-size="40" />
           </div>
-
-          <!-- 3. 成绩分布 -->
           <div class="stats-section">
             <div class="stats-section-title">成绩分布</div>
             <div ref="scoreDistChart" class="score-dist-chart"></div>
           </div>
-
-          <!-- 4. 学生提交明细 -->
           <div class="stats-section">
             <div class="stats-section-title">学生提交明细</div>
             <el-table :data="stats.submissions" size="small" max-height="300">

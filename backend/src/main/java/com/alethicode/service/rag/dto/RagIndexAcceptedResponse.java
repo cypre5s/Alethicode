@@ -1,8 +1,7 @@
 package com.alethicode.service.rag.dto;
 
 /**
- * Mirrors {@code IndexAccepted} from the Python service. Returned with HTTP
- * 202 to acknowledge the indexing task was queued.
+ * 对齐 Python 服务的 {@code IndexAccepted} 响应。
  */
 public record RagIndexAcceptedResponse(
         String indexingTaskId,

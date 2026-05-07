@@ -107,7 +107,7 @@ export default {
       return distractorReasonMap.value[id] || ''
     }
 
-    function onZoneDragOver () { /* visual feedback hook */ }
+    function onZoneDragOver () { /* 拖拽视觉反馈扩展点 */ }
 
     watch(() => props.misplacedId, (id) => {
       if (!id) return

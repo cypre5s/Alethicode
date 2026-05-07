@@ -8,7 +8,7 @@ const httpClient = getHttpClient()
 
 function submissionMemoryFormat(memory) {
   if (memory === undefined) return '--'
-  // 1048576 = 1024 * 1024
+  // Judge Server 返回字节数，前端展示为 MB。
   let t = parseInt(memory) / 1048576
   return String(t.toFixed(0)) + 'MB'
 }
@@ -28,7 +28,6 @@ function getACRate(acCount, totalCount) {
   return String(rate) + '%'
 }
 
-// 去掉值为空的项，返回object
 function filterEmptyValue(object) {
   let query = {}
   Object.keys(object).forEach(key => {
@@ -39,14 +38,16 @@ function filterEmptyValue(object) {
   return query
 }
 
-// 按指定字符数截断添加换行，非英文字符按指定字符的半数截断
+/**
+ * 按字符宽度近似换行；中文字符按半数阈值处理。
+ */
 function breakLongWords(value, length = 16) {
   let re
   if (escape(value).indexOf('%u') === -1) {
-    // 没有中文
+    // 匹配固定长度的连续非中文字符片段。
     re = new RegExp('(.{' + length + '})', 'g')
   } else {
-    // 中文字符
+    // 匹配固定长度的连续中文混排片段。
     re = new RegExp('(.{' + (length / 2 + 1) + '})', 'g')
   }
   return value.replace(re, '$1\n')

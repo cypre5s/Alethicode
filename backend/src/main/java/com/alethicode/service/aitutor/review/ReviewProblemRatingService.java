@@ -131,7 +131,7 @@ public class ReviewProblemRatingService {
             return;
         }
 
-        // Mark the row as submitted (Parsons execution-based judge counts as practice evidence)
+        // Parsons 执行判题也算练习证据，因此标记为已提交。
         jdbcTemplate.update(
                 "update ai_error_review_problem set submitted = true, is_correct = ? where id = ?",
                 RATING_GOOD.equals(rating), row.id()

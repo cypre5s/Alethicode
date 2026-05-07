@@ -464,7 +464,6 @@
           key: 'qa-pages',
           group: '课件页码',
           lazyLoad: true,
-          maxInitialDisplay: 6,
           items: () => proxy ? proxy.buildQaPageMentionItems() : []
         },
         {
@@ -601,7 +600,7 @@
         return this.profile && this.profile.avatar ? this.profile.avatar : ''
       },
       currentPack () {
-        return this.packs.find(pack => String(pack.id) === String(this.selectedLanguagePackId)) || null
+        return this.resolvePackById(this.$data.selectedLanguagePackId)
       },
       canSend () {
         return Boolean(this.selectedLanguagePackId && this.activeSessionId && this.rawText.trim() && !this.loadings.sending && !this.qaInputDisabled)
@@ -744,6 +743,7 @@
         this.qaPendingQuestion = ''
         this.loadings.sending = false
         this.selectedLanguagePackId = String(packId)
+        const selectedPack = this.resolvePackById(packId)
         this.resetQaMentionCache()
         this.activeSessionId = null
         this.qaContextUsage = { tokens_used: 0, tokens_limit: 0, model_name: '', last_updated: null }
@@ -751,12 +751,19 @@
         this.messages = []
         this.citationPreview = null
         await this.$router.replace({ query: { ctx: encodeQaCtx(packId) } }).catch(() => {})
-        if (!this.currentPackIsQaReady) {
+        if (!selectedPack || !selectedPack.qa_ready) {
           this.qaAvailabilityState = 'unready'
           return
         }
         this.qaAvailabilityState = 'ready'
         await this.loadSessions()
+      },
+      resolvePackById (packId) {
+        if (!packId) {
+          return null
+        }
+        const packs = Array.isArray(this.$data.packs) ? this.$data.packs : []
+        return packs.find(pack => String(pack.id) === String(packId)) || null
       },
       async loadSessions () {
         if (!this.selectedLanguagePackId) return
@@ -832,23 +839,31 @@
           this.composerHandlers.refreshProvider('qa-notebooks')
         }
       },
+      /**
+       * 课件问答 @ 菜单的「课件页」候选项：按二级目录拆分，章号取 normalized 文档
+       * 按 (sort_order, id) 1-based 序号；token 形如 @page:章.页，subgroup 让
+       * AtMentionMenu 渲染为独立小节，避免长文档把整组撑成单行扁平列表。
+       */
       async buildQaPageMentionItems () {
         if (!this.selectedLanguagePackId) return []
         const cache = this._qaMentionCache || {}
         if (cache.packId === this.selectedLanguagePackId && cache.pages) return cache.pages
         const documents = await this.loadQaDocumentsForMentions()
         const items = []
-        documents.forEach(doc => {
+        documents.forEach((doc, idx) => {
           const pageCount = Number(doc.page_count) || 0
-          const title = doc.original_filename || doc.title || '课件'
           if (pageCount <= 0) return
-          for (let pageNo = 1; pageNo <= pageCount; pageNo++) {
+          const chapter = idx + 1
+          const title = doc.original_filename || doc.title || `课件 ${chapter}`
+          const subgroup = `第 ${chapter} 章 · ${title}`
+          for (let documentPageNo = 1; documentPageNo <= pageCount; documentPageNo++) {
             items.push({
-              key: `page:${doc.id}:${pageNo}`,
-              token: `@page:${pageNo}`,
-              label: `第 ${pageNo} 页`,
+              key: `page:${doc.id}:${documentPageNo}`,
+              token: `@page:${chapter}.${documentPageNo}`,
+              label: `第 ${documentPageNo} 页`,
               desc: title,
-              hoverPreview: `${title} · 第 ${pageNo} 页`
+              subgroup,
+              hoverPreview: `${title} · 第 ${documentPageNo} 页`
             })
           }
         })
@@ -901,22 +916,61 @@
         const payload = res && res.data && res.data.data !== undefined ? res.data.data : (res ? res.data : [])
         return Array.isArray(payload) ? payload : []
       },
+      /**
+       * `/page` 同时支持二级目录 (`/page 1.7`) 与 legacy 全局页号 (`/page 7`)。
+       * 章号 = normalized 文档按 (sort_order, id) 1-based 序号，与 @page 候选保持一致。
+       */
       async jumpToQaPage (args) {
-        const pageNo = Number.parseInt(String(args || '').trim(), 10)
-        if (!Number.isInteger(pageNo) || pageNo <= 0) {
-          notify.info('用法：/page <页码>')
-          return
-        }
+        const raw = String(args || '').trim()
+        const chapterMatch = raw.match(/^(\d+)\.(\d+)$/)
         const documents = await this.loadQaDocumentsForMentions()
-        const doc = documents.find(item => pageNo <= (Number(item.page_count) || 0))
-        if (!doc) {
-          notify.warning(`找不到第 ${pageNo} 页`)
-          return
+        let targetDoc = null
+        let documentPageNo = 0
+        if (chapterMatch) {
+          const chapter = Number.parseInt(chapterMatch[1], 10)
+          const pageInChapter = Number.parseInt(chapterMatch[2], 10)
+          if (!Number.isInteger(chapter) || chapter <= 0 || !Number.isInteger(pageInChapter) || pageInChapter <= 0) {
+            notify.info('用法：/page <章.页> 或 /page <全局页>')
+            return
+          }
+          const doc = documents[chapter - 1]
+          if (!doc) {
+            notify.warning(`找不到第 ${chapter} 章`)
+            return
+          }
+          const pageCount = Number(doc.page_count) || 0
+          if (pageInChapter > pageCount) {
+            notify.warning(`第 ${chapter} 章只有 ${pageCount} 页`)
+            return
+          }
+          targetDoc = doc
+          documentPageNo = pageInChapter
+        } else {
+          const pageNo = Number.parseInt(raw, 10)
+          if (!Number.isInteger(pageNo) || pageNo <= 0) {
+            notify.info('用法：/page <章.页> 或 /page <全局页>')
+            return
+          }
+          let remaining = pageNo
+          for (const doc of documents) {
+            const pageCount = Number(doc.page_count) || 0
+            if (pageCount <= 0) continue
+            if (remaining <= pageCount) {
+              targetDoc = doc
+              documentPageNo = remaining
+              break
+            }
+            remaining -= pageCount
+          }
+          if (!targetDoc) {
+            notify.warning(`找不到第 ${pageNo} 页`)
+            return
+          }
         }
         await this.openCitation({
-          document_id: doc.id,
-          document_title: doc.original_filename || doc.title || '课件',
-          page_no: pageNo
+          document_id: targetDoc.id,
+          document_title: targetDoc.original_filename || targetDoc.title || '课件',
+          page_no: documentPageNo
         })
       },
       _scrollMessagesToBottom () {
@@ -2263,6 +2317,7 @@
   }
 
   .qa-composer {
+    position: relative;
     flex-shrink: 0;
     margin-top: 12px;
     border-radius: var(--border-radius-md);

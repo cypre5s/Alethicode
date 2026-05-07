@@ -1,4 +1,4 @@
-"""Tests for TutorGraphState schema and ingest node."""
+"""测试 TutorGraphState schema 和 ingest 节点。"""
 
 from app.graph.state import TutorGraphState
 from app.nodes.ingest import ingest_event

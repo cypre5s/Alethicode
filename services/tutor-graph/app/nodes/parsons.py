@@ -1,4 +1,4 @@
-"""Parsons node — student initiated PARSONS event routed to Java capability."""
+"""将学生触发的 PARSONS 事件路由到 Java 能力。"""
 
 from __future__ import annotations
 

@@ -1,7 +1,5 @@
 /**
- * Student-side learner profile dashboard API (P1 Persistent Memory layer).
- *
- * Backend: ProfileController, mounted at /api/ai/tutor/profile/*
+ * 学生端学习者画像接口，对齐 ProfileController 的个人画像路径。
  */
 
 import { ajax } from './shared'

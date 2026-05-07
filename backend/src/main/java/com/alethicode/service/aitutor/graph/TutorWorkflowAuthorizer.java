@@ -17,23 +17,19 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Enforces the business-level preconditions that guard every tutor workflow API:
- * problem accessibility, allowed language for the chosen problem, and submission
- * ownership for runs that depend on a submission.
+ * 校验导学工作流 API 的业务前置条件。
  *
- * <p>All checks use fail-fast exceptions so the controller layer can map them to
- * stable HTTP status codes (403 / 404 / 409 / 422) without branching on business
- * details.
+ * <p>题目可访问性、语言白名单和提交所有权都使用 fail-fast 异常，控制器只负责映射稳定 HTTP 状态。</p>
  */
 @Service
 public class TutorWorkflowAuthorizer {
 
     private static final Logger log = LoggerFactory.getLogger(TutorWorkflowAuthorizer.class);
 
-    /** Judge result code for Accepted. Mirrors the legacy Python OJ and V5 schema. */
+    /** AC 在旧 Python OJ 与 V5 schema 中的判题结果码。 */
     private static final int AC_RESULT_CODE = 0;
 
-    /** Cache name registered by {@link com.alethicode.config.MultiTierCacheConfig}. */
+    /** {@link com.alethicode.config.MultiTierCacheConfig} 注册的题目访问缓存名。 */
     static final String PROBLEM_ACCESS_CACHE = "problemAccess";
 
     private final NamedParameterJdbcTemplate jdbc;
@@ -47,11 +43,10 @@ public class TutorWorkflowAuthorizer {
     }
 
     /**
-     * Loaded view of the minimum problem fields needed to authorize tutor runs.
+     * 导学运行鉴权所需的最小题目字段视图。
      *
-     * <p>{@code languagesCorrupt=true} means the DB row's {@code languages} JSON could
-     * not be parsed; the authorizer must refuse with a dedicated error message so
-     * operators can diagnose the row instead of seeing a generic "no languages".
+     * <p>{@code languagesCorrupt=true} 表示数据库 {@code languages} JSON 无法解析，必须返回专门错误，
+     * 便于排查脏数据而不是误报“无语言配置”。</p>
      */
     public record ProblemAccess(long problemId, long ownerId, boolean visible, boolean isPublic,
                                  Set<String> allowedLanguages, boolean languagesCorrupt) {
@@ -60,7 +55,7 @@ public class TutorWorkflowAuthorizer {
         }
     }
 
-    /** Dedicated exception types so controllers can map to precise HTTP statuses. */
+    /** 控制器用这些异常类型映射精确 HTTP 状态。 */
     public static class ProblemNotFound extends RuntimeException {
         public ProblemNotFound(long problemId) {
             super("Problem not found: " + problemId);
@@ -98,8 +93,7 @@ public class TutorWorkflowAuthorizer {
     }
 
     /**
-     * Assert the user can open a tutor session on the given problem with the requested language.
-     * Throws {@link ProblemNotFound} / {@link AccessDenied} / {@link LanguageNotAllowed}.
+     * 断言用户可以用指定语言为目标题目打开导学会话。
      */
     public ProblemAccess assertProblemAccessible(long problemId, long userId, String language) {
         ProblemAccess access = lookupProblemAccess(problemId)
@@ -121,8 +115,7 @@ public class TutorWorkflowAuthorizer {
                     "Problem " + access.problemId() + " has corrupt language metadata; cannot start a tutor run");
         }
         if (access.allowedLanguages().isEmpty()) {
-            // Problem row carries no explicit language list — treat as misconfigured rather than
-            // silently accept any input.
+            // 题目缺少显式语言列表时视为配置错误，不能默认接受任意语言。
             throw new LanguageNotAllowed(
                     "Problem " + access.problemId() + " has no configured languages; cannot start a tutor run");
         }
@@ -149,8 +142,7 @@ public class TutorWorkflowAuthorizer {
     }
 
     /**
-     * Intermediate parse result. Uses a boolean flag instead of exceptions so
-     * callers can surface "corrupt JSON" with a dedicated error message.
+     * 中间解析结果，用布尔标记保留“JSON 损坏”的专门错误语义。
      */
     private record ParsedLanguages(Set<String> languages, boolean corrupt) {
         private static ParsedLanguages none() {
@@ -175,8 +167,7 @@ public class TutorWorkflowAuthorizer {
     }
 
     /**
-     * Assert that the submission exists and belongs to the given user/problem pair.
-     * Returns the submission metadata for callers that need the AC check next.
+     * 断言提交存在且属于指定用户和题目，并返回后续 AC 校验所需元数据。
      */
     public SubmissionRef assertSubmissionBelongsTo(String submissionId, long userId, long problemId) {
         if (submissionId == null || submissionId.isBlank()) {
@@ -214,16 +205,12 @@ public class TutorWorkflowAuthorizer {
     }
 
     /**
-     * Cache-fronted single-flight lookup for {@link ProblemAccess}.
+     * 带缓存的 {@link ProblemAccess} 单飞查询。
      *
-     * <p>Penetration defense: a missing problem is cached as {@link Optional#empty()}
-     * so a malicious or buggy caller hammering an unknown problem id only triggers
-     * one DB query per cache TTL. Avalanche defense lives in
-     * {@code MultiTierCacheConfig.JitteredExpiry}, which spreads expirations across
-     * a {@code [base, base * 1.3]} window so cold-warmed entries do not all drop at once.
+     * <p>不存在的题目会缓存为 {@link Optional#empty()}，减少异常 problemId 的穿透查询。
+     * 过期抖动由 {@code MultiTierCacheConfig.JitteredExpiry} 统一处理，避免批量缓存同时失效。</p>
      *
-     * <p>The cache must exist (registered by {@link com.alethicode.config.MultiTierCacheConfig});
-     * a missing cache is a configuration error, not a fall-through condition.
+     * <p>缓存缺失是配置错误，不能静默绕过。</p>
      */
     Optional<ProblemAccess> lookupProblemAccess(long problemId) {
         Cache cache = cacheManager.getCache(PROBLEM_ACCESS_CACHE);

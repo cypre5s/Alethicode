@@ -1,4 +1,4 @@
-"""Tests for evidence pack assembly — covers Bug fix #15 (ERROR_FEEDBACK needs similar_errors)."""
+"""测试证据包组装，覆盖 ERROR_FEEDBACK 必须携带 similar_errors 的回归。"""
 
 from __future__ import annotations
 
@@ -9,27 +9,27 @@ from app.nodes.evidence import assemble_evidence_pack, EVENT_EVIDENCE_REQUIREMEN
 
 
 def test_error_feedback_requires_similar_errors():
-    """ERROR_FEEDBACK must fetch similar_errors per contract §7.4."""
+    """ERROR_FEEDBACK 必须按契约 §7.4 获取 similar_errors。"""
     assert "similar_errors" in EVENT_EVIDENCE_REQUIREMENTS["ERROR_FEEDBACK"]
 
 
 def test_error_feedback_requires_workflow_context_for_problem_statement():
-    """ERROR_FEEDBACK must read the problem text so diagnosis follows题面约束."""
+    """ERROR_FEEDBACK 必须读取题面，保证诊断遵循题面约束。"""
     assert "workflow_context" in EVENT_EVIDENCE_REQUIREMENTS["ERROR_FEEDBACK"]
 
 
 def test_agent_feedback_has_no_required_evidence():
-    """AGENT_FEEDBACK is an auxiliary event and should not require evidence fetches."""
+    """AGENT_FEEDBACK 是辅助事件，不应强制拉取证据。"""
     assert EVENT_EVIDENCE_REQUIREMENTS["AGENT_FEEDBACK"] == []
 
 
 def test_chat_now_requires_learner_state_for_personalization():
-    """P1 Persistent Memory: CHAT must now carry learner_state so the chat node injects style/profile."""
+    """P1 持久记忆要求 CHAT 携带 learner_state，以便注入学习风格和画像。"""
     assert "learner_state" in EVENT_EVIDENCE_REQUIREMENTS["CHAT"]
 
 
 def test_chat_now_requires_last_cards_and_references_for_unified_chat():
-    """P3 Unified Chat: CHAT evidence must include last_cards + references for cross-card context."""
+    """P3 统一对话要求 CHAT 证据包含 last_cards 和 references。"""
     assert "last_cards" in EVENT_EVIDENCE_REQUIREMENTS["CHAT"]
     assert "references" in EVENT_EVIDENCE_REQUIREMENTS["CHAT"]
 
@@ -141,12 +141,12 @@ async def test_chat_evidence_skips_resolve_when_no_references_provided():
 
 
 def test_knowledge_review_requires_workflow_context_for_kc_anchoring():
-    """Knowledge review must fetch workflow_context so current_kcs are available."""
+    """知识复习必须获取 workflow_context，确保 current_kcs 可用。"""
     assert "workflow_context" in EVENT_EVIDENCE_REQUIREMENTS["KNOWLEDGE_REVIEW"]
 
 
 def test_skeleton_requires_problem_context_and_learner_state():
-    """SKELETON must fetch the current problem before generating scaffold code."""
+    """SKELETON 生成骨架代码前必须获取当前题目上下文。"""
     assert "workflow_context" in EVENT_EVIDENCE_REQUIREMENTS["SKELETON"]
     assert "learner_state" in EVENT_EVIDENCE_REQUIREMENTS["SKELETON"]
 
@@ -183,18 +183,18 @@ async def test_skeleton_evidence_calls_workflow_context_before_learner_state():
 
 
 def test_reading_now_requires_learner_state_for_personalization():
-    """P1: READING must include learner_state so the problem_guide tone matches the learner."""
+    """P1 要求 READING 包含 learner_state，使 problem_guide 语气匹配学习者。"""
     assert "learner_state" in EVENT_EVIDENCE_REQUIREMENTS["READING"]
 
 
 def test_coding_now_requires_learner_state_for_personalization():
-    """P1: CODING must include learner_state so execution trace explanation respects the learner style."""
+    """P1 要求 CODING 包含 learner_state，使执行轨迹解释尊重学习者风格。"""
     assert "learner_state" in EVENT_EVIDENCE_REQUIREMENTS["CODING"]
 
 
 @pytest.mark.asyncio
 async def test_missing_submission_id_fails_fast():
-    """ERROR_FEEDBACK without submission_id → INSUFFICIENT_EVIDENCE bucket."""
+    """ERROR_FEEDBACK 缺少 submission_id 时进入 INSUFFICIENT_EVIDENCE bucket。"""
     java = MagicMock()
     java.get_learner_state = AsyncMock(return_value={})
 
@@ -213,7 +213,7 @@ async def test_missing_submission_id_fails_fast():
 
 @pytest.mark.asyncio
 async def test_error_feedback_evidence_includes_problem_context_for_diagnosis():
-    """Diagnosis evidence should include题干 before learner-state projection."""
+    """学习者状态投影前，诊断证据必须包含题干。"""
     java = MagicMock()
     java.get_workflow_context = AsyncMock(return_value={
         "title": "圆面积计算",
@@ -254,7 +254,7 @@ async def test_error_feedback_evidence_includes_problem_context_for_diagnosis():
 
 @pytest.mark.asyncio
 async def test_tool_call_exception_bubbles_as_tool_execution_failed():
-    """If the Java tool API raises, we should set TOOL_EXECUTION_FAILED bucket."""
+    """Java 工具 API 抛错时应设置 TOOL_EXECUTION_FAILED bucket。"""
     java = MagicMock()
     java.get_workflow_context = AsyncMock(side_effect=RuntimeError("network down"))
 

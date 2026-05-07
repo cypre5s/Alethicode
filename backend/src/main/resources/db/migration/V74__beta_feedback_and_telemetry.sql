@@ -11,24 +11,24 @@ CREATE TABLE IF NOT EXISTS beta_feedback_report (
     id                    BIGSERIAL PRIMARY KEY,
     reporter_user_id      BIGINT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
     type                  VARCHAR(64)  NOT NULL,
-        -- enum: cant_open / button_dead / page_confusing /
+        -- 枚举：cant_open / button_dead / page_confusing /
         --       wrong_problem_or_answer / ai_unclear / submit_wrong / other
     severity              VARCHAR(16)  NOT NULL,
-        -- enum: blocker / high / medium / low
+        -- 枚举：blocker / high / medium / low
     description           TEXT NOT NULL DEFAULT '',
     route                 TEXT NOT NULL DEFAULT '',
     problem_id            BIGINT,
     submission_id         BIGINT,
     workflow_session_id   VARCHAR(64),
     status                VARCHAR(16)  NOT NULL DEFAULT 'pending',
-        -- enum: pending / triaging / fixing / resolved / wontfix
+        -- 枚举：pending / triaging / fixing / resolved / wontfix
     wjx_followup_opened   BOOLEAN NOT NULL DEFAULT FALSE,
     browser_meta          JSONB NOT NULL DEFAULT '{}'::jsonb,
         -- {ua, viewport, lang, dpr, online, network}
     recent_actions        JSONB NOT NULL DEFAULT '[]'::jsonb,
-        -- last 20 telemetry events on the same page
+        -- 同一页面最近 20 条 telemetry event
     mail_status           VARCHAR(16) NOT NULL DEFAULT 'pending',
-        -- enum: pending / sent / failed / disabled
+        -- 枚举：pending / sent / failed / disabled
     mail_error            TEXT NOT NULL DEFAULT '',
     privacy_notice_version VARCHAR(32) NOT NULL DEFAULT '',
     created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS beta_telemetry_event (
     id          BIGSERIAL PRIMARY KEY,
     user_id     BIGINT REFERENCES "user"(id) ON DELETE SET NULL,
     event_type  VARCHAR(64) NOT NULL,
-        -- enum: page_view / feature_click / frontend_error /
+        -- 枚举：page_view / feature_click / frontend_error /
         --       api_error / web_vital / feedback_opened / feedback_submitted
     route       TEXT NOT NULL DEFAULT '',
     problem_id  BIGINT,

@@ -1,23 +1,8 @@
 /**
- * AI 导学（最大的业务域）。合并了以下子能力：
- *   - 传统 AI 导学推理 (`requestAIGuidance` 等历史入口)
- *   - Ideate：自然语言思路外化
- *   - Frustration：挫败感检测 / 事件上报 / 告警
- *   - Preflight：AST 预检
- *   - Eval Feedback：教学交互反馈
- *   - Tutor Workflow（LangGraph 会话 + run + checkpoint + interrupt）
- *   - 学习事件：code-snapshot / learning-events/batch
- *   - 复习、错题本、复习包、误解 (misconceptions)
- *   - Calibration：冷启动分级测评
- *   - 知识图谱可视化（KC / 学习孪生 / 欢迎语 / 策略反馈）
- *   - Submission River：提交河
+ * AI 导学接口集中维护传统导学、LangGraph 工作流、复习、校准和学习画像能力。
  *
- * 注意：`getAIGuidance` 等兼容别名使用 `this.xxx` 调用其他方法，
- * 依赖被 spread 合并后挂在同一个 `api` 对象上；保留此语义，外部无需感知。
- *
- * 另外 `getAITaskStatus` 被设计成"二义性 API"（单参=导学任务、双参=班级 AI 生成题目任务），
- * 其中双参路径会转调 `this.getAIGeneratedTaskStatus`，该方法来自 `classroom` 模块，
- * 只要最终挂载到同一个对象上即可正常工作。
+ * `getAIGuidance` 与 `getAITaskStatus` 依赖最终 API 对象的 spread 合并语义：
+ * 单参查导学任务，双参转到 classroom 模块查 AI 生成题任务。
  */
 
 import { ajax } from './shared'

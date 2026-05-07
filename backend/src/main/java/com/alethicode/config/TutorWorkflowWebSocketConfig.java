@@ -8,15 +8,10 @@ import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
 
 /**
- * Registers the tutor workflow WebSocket endpoint under a strict origin whitelist
- * (via {@link WebSocketOriginConfigurer}) and behind the shared handshake
- * interceptor so every connection carries an authenticated username / userId.
+ * 注册导学工作流 WebSocket 端点。
  *
- * <p>The previous configuration used {@code setAllowedOrigins("*")} without any
- * authentication check — any remote origin could open the socket and observe
- * another student's tutor events. Ownership still must be validated per message
- * by {@link TutorWorkflowWebSocketHandler}; this config only enforces the
- * connection prerequisites.
+ * <p>端点必须经过严格 origin 白名单和统一握手认证；消息级所有权仍由
+ * {@link TutorWorkflowWebSocketHandler} 校验。</p>
  */
 @Configuration
 @EnableWebSocket

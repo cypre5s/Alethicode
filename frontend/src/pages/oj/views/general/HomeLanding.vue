@@ -52,7 +52,7 @@
     background: linear-gradient(180deg, #f7f9fc 0%, #fff 50%, #f7f9fc 100%);
   }
 
-  /* ── Hero ── */
+  /* 首屏 */
   .hero {
     display: flex;
     flex-direction: column;
@@ -104,7 +104,7 @@
     }
   }
 
-  /* ── Features ── */
+  /* 功能区 */
   .features {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -146,7 +146,7 @@
     margin: 0;
   }
 
-  /* ── Bottom CTA ── */
+  /* 底部行动区 */
   .bottom-cta {
     text-align: center;
     padding: 48px 24px 80px;
@@ -158,7 +158,7 @@
     margin: 0 0 24px;
   }
 
-  /* ── Responsive ── */
+  /* 响应式 */
   @media (max-width: 640px) {
     .hero { padding: 60px 20px 48px; }
     .hero-title { font-size: 28px; }

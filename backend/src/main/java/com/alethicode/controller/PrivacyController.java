@@ -19,13 +19,9 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Map;
 
 /**
- * Privacy self-service endpoints for PIPL compliance. Exposed publicly so a data
- * subject can exercise their access / deletion rights without having to file a
- * paper request.
+ * 个人信息保护自助接口。
  *
- * <p>Both endpoints are rate-limited via {@code adminWrite} (the strictest
- * bucket) to prevent abuse; 10 req/s / instance is more than sufficient for a
- * real user.
+ * <p>导出和删除请求都使用最严格的 {@code adminWrite} 限流桶，公开入口必须优先防滥用。</p>
  */
 @RestController
 @RequestMapping("/api/privacy")
@@ -40,8 +36,7 @@ public class PrivacyController {
     }
 
     /**
-     * GB/T 35273 / PIPL article 45-46 access and portability right. Returns a
-     * JSON snapshot of every domain object tied to the current user.
+     * 导出当前用户关联的个人数据快照。
      */
     @PostMapping("/data-exports")
     @RateLimiter(name = "adminWrite")
@@ -57,9 +52,9 @@ public class PrivacyController {
     }
 
     /**
-     * PIPL article 47 deletion right. We register a ticket; the actual purge is
-     * a human-in-the-loop admin workflow so we can vet coerced / phishing
-     * requests. The request itself is immediately auditable.
+     * 登记个人数据删除工单。
+     *
+     * 实际清理由管理员复核，避免胁迫或钓鱼场景下立即执行不可逆删除。
      */
     @DeleteMapping("/personal-data")
     @RateLimiter(name = "adminWrite")

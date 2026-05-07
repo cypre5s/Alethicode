@@ -1,9 +1,7 @@
 <template>
   <div class="submission-details-container">
-    <!-- 左侧：性能分析图表 -->
     <div class="left-panel">
       <div class="performance-section">
-        <!-- 题目信息 -->
         <div v-if="problemDisplayId" class="problem-info-bar">
           <router-link :to="'/problem/' + problemDisplayId" class="problem-link">
             <el-icon :size="16"><Document /></el-icon>
@@ -14,7 +12,6 @@
           <span v-if="statisticsTotalCount > 0" class="stats-count">共 {{ statisticsTotalCount }} 份 AC 提交</span>
         </div>
 
-        <!-- Runtime Distribution -->
         <div class="distribution-chart">
           <div class="chart-header">
             <el-icon :size="20"><Clock /></el-icon>
@@ -57,7 +54,6 @@
           </div>
         </div>
 
-        <!-- Memory Distribution -->
         <div class="distribution-chart">
           <div class="chart-header">
             <el-icon :size="20"><DataAnalysis /></el-icon>
@@ -101,8 +97,6 @@
         </div>
       </div>
     </div>
-
-    <!-- 右侧：原始内容 -->
     <div class="right-panel">
       <el-row justify="space-around">
         <el-col :span="23" id="status">
@@ -121,8 +115,6 @@
             </div>
           </el-alert>
         </el-col>
-
-        <!--后台返info就显示出来， 权限控制放后台 -->
         <el-col v-if="submission.info && !isCE" :span="23">
           <el-table stripe :data="submission.info.data" v-loading="loading">
             <el-table-column :label="$t('m.ID')" align="center" type="index" />

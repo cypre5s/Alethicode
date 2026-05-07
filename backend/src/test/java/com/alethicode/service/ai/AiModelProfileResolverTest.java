@@ -63,7 +63,6 @@ class AiModelProfileResolverTest {
 
         AiModelProfile profile = resolver.resolveChat(null);
         assertThat(profile.apiKey()).isEqualTo("env-key");
-        // CHANGELOG 2026-04-14 pinned DeepSeek as the production default.
         assertThat(profile.baseUrl()).isEqualTo("https://api.deepseek.com/v1");
         assertThat(profile.chatModel()).isEqualTo("deepseek-chat");
     }
@@ -106,9 +105,6 @@ class AiModelProfileResolverTest {
         assertThat(profile.apiKey()).isEqualTo("default-key");
     }
 
-    // Phase 3 切流：resolveEmbedding 已删除 — embedding 凭据迁到 alethicode-rag
-    // 容器，Java 端不再持有 EMBEDDING_API_KEY / EMBEDDING_BASE_URL / EMBEDDING_MODEL。
-
     @Test
     void readRequiredFailsFastOnMissingKey() {
         BetaFeatureRegistry beta = mock(BetaFeatureRegistry.class);
@@ -127,7 +123,7 @@ class AiModelProfileResolverTest {
         assertThat(resolver.readOrDefault("ABSENT_KEY", "default-value")).isEqualTo("default-value");
     }
 
-    /** In-memory stand-in that avoids filesystem access. */
+    /** 避免访问文件系统的内存替身。 */
     private static final class StubEnvLoader extends LocalEnvFallbackLoader {
         private final Map<String, String> values;
 

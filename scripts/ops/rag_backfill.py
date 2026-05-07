@@ -104,16 +104,16 @@ class BackfillStats:
     last_id: str | None = None
 
 
-# ---------- candidate fetchers ----------
+# 候选数据读取。
 
 
 async def fetch_courseware_pages(
         pool: asyncpg.Pool, *, after_id: int, limit: int | None,
         language_pack_id: int | None = None
 ) -> list[IndexCandidate]:
-    """Fetch course-page rows with optional `language_pack_id` filter so callers
-    can target a single course pack (e.g. only Python 语言基础) instead of the
-    whole table. ``after_id`` keeps the resumable progress semantics.
+    """读取课件页，并可通过 `language_pack_id` 限定单个课程包。
+
+    `after_id` 保留可恢复进度语义，避免每次都从全表开始。
     """
     if language_pack_id is None:
         sql = """
@@ -203,10 +203,9 @@ async def fetch_notebooks(
 async def fetch_memories(
         pool: asyncpg.Pool, *, after_id: str, limit: int | None
 ) -> list[IndexCandidate]:
-    # Cursor format: `user_id:memory_key` — must match the entity_id we set
-    # below, otherwise progress.last_id and the next SQL `>` filter disagree
-    # and the script either skips rows or loops forever (实测 Phase 2 第一次跑
-    # 把 44 条 memory 跑成 3090 条，根因就是 cursor 与 entity_id 不一致)。
+    # 游标格式必须与下面写入的 entity_id 一致，否则 progress.last_id 与下一次
+    # SQL `>` 过滤口径不一致，会跳行或死循环（Phase 2 首次实测把 44 条 memory
+    # 跑成 3090 条，根因就是 cursor 与 entity_id 不一致）。
     sql = """
         SELECT id, user_id, memory_key, memory_value, memory_type,
                source_type, source_problem_id, updated_at
@@ -239,16 +238,16 @@ async def fetch_memories(
     return candidates
 
 
-# ---------- progress / errors ----------
+# 进度与错误记录。
 
 
 async def load_progress(pool: asyncpg.Pool, entity_type: str) -> tuple[BackfillStats, str]:
-    """Load existing progress row; return (stats, last_id_string).
+    """加载已有进度行，返回统计信息和 last_id 字符串。
 
-    last_id semantics:
-      * courseware-page: numeric id as string ("0" if no progress)
-      * notebook       : uuid string ("" if no progress)
-      * memory         : composite "id:user_id:memory_key" string ("" if no progress)
+    last_id 语义：
+      * courseware-page: 数字 id 字符串，无进度时为 "0"
+      * notebook       : uuid 字符串，无进度时为空字符串
+      * memory         : 组合键 "id:user_id:memory_key"，无进度时为空字符串
     """
     row = await pool.fetchrow(
         "SELECT total, finished, failed, last_id FROM rag_backfill_progress WHERE entity_type = $1",
@@ -313,7 +312,7 @@ async def record_error(pool: asyncpg.Pool, entity_type: str, entity_id: str, err
     )
 
 
-# ---------- HTTP indexer ----------
+# HTTP 索引客户端。
 
 
 class RagIndexer:
@@ -348,7 +347,7 @@ class RagIndexer:
             )
 
 
-# ---------- main runner ----------
+# 主执行流程。
 
 
 FETCHERS: dict[str, Callable[..., Awaitable[list[IndexCandidate]]]] = {
@@ -423,7 +422,7 @@ async def run_entity(
 
         for cand, ok, err in results:
             if isinstance(ok, BaseException):
-                # asyncio.gather(return_exceptions=True) may yield raw exceptions
+                # `asyncio.gather(return_exceptions=True)` 可能直接返回异常对象。
                 stats.total += 1
                 stats.failed += 1
                 err_text = str(ok)
@@ -551,7 +550,7 @@ async def retry_errors(pool: asyncpg.Pool, indexer: RagIndexer, settings: Backfi
                     content=summary,
                     metadata={"user_id": r["user_id"], "problem_id": r["problem_id"]},
                 )
-    # memory entity_id is composite; we just look up by user_id, memory_key.
+    # memory 的 entity_id 是组合键，只按 user_id 与 memory_key 回查。
     mem_targets = [r["entity_id"] for r in rows if r["entity_type"] == "memory"]
     for entity_id in mem_targets:
         try:

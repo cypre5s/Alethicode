@@ -1,4 +1,4 @@
-"""Tests for card JSON Schema validation."""
+"""测试卡片 JSON Schema 校验。"""
 
 import pytest
 
@@ -194,9 +194,7 @@ class TestSkeletonCodeSchema:
 
 
 class TestParsonsProblemPassthrough:
-    """Parsons card payload is generated and validated by Java backend.
-    The Python graph side only transparently passes it through node_outputs['parsons'].
-    Schema validation must NOT block parsons outputs."""
+    """Parsons 卡片正文由 Java 后端生成并校验。"""
 
     def test_parsons_output_is_not_blocked_by_schema_validation(self):
         state = {

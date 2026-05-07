@@ -75,8 +75,6 @@ public class ClassroomAiProblemService {
         this.classroomKcResolver = classroomKcResolver;
     }
 
-    // ── public API ──────────────────────────────────────────
-
     public ApiResponse<Object> aiGeneratedProblemList(String classroomId, Map<String, String> params, Authentication authentication) {
         UserAuth user = resolveUser(authentication);
         if (!user.authenticated()) {
@@ -1014,8 +1012,6 @@ public class ClassroomAiProblemService {
         return ApiResponse.success(payload);
     }
 
-    // ── AI-specific private helpers ─────────────────────────
-
     private Map<String, Object> findAiGeneratedProblem(String classroomId, String aiProblemId) {
         return jdbcTemplate.query(
                 """
@@ -1709,8 +1705,6 @@ public class ClassroomAiProblemService {
         return filename.substring(idx);
     }
 
-    // ── language-pack pool picking ──────────────────────────
-
     private List<Map<String, Object>> pickFromLanguagePackPool(String classroomId, Long languagePackId, List<Long> kcIds,
                                                                 String questionType, int limit, Set<Long> alreadyUsed,
                                                                 String targetDifficulty) {
@@ -1847,8 +1841,6 @@ public class ClassroomAiProblemService {
         }
         return ids;
     }
-
-    // ── shared utilities ────────────────────────────────────
 
     private boolean classroomExists(String classroomId) {
         Integer count = jdbcTemplate.queryForObject("select count(*) from classroom where id = ?", Integer.class, classroomId);
@@ -2015,8 +2007,6 @@ public class ClassroomAiProblemService {
         }
         return new LinkedHashMap<>();
     }
-
-    // ── records ─────────────────────────────────────────────
 
     private record PreparedAiGeneratedProblem(
             String id,

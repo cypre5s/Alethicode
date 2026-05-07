@@ -16,8 +16,17 @@ describe('problem skeleton card contract', () => {
     expect(source).not.toContain('<Button')
     expect(source).toContain("@click.stop.prevent=\"handleInsertClick\"")
     expect(source).toContain('class="skeleton-btn-primary"')
-    expect(source).toContain("emits: ['insert-code']")
+    expect(source).toContain("emits: ['insert-code', 'request-parsons']")
     expect(source).toContain("this.$emit('insert-code', { code: this.data.skeleton, position: 'append' })")
+  })
+
+  test('skeleton card embeds the parsons fallback button at the bottom', () => {
+    const source = readSource('../../src/pages/oj/views/problem/cards/SkeletonCodeCard.vue')
+
+    expect(source).toContain('class="skeleton-btn-parsons"')
+    expect(source).toContain("@click.stop.prevent=\"handleParsonsClick\"")
+    expect(source).toContain('有点难？试试拼装版')
+    expect(source).toContain("this.$emit('request-parsons')")
   })
 
   test('skeleton code block should expand naturally without internal vertical scrolling', () => {

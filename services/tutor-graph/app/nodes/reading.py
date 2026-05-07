@@ -1,4 +1,4 @@
-"""Problem guide node — generates the reading/导读 card."""
+"""生成审题导读卡片。"""
 
 from __future__ import annotations
 

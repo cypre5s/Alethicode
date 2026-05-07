@@ -1,1 +1,1 @@
-"""LightRAG factory + LLM/embedding wrappers."""
+"""LightRAG 工厂与 LLM / embedding 包装层。"""

@@ -60,7 +60,7 @@ async def test_chat_injects_last_cards_into_prompt():
 
 @pytest.mark.asyncio
 async def test_chat_filters_fabricated_card_ids():
-    """LLM must not be allowed to invent card ids the user / last cards never saw."""
+    """LLM 不允许编造用户和最近卡片中都不存在的 card_id。"""
 
     llm = MagicMock()
     llm.generate_json = AsyncMock(return_value={
@@ -119,7 +119,7 @@ async def test_chat_handles_empty_references_and_cards():
 
 @pytest.mark.asyncio
 async def test_chat_single_courseware_labelled_as_primary():
-    """Single courseware bundle should be labelled as primary (用户引用的课件)."""
+    """单个课件 bundle 应标记为主课件。"""
     captured = {}
 
     async def fake_generate_json(system_prompt, user_msg, **kwargs):
@@ -158,7 +158,7 @@ async def test_chat_single_courseware_labelled_as_primary():
 
 @pytest.mark.asyncio
 async def test_chat_multi_courseware_labels_primary_and_side_evidence():
-    """Multiple courseware bundles: first is primary, rest are side-evidence (旁证)."""
+    """多个课件 bundle 中首个为主课件，其余为旁证。"""
     captured = {}
 
     async def fake_generate_json(system_prompt, user_msg, **kwargs):

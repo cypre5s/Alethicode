@@ -6,9 +6,8 @@ build-backend = "hatchling.build"
 name = "alethicode-rag"
 version = "0.1.0"
 description = "Alethicode RAG microservice (FastAPI + LightRAG + PostgreSQL pgvector + Memgraph)"
-# LightRAG 1.4.15 requires Python >=3.10. We align with `tutor_graph`
-# whose container ships 3.11, but the local dev env (3.10) must work too
-# for the demo / regression scripts.
+# LightRAG 1.4.15 要求 Python >=3.10；容器与 `tutor_graph` 对齐到 3.11，
+# 本地开发环境仍需兼容 3.10，方便演示和回归脚本运行。
 requires-python = ">=3.10"
 dependencies = [
     "lightrag-hku==1.4.15",

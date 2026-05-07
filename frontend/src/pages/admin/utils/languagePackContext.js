@@ -34,7 +34,7 @@ function persistLanguagePackId(languagePackId) {
     }
     window.localStorage.setItem(ADMIN_LANGUAGE_PACK_STORAGE_KEY, normalized)
   } catch (e) {
-    // ignore localStorage write errors
+    void e
   }
 }
 
@@ -95,4 +95,3 @@ export {
   resolveCurrentLanguagePackId,
   appendLanguagePackQuery
 }
-

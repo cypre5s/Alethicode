@@ -3,7 +3,7 @@ package com.alethicode.service.aitutor.reflection;
 import java.util.Map;
 
 /**
- * Outcome of a Producer-Critic reflection cycle.
+ * Producer-Critic 反思循环的结果。
  *
  * <p>{@code passed} 表示「最终一次 Critic 是否通过」——既包括第一次 critic 就过，
  * 也包括经过 N 次 refine 后第 (N+1) 次 critic 通过。下游服务把它直接写入

@@ -11,13 +11,10 @@ import org.springframework.core.env.Environment;
 import java.util.Set;
 
 /**
- * Fail-fast check for the internal service key used to protect the
- * {@code /internal/ai-tutor/*} API. The key is shared with the {@code tutor_graph}
- * Python service; if a prod deployment forgets to set {@code INTERNAL_SERVICE_KEY}
- * and silently falls back to the {@code dev-internal-key} default, anyone with
- * network access to the Java backend can read student submissions, learner state,
- * or materialize problems. This validator turns that silent failure into a hard
- * startup error on prod profiles.
+ * 启动时校验保护内部 AI Tutor 接口的服务密钥。
+ *
+ * 生产类 profile 中若缺失密钥或仍使用开发默认值，直接拒绝启动，避免内部接口暴露学生提交、
+ * 学情状态和题目物化能力。
  */
 @Configuration
 public class InternalServiceKeyValidator {
@@ -25,7 +22,7 @@ public class InternalServiceKeyValidator {
     private static final Logger log = LoggerFactory.getLogger(InternalServiceKeyValidator.class);
     private static final int MIN_KEY_LENGTH = 24;
     private static final String DEV_DEFAULT = "dev-internal-key";
-    /** Profiles that are considered production-like and require a strong key. */
+    /** 需要强制使用强密钥的生产类 profile。 */
     private static final Set<String> PROD_PROFILES = Set.of("prod", "production", "release");
 
     @Bean
@@ -43,8 +40,7 @@ public class InternalServiceKeyValidator {
             }
 
             if (!isProdLike) {
-                // Development / test environments: accept the default but emit a single warn
-                // so operators never forget the risk. No action required for unit tests.
+                // 非生产环境允许开发默认值，但保留启动警告。
                 if (key.isBlank() || DEV_DEFAULT.equals(key)) {
                     log.warn("alethicode.internal.service-key is using the dev default; " +
                             "this is fine for local development but MUST be rotated before prod");

@@ -535,7 +535,7 @@ final class LanguagePackProblemPackageMapper {
                     import sys
 
                     def solve():
-                        # TODO: write your solution here
+                        # 在这里编写你的解法
                         pass
 
                     if __name__ == "__main__":
@@ -547,11 +547,11 @@ final class LanguagePackProblemPackageMapper {
 
                     public class Main {
                         public static void main(String[] args) throws Exception {
-                            // TODO: write your solution here
+                            // 在这里编写你的解法
                         }
                     }
                     """;
-            default -> "// TODO: write your solution here\n";
+            default -> "// 在这里编写你的解法\n";
         };
     }
 

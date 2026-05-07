@@ -11,8 +11,7 @@ describe('unified agent panel warning contract', () => {
   test('icon component lookup should stay out of Vue deep reactivity', () => {
     const source = readSource('../../src/pages/oj/views/problem/UnifiedAgentPanel.vue')
 
-    // Phase 1 sprint 起 panel 同时引入 ref/computed/markRaw 等多个 vue API；只校验 markRaw
-    // 出现在 vue 的具名 import 列表里，而不是锁死单一写法。
+    // panel 会同时引入多个 Vue API；这里只锁定 markRaw 必须在具名 import 中。
     expect(source).toMatch(/import \{[^}]*\bmarkRaw\b[^}]*\} from 'vue'/)
     expect(source).toContain('const ICON_COMPONENTS = markRaw({')
     expect(source).toContain('iconComponents: ICON_COMPONENTS')

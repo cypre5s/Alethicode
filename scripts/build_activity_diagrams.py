@@ -226,7 +226,7 @@ def build_activity_oj() -> str:
     for svg, *_ in nodes:
         out.append(svg)
 
-    # ---------- 流转线（先画在最后面渲染层，但实际放在节点之前 SVG 顺序不重要因为节点 fill 不是 white 全部）----------
+    # 流转线先收集，后续用节点覆盖端点。
     # SVG 顺序从前到后渲染 → 流转线放在节点之前让节点覆盖端点
     flows = []
     f = flows.append
@@ -242,13 +242,12 @@ def build_activity_oj() -> str:
     f(flow(n[6][2], (250, 290 + 25), "[继续修改]", curve=True))  # 查看结果 → 编写代码 (loopback)
     f(flow(n[3][4], (650, 370), "[直接提交]"))               # 是否调试 右 →
     f(flow((650, 370), (650, 615)))                          # 弯到 提交代码
-    f(flow((650, 615), n[7][4]))                             # 横向 → 提交代码 not great. let me redo
+    f(flow((650, 615), n[7][4]))                             # 横向连接到提交代码
 
     return "".join(out) + SVG_TAIL
 
 
-# 上面手算流转线非常繁琐，重新用更可控的写法（连接 helper）
-# ============================================================
+# 上面手算流转线较难维护，改用可控的连接 helper。
 
 def y_anchor_top(node):
     return node[1]
@@ -304,7 +303,7 @@ def build_oj_v2() -> str:
     F = []
     def add(src, tgt, label="", curve=False, anchor_src="bottom", anchor_tgt="top"):
         s = N[src]; t = N[tgt]
-        # anchor mapping
+        # 按语义锚点选择节点连接坐标。
         am = {
             "top":    s[1], "bottom": s[2], "left": s[3], "right": s[4],
         }
@@ -319,10 +318,10 @@ def build_oj_v2() -> str:
     add("dec_dbg", "dbg_req", "[需调试]")
     add("dbg_req", "dbg_exec", anchor_src="right", anchor_tgt="left")
     add("dbg_exec", "dbg_view", anchor_src="left", anchor_tgt="right")
-    # dbg_view 回到 code
+    # 调试结果回到代码编辑。
     F.append(flow(N["dbg_view"][3], (60, 290), "[继续修改]"))
     F.append(flow((60, 290), N["code"][3]))
-    # dec_dbg 直接提交：右走 → 下到 submit
+    # 不调试时直接转向提交节点。
     # 通过 (650, 370) → (250, 660) 走 ⌐
     F.append(flow(N["dec_dbg"][4], (380, 370)))
     F.append(flow((380, 370), (380, 660), "[直接提交]"))

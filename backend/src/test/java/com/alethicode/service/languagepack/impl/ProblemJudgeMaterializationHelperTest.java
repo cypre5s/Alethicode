@@ -38,9 +38,6 @@ class ProblemJudgeMaterializationHelperTest {
                 List.of(new Sample("3", "")),
                 List.of(new TestCase("3", ""), new TestCase("5", ""))
         );
-
-        // resultCode = -1 表示 WRONG_ANSWER：程序跑通了，但 stdout 与（我们写入的空）.out 不一致。
-        // Materialization 必须接受这种结果，用 actualOutput 物化输出，而不是触发 input regen。
         Mockito.when(judgeCheckService.executeReferenceSolution(
                 Mockito.any(), Mockito.eq(LANGUAGE), Mockito.anyList(),
                 Mockito.anyInt(), Mockito.anyInt()))
@@ -59,8 +56,6 @@ class ProblemJudgeMaterializationHelperTest {
                 .extracting(TestCase::output)
                 .containsExactly("6", "120");
         assertThat(materialized.samples().getFirst().output()).isEqualTo("6");
-
-        // 关键：不应触发 LLM 输入重生。
         Mockito.verifyNoInteractions(aiModelGateway);
     }
 
@@ -128,14 +123,11 @@ class ProblemJudgeMaterializationHelperTest {
                 .thenReturn(new JudgeCheckResult(
                         false,
                         List.of(
-                                // 4 = RUNTIME_ERROR：reference 代码本身无法跑通，需走 layer2 重生输入。
                                 new JudgeCheckResult.CaseResult(0, false, "", "ZeroDivisionError", 4),
                                 new JudgeCheckResult.CaseResult(1, false, "", "ZeroDivisionError", 4)
                         ),
                         ""
                 ));
-
-        // 让 LLM 重生输入这一步抛错，便于断言确实进入了 layer2 路径而不是被静默 swallow。
         Mockito.when(aiModelGateway.callForJson(Mockito.anyString(), Mockito.anyString(), Mockito.anyString()))
                 .thenThrow(new IllegalStateException("layer2 regen invoked"));
 

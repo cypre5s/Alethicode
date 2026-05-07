@@ -40,12 +40,9 @@
 
     <div class="classroom-content">
       <el-tabs v-model="activeTab">
-        <!-- 课件管理 -->
         <el-tab-pane label="课件" name="lessons">
           <LessonManagement :classroom-id="classroomId" :is-staff="isStaff"/>
         </el-tab-pane>
-
-        <!-- 成员列表 -->
         <el-tab-pane label="成员" name="members">
           <el-card>
             <el-table :data="pagedMembers" v-loading="memberLoading">
@@ -93,8 +90,6 @@
             />
           </el-card>
         </el-tab-pane>
-
-        <!-- 题目列表 -->
         <el-tab-pane label="题目" name="problems">
           <el-tabs v-model="problemActiveTab" type="card">
             <el-tab-pane label="班级题目" name="classroom-problems">
@@ -189,13 +184,9 @@
             </el-tab-pane>
           </el-tabs>
         </el-tab-pane>
-
-        <!-- 作业管理 -->
         <el-tab-pane label="作业" name="assignments">
           <ClassroomAssignment :classroom-id="classroomId" :is-staff="isStaff"/>
         </el-tab-pane>
-
-        <!-- 数据看板 -->
         <el-tab-pane v-if="isStaff" name="monitor">
           <template #label>
             <div class="monitor-tab-trigger" @mouseenter="monitorDropdownVisible = true" @mouseleave="monitorDropdownVisible = false">
@@ -216,8 +207,6 @@
         </el-tab-pane>
       </el-tabs>
     </div>
-
-    <!-- 邀请码 Dialog -->
     <el-dialog v-model="inviteModalVisible" title="邀请成员" width="600px">
       <div v-if="currentInvitation">
         <el-alert show-icon :closable="false">
@@ -240,8 +229,6 @@
       </el-button>
       <el-alert v-else type="success" :closable="false" title="当前已有有效邀请码，过期前无需重复生成。" style="margin-top: 12px;" />
     </el-dialog>
-
-    <!-- 添加题目 Dialog -->
     <el-dialog v-model="addProblemModalVisible" title="添加题目" width="800px">
       <div style="margin-bottom: 16px;">
         <el-input v-model="addProblemSearch" placeholder="输入题目ID或关键词搜索" :disabled="addProblemSearching" @keyup.enter="searchProblems">
@@ -279,8 +266,6 @@
         输入关键词搜索题库中的题目
       </div>
     </el-dialog>
-
-    <!-- 创建协作会话 Dialog -->
     <el-dialog
       v-model="showCreateSessionModal"
       title="创建协作会话"

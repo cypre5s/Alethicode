@@ -19,7 +19,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 /**
- * Verifies the queue writes outbox rows in the contracted shape.
+ * 验证队列按约定形态写入 outbox 行。
  */
 class RagIndexQueueServiceTest {
 
@@ -50,9 +50,6 @@ class RagIndexQueueServiceTest {
                 params.capture(),
                 params.capture()
         );
-
-        // Phase 1 contract: INSERT ... ON CONFLICT (entity_type, entity_id, action) DO UPDATE
-        // resets attempts and clears given_up_at, so successive enqueues coalesce.
         String sqlText = sql.getValue();
         assertThat(sqlText).contains("INSERT INTO rag_index_outbox");
         assertThat(sqlText).contains("ON CONFLICT (entity_type, entity_id, action)");
@@ -62,7 +59,6 @@ class RagIndexQueueServiceTest {
         java.util.List<Object> values = params.getAllValues();
         assertThat(values.get(0)).isEqualTo("memory");
         assertThat(values.get(1)).isEqualTo("42:event:99");
-        // values.get(2) is the JSON payload string — embed-check key fields
         String payloadJson = (String) values.get(2);
         assertThat(payloadJson).contains("\"content\":\"教学结论\"");
         assertThat(payloadJson).contains("\"memory_type\":\"tutor_conclusion\"");

@@ -12,13 +12,12 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Guard rail tests for {@link InternalServiceKeyValidator}:
+ * {@link InternalServiceKeyValidator} 的启动护栏测试。
  *
  * <ul>
- *   <li>dev profile with weak default key → must not block startup (warn only).</li>
- *   <li>prod profile with blank / default / short key → must throw to prevent
- *       silent configuration errors from reaching production.</li>
- *   <li>prod profile with a strong key → startup proceeds.</li>
+ *   <li>dev profile 使用弱默认密钥时只告警，不阻断启动。</li>
+ *   <li>prod profile 使用空值、默认值或短密钥时必须抛错。</li>
+ *   <li>prod profile 使用强密钥时允许启动。</li>
  * </ul>
  */
 class InternalServiceKeyValidatorTest {
@@ -115,7 +114,7 @@ class InternalServiceKeyValidatorTest {
         return mock(ApplicationArguments.class);
     }
 
-    /** Smoke test that the bean definition exists (shape assertion only). */
+    /** 只验证 bean 定义存在。 */
     @Test
     void beanDefinition_returnsApplicationRunner() {
         ApplicationRunner runner = validator.validateInternalServiceKey(

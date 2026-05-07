@@ -1,5 +1,5 @@
 /**
- * Phase 4 · E2E #1 — 卡片设计系统真实校验
+ * 卡片设计系统真实校验 E2E。
  *
  * 真实验证：登录 → 进 problem 详情页触发 problem_guide → 等卡片出现 → 校验：
  *   1) 9 张 BaseAgentCard 派生卡的 head 高度都来自共享 token
@@ -42,7 +42,7 @@ test.describe('Phase 4 · cards-design-system', () => {
       expect(size).toBe('13.5px')
     }
 
-    // UnifiedAgentPanel 不再含旧的 inline class 名
+    // UnifiedAgentPanel 不应再含旧的内联 class 名。
     const panelHtml = await page.content()
     expect(panelHtml).not.toContain('class="knowledge-review-card"')
     expect(panelHtml).not.toContain('class="encourage-card-wrap"')

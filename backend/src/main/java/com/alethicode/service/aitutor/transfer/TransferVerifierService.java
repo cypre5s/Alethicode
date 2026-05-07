@@ -13,9 +13,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Generates variant problems via LLM, then validates them by executing
- * the generated reference solution through the Judge.
- * Only verified problems are persisted.
+ * 通过 LLM 生成迁移变式题，并用 Judge 执行参考答案进行校验。
+ *
+ * 只有通过真实判题校验的题目才会持久化。
  */
 @Service
 public class TransferVerifierService {

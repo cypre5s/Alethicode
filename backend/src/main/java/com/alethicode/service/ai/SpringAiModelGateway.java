@@ -20,11 +20,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Production gateway to Spring AI. Resolves the per-request {@link AiModelProfile}
- * (so prefixes like {@code INIT_LLM_} route to a different API key/model), forces
- * {@code response_format=json_object} for JSON calls, delegates tool loops to
- * {@link SpringAiToolLoopService}, and routes outbound calls through the shared
- * Resilience4j execution chain in {@link AiCircuitBreaker}.
+ * Spring AI 的生产调用网关。
+ *
+ * 每次请求都会解析 {@link AiModelProfile}，JSON 调用强制使用 {@code response_format=json_object}，
+ * 工具循环委托给 {@link SpringAiToolLoopService}，出站调用统一经过 {@link AiCircuitBreaker}。
  */
 @Service
 public class SpringAiModelGateway implements AiModelGateway {
@@ -117,8 +116,7 @@ public class SpringAiModelGateway implements AiModelGateway {
 
     @Override
     public Map<String, Object> callForJsonCached(String cacheKey, String systemPrompt, String userPrompt, String profilePrefix) {
-        // CachingAiModelGateway is @Primary and wraps this bean, so production calls never land here.
-        // If a caller bypasses the decorator, fall through to the uncached path rather than crash.
+        // 正常生产调用会先经过 @Primary 缓存装饰器；绕过时回落到非缓存路径。
         log.debug("callForJsonCached called directly on SpringAiModelGateway; falling through to uncached");
         return callForJson(systemPrompt, userPrompt, profilePrefix);
     }

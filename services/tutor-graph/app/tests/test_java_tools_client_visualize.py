@@ -1,16 +1,4 @@
-"""Regression tests for JavaToolsClient.dispatch_visualize 422 body propagation.
-
-Background:
-    `r.raise_for_status()` builds a generic message ("Client error '422 ' for url ...")
-    that drops the JSON body Java backend writes via VisualizeValidationException
-    (e.g. "mermaid must start with flowchart|graph ..." or "chart schema violation: ..."
-    or "svg sanitize rejected ..."). Operators saw only "transport error: 422" and
-    were blind to which validator failed.
-
-    These tests pin the contract that on 422 the client raises with the body's
-    `error` field interpolated into the message so projection.py can record the
-    real reason in `last_error`.
-"""
+"""回归测试：可视化 422 响应必须保留 Java 返回的校验错误详情。"""
 
 from __future__ import annotations
 

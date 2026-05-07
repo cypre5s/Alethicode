@@ -1,5 +1,5 @@
 # Alethicode-NFK 消融实验配置（24GB GPU 优化）
-# 目标显卡: A100/V100/3090/4090 (24GB VRAM)
+# 目标显卡：A100/V100/3090/4090（24GB 显存）
 # DKT (LSTM) + FoLiBiKT (遗忘线性偏置注意力) + simpleKT (交叉注意力)
 
 seeds: [42, 3407, 2024]

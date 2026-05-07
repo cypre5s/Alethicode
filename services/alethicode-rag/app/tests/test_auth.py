@@ -1,8 +1,7 @@
-"""Internal-token auth contract.
+"""内部令牌认证契约测试。
 
-Index and query endpoints are inside the trust boundary; every request
-must carry `X-Internal-Token` matching `RAG_INTERNAL_TOKEN`. Missing or
-mismatched headers must return 401 with a problem+json-shaped detail.
+索引与查询端点位于内部信任边界内，每个请求都必须携带匹配的
+`X-Internal-Token`；缺失或错误时返回 401。
 """
 
 from __future__ import annotations

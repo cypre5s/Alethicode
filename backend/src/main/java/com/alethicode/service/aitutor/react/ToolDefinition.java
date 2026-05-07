@@ -4,15 +4,14 @@ import java.util.Map;
 import java.util.function.Predicate;
 
 /**
- * Describes a tool that an LLM can invoke during a ReAct loop.
- * Mirrors the OpenAI function-calling tool schema.
+ * 描述 ReAct 循环中 LLM 可调用的工具。
  *
- * @param name             stable identifier used in tool_calls
- * @param description      natural-language description shown to the model
- * @param parameters       JSON-Schema-style parameter spec (may be empty map for no-arg tools)
- * @param domain           tool domain (TUTOR / QA) for domain isolation
- * @param guard            pre-execution guard; returns true if execution is allowed
- * @param agentDescription ACI documentation: when to call, when not to, common failures
+ * @param name {@code tool_calls} 使用的稳定标识
+ * @param description 展示给模型的自然语言说明
+ * @param parameters JSON Schema 风格参数定义
+ * @param domain 工具域，用于隔离 TUTOR 与 QA 场景
+ * @param guard 执行前守卫，返回 true 表示允许调用
+ * @param agentDescription ACI 说明，描述何时调用、何时不调用和常见失败
  */
 public record ToolDefinition(
         String name,

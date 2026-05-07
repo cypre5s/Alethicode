@@ -9,11 +9,10 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Unified Chat Mode (P3) – the user-facing view of what the student wants right now.
+ * Unified Chat 的用户态会话模式。
  *
- * <p>Mode is decoupled from the system-managed {@link Phase}: switching Mode does NOT
- * change the workflow phase. However, certain Modes are not meaningful in some Phases;
- * the {@link #ALLOWED_BY_PHASE} matrix below mirrors the design appendix.</p>
+ * <p>Mode 与系统托管的 {@link Phase} 解耦，切换 Mode 不改变工作流阶段；某些模式只在特定阶段有意义，
+ * 由 {@link #ALLOWED_BY_PHASE} 约束。</p>
  *
  * <p>Design: <code>docs/plans/2026-04-25-unified-chat-context-design.md</code> §5 / 附录 A</p>
  */
@@ -53,8 +52,7 @@ public enum ConversationMode {
     }
 
     /**
-     * Phase × Mode allow matrix. Modes not listed here for a given Phase return 422 on
-     * {@link ConversationContextService#switchMode(String, ConversationMode, Phase)}.
+     * Phase 与 Mode 的允许矩阵，未列出的组合在切换时返回 422。
      */
     public static final Map<Phase, EnumSet<ConversationMode>> ALLOWED_BY_PHASE;
 

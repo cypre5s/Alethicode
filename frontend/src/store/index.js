@@ -10,7 +10,7 @@ const debug = FRONTEND_ENV.isDevelopment
 const rootState = {
   website: {},
   modalStatus: {
-    mode: 'login', // or 'register',
+    mode: 'login',
     visible: false
   }
 }

@@ -1,4 +1,4 @@
-"""Sanitize persisted node outputs before validation / projection reuse."""
+"""在校验和投影复用前清理持久化节点输出。"""
 
 from __future__ import annotations
 
@@ -12,13 +12,7 @@ PROJECTION_VISUALIZE_HELPER_KEYS = frozenset({
 
 
 def strip_projection_visualize_helpers(node_outputs: dict | None) -> dict:
-    """Remove projection-only visualize helper fields from schema-owned card payloads.
-
-    These fields are transport metadata created after card schema validation and
-    therefore must never be persisted back into canonical card payloads. If they
-    leak into a later run's checkpointed state, the next schema validation pass
-    fails before any new card is generated.
-    """
+    """移除仅供投影使用的可视化辅助字段。"""
     if not isinstance(node_outputs, dict):
         return {}
 

@@ -1,4 +1,4 @@
-"""Transfer nodes — draft generation + LangGraph interrupt + idempotent materialization."""
+"""处理迁移练习草稿、人工中断和幂等物化。"""
 
 from __future__ import annotations
 

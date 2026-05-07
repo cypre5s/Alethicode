@@ -99,18 +99,16 @@ import('web-vitals').then(({ onCLS, onFCP, onINP, onLCP, onTTFB }) => {
       rating: m.rating,
       navigationType: m.navigationType,
       route: window.location.pathname + window.location.search
-    })).catch(() => { /* silent */ })
+    })).catch(err => { void err })
   }
   onCLS(sendVital)
   onFCP(sendVital)
   onINP(sendVital)
   onLCP(sendVital)
   onTTFB(sendVital)
-}).catch(() => { /* web-vitals optional */ })
+}).catch(err => { void err })
 
-// 2C4G 容量优化（2026-04-30）：注册 Service Worker，让浏览器本地缓存大部分 GET API。
-// dev 模式下 vite-plugin-pwa 不生成 SW，所以这里只在生产构建启用。
-// 模块加载失败（dev/虚拟模块缺失）时静默跳过。
+// 生产构建才注册 Service Worker；dev 模式没有 `virtual:pwa-register` 模块。
 async function bootstrapServiceWorker () {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return
   if (!FRONTEND_ENV.isProduction) return
@@ -130,12 +128,11 @@ async function bootstrapServiceWorker () {
       },
       onRegisteredSW (swUrl, registration) {
         if (!registration) return
-        // 30 分钟主动检查一次新版本
-        setInterval(() => registration.update().catch(() => { /* silent */ }), 30 * 60 * 1000)
+        // 定期主动检查新版本，避免长时间停留在旧缓存。
+        setInterval(() => registration.update().catch(err => { void err }), 30 * 60 * 1000)
       }
     })
   } catch {
-    // dev / virtual:pwa-register 缺失时静默
   }
 }
 bootstrapServiceWorker()

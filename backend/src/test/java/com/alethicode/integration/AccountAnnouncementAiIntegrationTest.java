@@ -92,7 +92,6 @@ class AccountAnnouncementAiIntegrationTest extends AbstractJdbcIntegrationTest {
 
     @Test
     void accountAnnouncementAndAiMainFlowShouldWork() throws Exception {
-        // register
         MockHttpSession captchaSession = new MockHttpSession();
         String captcha = "1234";
         captchaSession.setAttribute("CAPTCHA_CODE", captcha);
@@ -112,8 +111,6 @@ class AccountAnnouncementAiIntegrationTest extends AbstractJdbcIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.error").isEmpty())
                 .andExpect(jsonPath("$.data").value("Succeeded"));
-
-        // login + profile
         mockMvc.perform(post("/api/login")
                         .with(csrf())
                         .contentType(APPLICATION_JSON)
@@ -126,8 +123,6 @@ class AccountAnnouncementAiIntegrationTest extends AbstractJdbcIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.error").isEmpty())
                 .andExpect(jsonPath("$.data.username").value("student"));
-
-        // announcement admin create + oj list
         mockMvc.perform(post("/api/admin/announcements")
                         .with(user("root").roles("ADMIN"))
                         .with(csrf())
@@ -141,8 +136,6 @@ class AccountAnnouncementAiIntegrationTest extends AbstractJdbcIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.error").isEmpty())
                 .andExpect(jsonPath("$.data.total").value(1));
-
-        // ai inference -> task -> session -> close -> skill -> review -> preflight
         MvcResult inferenceResult = mockMvc.perform(post("/api/ai/tutor/inference")
                         .with(user("student").roles("USER"))
                         .with(csrf())
@@ -204,9 +197,6 @@ class AccountAnnouncementAiIntegrationTest extends AbstractJdbcIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.error").isEmpty())
                 .andExpect(jsonPath("$.data.should_trigger").isBoolean());
-
-        // SEC HIGH-5: avatar 上传需通过 ImageIO 真实解码校验，
-        // 这里给一个最小合法 1x1 PNG (透明像素)。
         byte[] minimalPng = java.util.Base64.getDecoder().decode(
                 "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADElEQVR4nGMAAQAABQABDQotmwAAAABJRU5ErkJggg==");
         mockMvc.perform(multipart("/api/upload-avatar")
@@ -216,9 +206,6 @@ class AccountAnnouncementAiIntegrationTest extends AbstractJdbcIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.error").isEmpty())
                 .andExpect(jsonPath("$.data").value("Succeeded"));
-
-        // SEC HIGH-5: 攻击负样本 — 任何非真实图片字节（PHP 代码、shellcode 等）
-        // 即便后缀名 .png 也必须被拒绝。
         mockMvc.perform(multipart("/api/upload-avatar")
                         .file(new MockMultipartFile("image", "avatar.png", "image/png",
                                 "<?php phpinfo(); ?>".getBytes()))

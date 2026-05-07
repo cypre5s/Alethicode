@@ -1,6 +1,6 @@
--- V56: Drop legacy ai_workflow_* tables
--- All workflow runtime is now handled by LangGraph tutor-graph service.
--- Projection data lives in ai_tutor_workflow_* tables (V55).
+-- V56：删除旧版 ai_workflow_* 表。
+-- 工作流运行态已全部迁移到 LangGraph tutor-graph 服务。
+-- 投影数据保存在 V55 引入的 ai_tutor_workflow_* 表中。
 
 DROP TABLE IF EXISTS ai_workflow_steering_signal;
 DROP TABLE IF EXISTS ai_workflow_plan;

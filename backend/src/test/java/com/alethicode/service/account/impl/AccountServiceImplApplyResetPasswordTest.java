@@ -139,8 +139,6 @@ class AccountServiceImplApplyResetPasswordTest {
         long deltaSeconds = Math.abs(expireCaptor.getValue().toInstant().getEpochSecond()
                 - expectedExpire.getEpochSecond());
         assertThat(deltaSeconds).isLessThan(5);
-
-        // 默认 MockHttpServletRequest 走 http://localhost:80（80 是 http 默认端口，不拼端口）
         verify(passwordResetMailService).sendResetEmail(
                 "alice", "alice@example.com", token, "http://localhost");
     }
@@ -237,7 +235,6 @@ class AccountServiceImplApplyResetPasswordTest {
         MockHttpServletRequest request = withCaptcha("captcha");
         request.addHeader("X-Forwarded-Proto", "https");
         request.addHeader("X-Forwarded-Host", "alethicode.example.com");
-        // 反代场景下 server scheme/port 反映的是后端内部 listener，不应被用作邮件 baseUrl
         request.setScheme("http");
         request.setServerName("backend-internal");
         request.setServerPort(8081);
@@ -268,8 +265,6 @@ class AccountServiceImplApplyResetPasswordTest {
                 anonymousAuth(),
                 request
         );
-
-        // 非默认端口要拼到 baseUrl 里
         verify(passwordResetMailService).sendResetEmail(
                 eq("alice"), eq("alice@example.com"), anyString(),
                 eq("http://47.98.184.170:8080"));

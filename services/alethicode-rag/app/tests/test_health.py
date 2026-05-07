@@ -1,9 +1,6 @@
-"""Health endpoint contract.
+"""健康检查端点契约测试。
 
-The health route does NOT require auth (k8s probes hit it). It must:
-  - Return 200 with a JSON body matching `HealthStatus`
-  - Report `status: "ok"` when both PG and Memgraph are reachable
-  - Report `status: "degraded"` when either is down
+健康检查不要求内部认证，需覆盖 PG / Memgraph 均可达和部分不可达两类状态。
 """
 
 from __future__ import annotations
@@ -12,7 +9,7 @@ from fastapi.testclient import TestClient
 
 
 def test_health_returns_status_envelope(monkeypatch) -> None:
-    # Patch both probes to "ok" by stubbing the underlying drivers.
+    # 通过 stub 底层驱动让两个探针都返回 ok。
     import app.routes.health as health_module
 
     class _FakeConn:

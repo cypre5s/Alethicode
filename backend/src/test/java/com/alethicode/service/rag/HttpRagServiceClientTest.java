@@ -27,15 +27,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Contract test using JDK's bundled {@link HttpServer} to capture exact
- * request shapes hitting alethicode-rag. No WireMock dependency needed —
- * the JDK server is sufficient for HTTP body assertions and removes a
- * test-only dependency from the dependency tree.
+ * 使用 JDK 自带 {@link HttpServer} 捕获发往 alethicode-rag 的请求形态。
  *
- * <p>Each test starts a fresh server on an ephemeral port, registers a
- * handler that echoes the captured request into atomic refs, and then
- * verifies the client sent the expected verb / URI / token / body
- * snake_case JSON and parsed the canned response back into our records.
+ * <p>无需引入 WireMock；JDK server 已足够断言 HTTP body，并减少测试依赖。</p>
  */
 class HttpRagServiceClientTest {
 
@@ -83,7 +77,6 @@ class HttpRagServiceClientTest {
         AlethicodeProperties.Rag ragProperties = new AlethicodeProperties.Rag();
         ragProperties.setBaseUrl("http://127.0.0.1:" + port);
         ragProperties.setInternalToken(token);
-        // Test-only override: keep timeouts tight so a hung mock fails fast.
         ragProperties.setQueryTimeoutSeconds(5);
         ragProperties.setConnectTimeoutSeconds(2);
         ragProperties.setIndexTimeoutSeconds(5);
@@ -196,7 +189,6 @@ class HttpRagServiceClientTest {
     @Test
     void deleteNow404IsTreatedAsAlreadyAbsent() {
         canned.set(new CannedResponse(404, "{\"detail\":\"not found\"}"));
-        // Should not throw — 404 on delete is harmless.
         client("dev").deleteNow(RagEntityType.NOTEBOOK, "abc");
     }
 
@@ -214,9 +206,6 @@ class HttpRagServiceClientTest {
 
     @Test
     void queryHonorsConfiguredTimeoutAndWrapsAsTransportFailure() {
-        // Slow mock: sleep beyond the configured 5s query timeout to verify
-        // the client surfaces a transport failure (not a 200) and tags the
-        // metric outcome as transport_error.
         AlethicodeProperties.Rag ragProperties = new AlethicodeProperties.Rag();
         ragProperties.setBaseUrl("http://127.0.0.1:" + port);
         ragProperties.setInternalToken("dev");
@@ -225,8 +214,6 @@ class HttpRagServiceClientTest {
         ragProperties.setIndexTimeoutSeconds(2);
         HttpRagServiceClient tight = new HttpRagServiceClient(
                 ragProperties, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
-
-        // Re-register handler that delays response beyond the timeout.
         server.removeContext("/");
         server.createContext("/", exchange -> {
             try {

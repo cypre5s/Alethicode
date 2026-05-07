@@ -12,7 +12,7 @@ DOCKER_MIRRORS=(
   "https://dockerproxy.com"
 )
 
-# 1) docker daemon mirrors
+# 配置 Docker daemon 镜像源。
 TMP_DAEMON=$(mktemp)
 cat > "$TMP_DAEMON" <<JSON
 {
@@ -29,10 +29,10 @@ echo "$PASSWORD" | sudo -S cp "$TMP_DAEMON" /etc/docker/daemon.json
 echo "$PASSWORD" | sudo -S systemctl daemon-reload
 echo "$PASSWORD" | sudo -S systemctl restart docker
 
-# 2) npm registry
+# 配置 npm 镜像源。
 npm config set registry https://registry.npmmirror.com
 
-# 3) maven mirror (user-level)
+# 配置用户级 Maven 镜像。
 mkdir -p "$HOME/.m2"
 cat > "$HOME/.m2/settings.xml" <<'XML'
 <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"

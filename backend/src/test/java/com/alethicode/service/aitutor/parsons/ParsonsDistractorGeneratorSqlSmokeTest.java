@@ -57,10 +57,6 @@ class ParsonsDistractorGeneratorSqlSmokeTest {
         properties.getDistractor().setLlmFallbackEnabled(false); // 防止意外触发 LLM mock 缺失
         ParsonsDistractorGenerator generator = new ParsonsDistractorGenerator(
                 jdbcTemplate, mock(AiModelGateway.class), new ObjectMapper(), properties);
-
-        // 用 user_id=-1（必不存在）保证查询返回空，避免读到任何真实学生数据；
-        // 关键是让 pgjdbc 真正 PREPARE 那条 SQL —— 占位符冲突 / 列缺失 /
-        // jsonb_exists_any 不存在等 SQL 编译期问题会在此处抛出。
         assertThatCode(() -> {
             List<ParsonsDistractor> result = generator.generate(
                     new ParsonsDistractorGenerator.GenerationContext(
@@ -75,7 +71,6 @@ class ParsonsDistractorGeneratorSqlSmokeTest {
     private static DataSource singleConnection(String url, String user, String password) {
         try {
             Connection conn = DriverManager.getConnection(url, user, password);
-            // 强制 read-only，防止误写
             conn.setReadOnly(true);
             SingleConnectionDataSource ds = new SingleConnectionDataSource(conn, true);
             ds.setSuppressClose(false);

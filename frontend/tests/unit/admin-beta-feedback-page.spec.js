@@ -10,7 +10,7 @@ function readSource (relativePath) {
 describe('Admin beta feedback page contract', () => {
   test('BetaFeedback.vue exists with required filter / table columns / detail drawer', () => {
     const source = readSource('../../src/pages/admin/views/general/BetaFeedback.vue')
-    // Vue 3 templates accept either kebab or PascalCase; project standardized on PascalCase
+    // Vue 3 模板同时支持 kebab 和 PascalCase；项目统一使用 PascalCase。
     expect(source).toMatch(/<ElSelect|<el-select/)
     expect(source).toMatch(/<ElTable|<el-table/)
     expect(source).toMatch(/<ElDrawer|<el-drawer/)

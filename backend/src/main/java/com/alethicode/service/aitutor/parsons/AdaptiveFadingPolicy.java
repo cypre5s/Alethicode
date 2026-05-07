@@ -10,10 +10,10 @@ import java.util.Map;
  *
  * <p>映射区间由 {@link ParsonsProperties.FadingThresholds} 三个阈值控制：
  * <pre>
- *   avg &lt; level0Max   → fadingLevel=0（visible-only, 0 distractor）
- *   avg &lt; level1Max   → fadingLevel=1（1 faded, 1 distractor）
- *   avg &lt; level2Max   → fadingLevel=2（2 faded, 2 distractor）
- *   else                  → fadingLevel=3（micro AST + 3 distractor）
+ *   avg &lt; level0Max   → fadingLevel=0（只显示，无干扰块）
+ *   avg &lt; level1Max   → fadingLevel=1（1 个渐隐块，1 个干扰块）
+ *   avg &lt; level2Max   → fadingLevel=2（2 个渐隐块，2 个干扰块）
+ *   else                  → fadingLevel=3（微 AST 级别，3 个干扰块）
  * </pre>
  * 失败 cascade 强制阶梯降级时调用方传入 {@code overrideLevel} 跳过 mastery 重算。</p>
  */

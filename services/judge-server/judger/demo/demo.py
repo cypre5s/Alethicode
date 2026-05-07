@@ -11,16 +11,16 @@ ret = _judger.run(max_cpu_time=1000,
                   max_process_number=200,
                   max_output_size=10000,
                   max_stack=32 * 1024 * 1024,
-                  # five args above can be _judger.UNLIMITED
+                  # 上面五个参数可设为 _judger.UNLIMITED
                   exe_path="main",
                   input_path="1.in",
                   output_path="1.out",
                   error_path="1.out",
                   args=[],
-                  # can be empty list
+                  # 可为空列表
                   env=[],
                   log_path="judger.log",
-                  # can be None
+                  # 可为 None
                   seccomp_rule_name="c_cpp",
                   uid=0,
                   gid=0)

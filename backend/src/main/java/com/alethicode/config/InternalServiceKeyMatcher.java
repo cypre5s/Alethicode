@@ -7,14 +7,14 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 
 /**
- * Constant-time matcher for internal service keys.
+ * 内部服务密钥的常量时间匹配器。
  *
- * <p>Rolling strategy:
+ * <p>轮换策略：
  * <ul>
- *   <li>Outbound clients always send {@code alethicode.internal.service-key} (current).</li>
- *   <li>Inbound internal controllers accept current or
- *       {@code alethicode.internal.previous-service-key} (previous, optional).</li>
- *   <li>Once every service has rolled to the new current key, operators clear the previous key.</li>
+ *   <li>出站客户端始终发送 {@code alethicode.internal.service-key}。</li>
+ *   <li>入站内部接口同时接受当前密钥和可选的
+ *       {@code alethicode.internal.previous-service-key}。</li>
+ *   <li>所有服务完成轮换后，运维清空 previous key。</li>
  * </ul>
  */
 @Component

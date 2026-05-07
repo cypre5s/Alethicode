@@ -1,4 +1,4 @@
-"""LLM call abstraction — ReAct is off by default per project convention."""
+"""封装 LLM 调用，项目默认不启用 ReAct。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 
 
 class LlmClient:
-    """Thin wrapper around LLM provider. Supports replay mode for testing."""
+    """包装 LLM provider，并支持测试回放模式。"""
 
     def __init__(
         self,

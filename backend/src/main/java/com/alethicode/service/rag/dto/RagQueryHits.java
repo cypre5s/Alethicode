@@ -4,12 +4,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Structured hits returned by every {@code /v1/rag/query/*} endpoint.
+ * {@code /v1/rag/query/*} 端点返回的结构化命中结果。
  *
- * <p>{@code rawContext} carries LightRAG's mix-mode markdown blob when
- * {@code only_need_context=true}; the structured collections may be
- * empty until alethicode-rag adds server-side parsing of that blob (see
- * Phase 1 CHANGELOG range note).
+ * <p>{@code rawContext} 承载 LightRAG 在 {@code only_need_context=true} 时返回的
+ * mix-mode markdown；在 Python 服务解析该 blob 前，结构化集合可能为空。</p>
  */
 public record RagQueryHits(
         List<RetrievedEntity> entities,

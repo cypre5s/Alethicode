@@ -112,8 +112,6 @@ public class AdminMisconceptionMiningService {
         return ApiResponse.success(Map.of("dispatched", true));
     }
 
-    // ---- exclusive helpers ----
-
     private ApiResponse<Object> mcStatusChange(Map<String, Object> request, Authentication authentication, String targetStatus) {
         UserAuth user = resolveUser(authentication);
         if (!user.adminManager()) {
@@ -138,8 +136,6 @@ public class AdminMisconceptionMiningService {
         );
         return ApiResponse.success(item == null ? Map.of("id", misconceptionId, "status", targetStatus) : item);
     }
-
-    // ---- shared utility methods ----
 
     private UserAuth resolveUser(Authentication authentication) {
         if (authentication == null || !authentication.isAuthenticated() || authentication instanceof AnonymousAuthenticationToken) {

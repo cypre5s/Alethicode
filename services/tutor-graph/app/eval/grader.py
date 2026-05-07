@@ -1,4 +1,4 @@
-"""Eval grader — scores tutor workflow outputs on pedagogical dimensions."""
+"""按教学维度评估 tutor workflow 输出。"""
 
 from __future__ import annotations
 
@@ -90,7 +90,7 @@ def _grade_schema_pass(result: EvalResult, event: str, outputs: dict) -> None:
 
 
 def _grade_answer_leakage(result: EvalResult, event: str, outputs: dict) -> None:
-    """Check if the output leaks complete code solutions."""
+    """检查输出是否泄露完整代码答案。"""
     text = json.dumps(outputs, ensure_ascii=False)
 
     code_patterns = [
@@ -111,7 +111,7 @@ def _grade_answer_leakage(result: EvalResult, event: str, outputs: dict) -> None
 
 
 def _grade_pedagogy_fit(result: EvalResult, event: str, outputs: dict) -> None:
-    """Basic pedagogy fit check — does the output match the pedagogical intent?"""
+    """粗略评估输出是否符合预期教学意图。"""
     event_upper = event.upper()
     output_key_map = {
         "READING": "problem_guide",

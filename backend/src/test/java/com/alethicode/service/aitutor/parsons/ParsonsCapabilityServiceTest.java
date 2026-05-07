@@ -89,7 +89,6 @@ class ParsonsCapabilityServiceTest {
                 .thenReturn(Map.of(
                         55L, MasteryWithSource.bkt(0.10, MasteryWithSource.FallbackReason.COVERAGE),
                         66L, MasteryWithSource.bkt(0.10, MasteryWithSource.FallbackReason.COVERAGE)));
-        // mastery avg 0.10 → fading_level=0 → distractorCount=0；不会调 distractorGenerator
 
         ParsonsCapabilityService.DispatchResult result = service.dispatch(
                 new ParsonsCapabilityService.DispatchRequest(7L, 101L, "twf-1", "card-x", null, "pkg-9", null));
@@ -113,9 +112,7 @@ class ParsonsCapabilityServiceTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> routing = (Map<String, Object>) snap.get("routing");
         assertThat(routing.keySet()).containsExactlyInAnyOrder("55", "66");
-        // distractor 不被调用
         verify(distractorGenerator, never()).generate(any());
-        // 写库 + 事件
         verify(jdbcTemplate).update(argThat(sql -> sql != null && sql.contains("insert into ai_parsons_session")),
                 any(Object[].class));
         verify(jdbcTemplate).update(argThat(sql -> sql != null
@@ -203,7 +200,6 @@ class ParsonsCapabilityServiceTest {
         assertThat(result.judgeStatus()).isEqualTo("judge_unavailable");
         assertThat(result.passed()).isFalse();
         assertThat(result.walkthroughRequired()).isFalse();
-        // 判题不可用不计入 cascade（不阻塞学生），attempts 仍 +1 仅作 trace
         assertThat(result.cascadeDegrade()).isFalse();
         assertThat(result.cascadeFailfast()).isFalse();
         assertThat(result.attempts()).isEqualTo(3);
@@ -245,7 +241,6 @@ class ParsonsCapabilityServiceTest {
         assertThat(result.cascadeFailfast()).isTrue();
         assertThat(result.cascadeDegrade()).isFalse();
         assertThat(result.attempts()).isEqualTo(4);
-        // failfast 时额外写 parsons_failed_cascade 事件
         verify(jdbcTemplate, atLeastOnce()).update(argThat(sql ->
                 sql != null && sql.contains("insert into ai_learning_event")), any(Object[].class));
     }
@@ -266,7 +261,6 @@ class ParsonsCapabilityServiceTest {
         assertThat(result.breakthroughNotebookId()).startsWith("nb-");
         verify(jdbcTemplate).update(argThat(sql ->
                 sql != null && sql.contains("insert into ai_learner_notebook")), any(Object[].class));
-        // 至少写 walkthrough_submitted + breakthrough 两条事件
         verify(jdbcTemplate, times(2)).update(argThat(sql ->
                 sql != null && sql.contains("insert into ai_learning_event")), any(Object[].class));
     }
@@ -380,8 +374,6 @@ class ParsonsCapabilityServiceTest {
         assertThat(result.cascadeFailfast()).isTrue();
         verify(reviewProblemRatingService).recordParsonsOutcome(7L, "pkg-10", 101L, "again");
     }
-
-    // ---- helpers ----
 
     @SuppressWarnings("unchecked")
     private void stubProblemMeta(long problemId, String title, String code, String language) {

@@ -5,7 +5,6 @@ import time from './time'
 
 const browserCache = new Map()
 
-// 友好显示时间
 function fromNow (time) {
   return moment(time * 3).fromNow()
 }

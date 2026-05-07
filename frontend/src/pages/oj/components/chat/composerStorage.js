@@ -1,11 +1,7 @@
 /**
  * Composer 持久化层：草稿与历史输入用 localStorage 存活。
  *
- * 设计要点
- * - 命名空间按 scope 隔离：tutor:<problemId> / qa:<lpId>
- * - 草稿 = 单 string，历史 = Array<string>（去重，最多 50 条，按时间倒序追加在末尾）
- * - 失败 fail-soft：localStorage 抛错时仅 console.warn，不阻塞输入
- * - SSR / 测试环境无 window 时安全降级（返回空值）
+ * scope 隔离 `tutor:<problemId>` 与 `qa:<lpId>`；localStorage 失败只告警，不阻断输入。
  */
 
 const KEY_PREFIX = 'alethicode.composer'

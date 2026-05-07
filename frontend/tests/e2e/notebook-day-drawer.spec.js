@@ -1,5 +1,5 @@
 /**
- * Phase 4 · E2E #3 — 日历日格 → DayDrawer 抽屉
+ * 日历日格到 DayDrawer 抽屉的 E2E。
  */
 const { test, expect } = require('@playwright/test')
 const { loginViaApi, resolveRealBackendConfig } = require('./support/authRegressionHelper')

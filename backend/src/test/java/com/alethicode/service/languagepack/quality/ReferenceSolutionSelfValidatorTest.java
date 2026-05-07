@@ -75,7 +75,6 @@ class ReferenceSolutionSelfValidatorTest {
     @Test
     void shouldClassifyWrongAnswerWithMatchingStrippedOutputsAsAc() {
         LanguagePackProblemJudgeCheckService judge = mock(LanguagePackProblemJudgeCheckService.class);
-        // judge 用空 .out 比对，program 输出 "78.5398\n"，所以 resultCode=-1，但 strip 后等于 expected。
         when(judge.executeReferenceSolution(anyString(), anyString(), anyList(), anyInt(), anyInt()))
                 .thenReturn(new JudgeCheckResult(false, List.of(
                         new JudgeCheckResult.CaseResult(0, false, "78.5398\n", "", -1),
@@ -141,7 +140,6 @@ class ReferenceSolutionSelfValidatorTest {
         LanguagePackProblemJudgeCheckService judge = mock(LanguagePackProblemJudgeCheckService.class);
 
         ReferenceSolutionSelfValidator validator = new ReferenceSolutionSelfValidator(linter, judge);
-        // import random + 无 seed 触发 REF003 硬规则
         SelfValidationReport report = validator.validate(buildPkg(
                 "PPT-RANDOM",
                 "import random\nprint(random.randint(1, 10))",
@@ -152,7 +150,6 @@ class ReferenceSolutionSelfValidatorTest {
         assertThat(report.allPassed()).isFalse();
         assertThat(report.lintBlocked()).isTrue();
         assertThat(report.testCaseResults()).isEmpty();
-        // judge 不应被调用
         verify(judge, org.mockito.Mockito.never()).executeReferenceSolution(any(), any(), any(), anyInt(), anyInt());
     }
 

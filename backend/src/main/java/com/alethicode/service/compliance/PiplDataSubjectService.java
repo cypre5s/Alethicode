@@ -15,19 +15,16 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Implements the data-subject rights mandated by 《个人信息保护法》(PIPL) articles 44-47:
+ * 实现《个人信息保护法》中数据主体权利相关能力。
  *
  * <ul>
- *   <li>知情权 / 查阅权 — {@link #exportPersonalData}: return every data category
- *       we hold on the data subject in a structured payload.</li>
- *   <li>更正权 — covered by existing admin/user profile APIs; not duplicated here.</li>
- *   <li>删除权 — {@link #requestDeletion}: create a pending request; admin workflow
- *       actually executes and records the result.</li>
- *   <li>可携权 — the export payload is plain JSON suitable for reuse.</li>
+ *   <li>知情权 / 查阅权：{@link #exportPersonalData} 返回当前主体的结构化数据副本。</li>
+ *   <li>更正权：由已有管理端和用户画像接口覆盖，此处不重复实现。</li>
+ *   <li>删除权：{@link #requestDeletion} 创建待处理请求，由管理员流程执行并记录结果。</li>
+ *   <li>可携权：导出载荷使用可复用的普通 JSON。</li>
  * </ul>
  *
- * <p>Every access, export, or deletion is recorded to {@code pii_access_log} for
- * the 5-year auditability window required by PIPL article 55 and DSL article 27.
+ * <p>所有访问、导出和删除动作都会写入 {@code pii_access_log}，保留五年审计窗口。</p>
  */
 @Service
 public class PiplDataSubjectService {
@@ -40,17 +37,16 @@ public class PiplDataSubjectService {
 
     public PiplDataSubjectService(NamedParameterJdbcTemplate jdbc, MeterRegistry meterRegistry) {
         this.jdbc = jdbc;
-        // Metric name aligned with the Prometheus alert `PiiAccessLogWriteFailing`.
+        // 指标名必须与 Prometheus 告警 PiiAccessLogWriteFailing 保持一致。
         this.auditWriteFailures = Counter.builder("pii_access_log_write_failed_total")
                 .description("PII access-log inserts that failed (PIPL audit trail at risk)")
                 .register(meterRegistry);
     }
 
     /**
-     * Aggregate a copy of the data subject's personal information across all
-     * domains (profile, submissions, AI tutor sessions, learner notebook, etc).
-     * Designed to be served as JSON; callers are responsible for auth / rate
-     * limiting the HTTP entry point.
+     * 聚合数据主体在各业务域中的个人信息副本。
+     *
+     * 调用方负责 HTTP 入口鉴权与限流，本方法只组装 JSON 载荷。
      */
     @Transactional(readOnly = true)
     public Map<String, Object> exportPersonalData(long subjectId, Long accessorId,
@@ -69,9 +65,7 @@ public class PiplDataSubjectService {
     }
 
     /**
-     * Register a deletion request. The actual purge happens asynchronously via
-     * admin review so accidental or coerced requests can still be audited and
-     * rolled back inside the regulatory response window (15 business days).
+     * 登记删除请求，实际清理由管理员复核流程异步完成。
      */
     @Transactional
     public long requestDeletion(long subjectId, Long requestedById, String reason,
@@ -92,8 +86,7 @@ public class PiplDataSubjectService {
     }
 
     /**
-     * Append-only audit record. Use this everywhere PII is accessed / mutated so
-     * we can produce a full access timeline during a regulator inquiry.
+     * 写入追加式 PII 审计记录。
      */
     public void recordAccess(long subjectId, Long accessorId, String accessorRole,
                               String action, Map<String, Object> summary,
@@ -114,17 +107,14 @@ public class PiplDataSubjectService {
                             .addValue("ua", userAgent));
         } catch (Exception e) {
             auditWriteFailures.increment();
-            // Never block the business path on audit failure, but make the miss very loud.
+            // 审计失败不阻断业务路径，但必须显式告警。
             log.error("pii_access_log_write_failed subject={} action={} err={}",
                     subjectId, action, e.getMessage());
         }
     }
 
     private Map<String, Object> loadProfile(long subjectId) {
-        // Only select columns that are guaranteed to exist on the `user` table across
-        // migrations (V2 / V50). Additional PII columns (phone / real_name / school)
-        // should be added here as they are introduced to the schema. Use try/catch
-        // so a missing column downgrades to "partial export" instead of 500.
+        // 只读取跨迁移稳定存在的 user 列，避免旧部署因缺列导致导出失败。
         try {
             List<Map<String, Object>> rows = jdbc.queryForList(
                     "SELECT id, username, email " +
@@ -155,8 +145,7 @@ public class PiplDataSubjectService {
     }
 
     private List<Map<String, Object>> loadNotebookSummaries(long subjectId) {
-        // Learner notebook holds student reflections & diagnoses; we export
-        // structured fields and omit free-form embeddings.
+        // 学习笔记只导出结构化诊断字段，不导出自由文本 embedding。
         return safeQueryForList(
                 "SELECT id, problem_id, language, error_taxonomy, root_cause, fix_outcome, update_time " +
                         "FROM ai_learner_notebook WHERE user_id = :uid AND is_deleted = false " +
@@ -166,11 +155,7 @@ public class PiplDataSubjectService {
     }
 
     /**
-     * Schema-tolerant query helper: any SQL-level failure (missing column, missing
-     * table in an older deployment) is logged and downgraded to an empty list so
-     * the PIPL export endpoint returns a "partial but honest" payload instead of a
-     * hard 500. The caller is responsible for surfacing the partial status to the
-     * user when relevant.
+     * 容忍旧 schema 的查询辅助方法，SQL 失败时降级为空列表。
      */
     private List<Map<String, Object>> safeQueryForList(String sql, MapSqlParameterSource params,
                                                        String category) {

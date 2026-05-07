@@ -19,9 +19,9 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Admin-facing contract validator for the Spring AI provider. Runs fixed samples
- * (JSON / content / embedding / tool-loop) and returns redacted summaries so
- * operators can confirm the provider works without exposing raw prompts or API keys.
+ * 面向管理员的 Spring AI Provider 合约验证服务。
+ *
+ * 服务运行固定样例，并只返回脱敏摘要，便于确认 provider 可用且不暴露 prompt 或 API key。
  */
 @Service
 public class AiProviderValidationService {
@@ -51,8 +51,7 @@ public class AiProviderValidationService {
         if (request == null) {
             throw new IllegalArgumentException("Validation request is required");
         }
-        // Phase 3 切流：includeEmbedding 字段保留在 DTO 中以兼容历史调用方，但运行
-        // 时显式跳过（embedding 链路已迁到 alethicode-rag，由其自己的 /metrics 暴露）。
+        // includeEmbedding 仅为兼容历史调用方保留；embedding 链路已迁到 alethicode-rag。
         if (!request.includeJson() && !request.includeContent() && !request.includeToolLoop()) {
             throw new IllegalArgumentException("At least one validation case must be included");
         }
@@ -148,7 +147,7 @@ public class AiProviderValidationService {
     private static String safeMessage(Exception e) {
         String msg = e.getMessage();
         if (msg == null) return e.getClass().getSimpleName();
-        // Truncate to avoid surfacing provider-side payloads in responses.
+        // 截断 provider 错误，避免响应中暴露上游载荷。
         return msg.length() > 200 ? msg.substring(0, 200) + "..." : msg;
     }
 }

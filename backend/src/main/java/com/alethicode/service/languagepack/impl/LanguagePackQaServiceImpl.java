@@ -9,6 +9,12 @@ import com.alethicode.exception.BusinessException;
 import com.alethicode.exception.ErrorCode;
 import com.alethicode.service.ai.AiModelGateway;
 import com.alethicode.service.aitutor.SessionUsage;
+import com.alethicode.service.aitutor.context.KcContextProvider;
+import com.alethicode.service.aitutor.context.KcSummary;
+import com.alethicode.service.aitutor.context.NotebookContextProvider;
+import com.alethicode.service.aitutor.context.NotebookSummary;
+import com.alethicode.service.aitutor.context.PageContextProvider;
+import com.alethicode.service.aitutor.context.PageSummary;
 import com.alethicode.service.aitutor.contract.RuntimeContract;
 import com.alethicode.service.aitutor.contract.RuntimeState;
 import com.alethicode.service.aitutor.contract.ServerEvent;
@@ -26,6 +32,7 @@ import com.alethicode.service.rag.RagServiceException;
 import com.alethicode.websocket.QaWebSocketHandler;
 import com.alethicode.websocket.WorkflowRealtimeSupport;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -77,6 +84,9 @@ public class LanguagePackQaServiceImpl implements LanguagePackQaService {
     private final VideoJobService videoJobService;
     private final WorkflowRealtimeSupport workflowRealtimeSupport;
     private final AiModelGateway aiModelGateway;
+    private final PageContextProvider pageContextProvider;
+    private final KcContextProvider kcContextProvider;
+    private final NotebookContextProvider notebookContextProvider;
     private final boolean ragQaAllowNotReady;
 
     public LanguagePackQaServiceImpl(JdbcTemplate jdbcTemplate,
@@ -87,7 +97,14 @@ public class LanguagePackQaServiceImpl implements LanguagePackQaService {
                                      AlethicodeProperties properties,
                                      VideoJobService videoJobService,
                                      WorkflowRealtimeSupport workflowRealtimeSupport,
-                                     AiModelGateway aiModelGateway) {
+                                     AiModelGateway aiModelGateway,
+                                     // PageContextProviderImpl 反过来依赖
+                                     // LanguagePackQaService 用于 lp 鉴权（listQaPacks），
+                                     // 不加 @Lazy 会触发构造期循环依赖。运行期（请求处理）
+                                     // 时 bean 已就绪，@Lazy 无副作用。
+                                     @Lazy PageContextProvider pageContextProvider,
+                                     KcContextProvider kcContextProvider,
+                                     NotebookContextProvider notebookContextProvider) {
         this.jdbcTemplate = jdbcTemplate;
         this.pageRetrievalService = pageRetrievalService;
         this.answerSynthesisService = answerSynthesisService;
@@ -97,6 +114,9 @@ public class LanguagePackQaServiceImpl implements LanguagePackQaService {
         this.videoJobService = videoJobService;
         this.workflowRealtimeSupport = workflowRealtimeSupport;
         this.aiModelGateway = aiModelGateway;
+        this.pageContextProvider = pageContextProvider;
+        this.kcContextProvider = kcContextProvider;
+        this.notebookContextProvider = notebookContextProvider;
         this.ragQaAllowNotReady = properties.getRag().isQaAllowNotReady();
     }
 
@@ -284,7 +304,7 @@ public class LanguagePackQaServiceImpl implements LanguagePackQaService {
     }
 
     @Override
-    public Map<String, Object> sendMessage(String username, Long sessionId, String content) {
+    public Map<String, Object> sendMessage(String username, Long sessionId, String content, List<String> references) {
         Long ownedSessionId = requireOwnedSessionId(username, sessionId);
         String normalizedContent = normalizeRequired(content, "content is required");
         Long languagePackId = jdbcTemplate.queryForObject(
@@ -313,6 +333,7 @@ public class LanguagePackQaServiceImpl implements LanguagePackQaService {
         SessionContext sessionContext = conversationContextService.buildSessionContext(ownedSessionId);
         String recentContext = sessionContext.recentDialogue();
         String effectiveQuery = resolveQueryReferences(normalizedContent, sessionContext);
+        effectiveQuery = appendReferenceEvidence(effectiveQuery, username, requireUserId(username), languagePackId, references);
         RetrievalTrace retrievalTrace = pageRetrievalService.retrieveWithTrace(languagePackId, effectiveQuery, recentContext);
         List<PageRetrievalHit> hits = retrievalTrace.hits();
         jdbcTemplate.update(
@@ -334,7 +355,7 @@ public class LanguagePackQaServiceImpl implements LanguagePackQaService {
     }
 
     @Override
-    public Map<String, Object> sendMessageAsync(String username, Long sessionId, String content) {
+    public Map<String, Object> sendMessageAsync(String username, Long sessionId, String content, List<String> references) {
         Long ownedSessionId = requireOwnedSessionId(username, sessionId);
         String normalizedContent = normalizeRequired(content, "content is required");
         Long languagePackId = jdbcTemplate.queryForObject(
@@ -343,6 +364,8 @@ public class LanguagePackQaServiceImpl implements LanguagePackQaService {
                 ownedSessionId
         );
         assertPackAccessibleAndReady(username, languagePackId);
+        Long userId = requireUserId(username);
+        List<String> referencesSnapshot = references == null ? List.of() : List.copyOf(references);
 
         jdbcTemplate.update(
                 """
@@ -389,6 +412,7 @@ public class LanguagePackQaServiceImpl implements LanguagePackQaService {
                 SessionContext sessionContext = conversationContextService.buildSessionContext(ownedSessionId);
                 String recentContext = sessionContext.recentDialogue();
                 String effectiveQuery = resolveQueryReferences(normalizedContent, sessionContext);
+                effectiveQuery = appendReferenceEvidence(effectiveQuery, username, userId, languagePackId, referencesSnapshot);
                 RetrievalTrace retrievalTrace = pageRetrievalService.retrieveWithTrace(languagePackId, effectiveQuery, recentContext);
                 List<PageRetrievalHit> hits = retrievalTrace.hits();
                 jdbcTemplate.update(
@@ -1172,7 +1196,7 @@ public class LanguagePackQaServiceImpl implements LanguagePackQaService {
                     sessionId
             );
         } catch (Exception ignored) {
-            // title generation is best-effort, never block the main flow
+            // 标题生成是尽力而为，不能阻断主流程。
         }
     }
 
@@ -1191,7 +1215,7 @@ public class LanguagePackQaServiceImpl implements LanguagePackQaService {
                 }
             }
         } catch (Exception ignored) {
-            // fall through to heuristic fallback
+            // 失败时回退到启发式标题。
         }
         return fallbackSessionTitle(conversationSource, latestUserQuestion);
     }
@@ -1280,6 +1304,56 @@ public class LanguagePackQaServiceImpl implements LanguagePackQaService {
             return query;
         }
         return query + " [上下文: " + sessionContext.sessionSummary() + "]";
+    }
+
+    /**
+     * 把 ChatComposer 的 {@code @page:} / {@code @kc:} / {@code @notebook:} 引用 token 列表
+     * 通过 {@link PageContextProvider} / {@link KcContextProvider} /
+     * {@link NotebookContextProvider} 展开成具体内容（页正文 / 知识点描述 / 笔记原文），追加到
+     * {@code effectiveQuery} 末尾让 RAG 召回 + answer-synthesis 都能看到证据。
+     *
+     * <p>展开按 token 顺序去重；不存在的 id 由 provider 内部静默跳过；@page 省略 lpId 时
+     * 用当前会话的 {@code defaultLpId} 补全。token 为空或全部解析为空时返回 {@code query}
+     * 本身，调用方无需做 null 判断。</p>
+     */
+    private String appendReferenceEvidence(String query,
+                                            String username,
+                                            long userId,
+                                            Long defaultLpId,
+                                            List<String> references) {
+        if (references == null || references.isEmpty()) {
+            return query;
+        }
+        StringBuilder evidence = new StringBuilder();
+
+        List<PageSummary> pageSummaries = pageContextProvider.resolvePageReferences(username, defaultLpId, references);
+        for (PageSummary page : pageSummaries) {
+            String pageText = page.pageText() == null ? "" : page.pageText();
+            evidence.append("\n[引用页码: ")
+                    .append(page.documentTitle() == null ? "" : page.documentTitle())
+                    .append(" 第 ").append(page.pageNumber()).append(" 页]\n")
+                    .append(pageText.isBlank() ? "(本页内容暂未索引)" : pageText);
+        }
+
+        List<KcSummary> kcSummaries = kcContextProvider.resolveKcReferences(userId, references);
+        for (KcSummary kc : kcSummaries) {
+            String description = kc.description() == null ? "" : kc.description();
+            evidence.append("\n[引用知识点: ").append(kc.name() == null ? kc.kcId() : kc.name())
+                    .append("（掌握度 ").append(String.format("%.2f", kc.mastery())).append("）]\n")
+                    .append(description.isBlank() ? "(暂无描述)" : description);
+        }
+
+        List<NotebookSummary> notebookSummaries = notebookContextProvider.resolveNotebookReferences(userId, references);
+        for (NotebookSummary note : notebookSummaries) {
+            String noteContent = note.content() == null ? "" : note.content();
+            evidence.append("\n[引用笔记: ").append(note.title() == null ? note.entryId() : note.title()).append("]\n")
+                    .append(noteContent.isBlank() ? "(笔记为空)" : noteContent);
+        }
+
+        if (evidence.isEmpty()) {
+            return query;
+        }
+        return query + "\n\n--- 用户引用的具体内容 ---" + evidence;
     }
 
     private boolean looksLikeOjProblemQuestion(String question) {

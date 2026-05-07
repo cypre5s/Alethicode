@@ -135,7 +135,9 @@ export function useSubmission () {
         problem_id: vm().problem && vm().problem.id != null ? vm().problem.id : null,
         language: vm().language || ''
       })
-    } catch (_) { /* silent */ }
+    } catch (err) {
+      void err
+    }
     debugging.value = true
     debugError.value = false
     debugOutput.value = ''
@@ -190,7 +192,9 @@ export function useSubmission () {
         problem_id: vm().problem && vm().problem.id != null ? vm().problem.id : null,
         language: vm().language || ''
       })
-    } catch (_) { /* silent */ }
+    } catch (err) {
+      void err
+    }
     if (preflightState.value === 'scanning') return
 
     vm().trackRapidResubmit()

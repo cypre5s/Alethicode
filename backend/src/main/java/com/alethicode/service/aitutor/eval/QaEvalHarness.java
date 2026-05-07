@@ -14,9 +14,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Offline evaluation harness for QA (Language Pack Question-Answering).
- * Evaluates (question, retrieved_pages, generated_answer) triples for
- * grounding accuracy, citation coverage, answer completeness, and refusal appropriateness.
+ * 课件问答的离线评估工具。
+ *
+ * 评估问题、检索页和生成答案三元组的证据扎根、引用覆盖、回答完整性和拒答合理性。
  */
 @Service
 public class QaEvalHarness {

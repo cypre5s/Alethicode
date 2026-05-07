@@ -1,4 +1,4 @@
-"""Checkpoint utilities — list recent labeled checkpoints for a thread."""
+"""提供 thread 最近检查点列表工具。"""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ async def list_checkpoints(
     *,
     limit: int = 20,
 ) -> list[dict]:
-    """Return up to *limit* most recent checkpoints with business labels."""
+    """返回带业务标签的最近检查点。"""
     config = {"configurable": {"thread_id": thread_id}}
     results: list[dict] = []
     async for checkpoint_tuple in checkpointer.alist(config, limit=limit):

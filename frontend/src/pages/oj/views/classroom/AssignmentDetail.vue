@@ -32,7 +32,6 @@
             <span class="problem-score">{{ prob.score }} 分</span>
           </div>
 
-          <!-- Coding problem: link to OJ -->
           <div v-if="isCodingProblem(prob)" class="problem-body">
             <el-button :type="viewOnly ? '' : 'primary'" @click="openOJProblem(prob)">
               <el-icon style="margin-right: 4px;"><Link /></el-icon>
@@ -52,7 +51,6 @@
             </span>
           </div>
 
-          <!-- Choice question: inline -->
           <div v-else-if="prob.question_type === 'choice'" class="problem-body">
             <div v-html="sanitize(prob.description)" class="problem-description"></div>
             <el-radio-group v-model="answers[String(prob.id)]" style="display: flex; flex-direction: column; gap: 8px;">
@@ -62,7 +60,6 @@
             </el-radio-group>
           </div>
 
-          <!-- Fill-blank question: inline -->
           <div v-else-if="prob.question_type === 'fill_blank'" class="problem-body">
             <div v-html="sanitize(prob.description)" class="problem-description"></div>
             <div v-for="(blank, bi) in (prob.blanks || [''])" :key="bi" style="margin-bottom: 8px;">
@@ -71,7 +68,6 @@
             </div>
           </div>
 
-          <!-- Generic fallback -->
           <div v-else class="problem-body">
             <div v-html="sanitize(prob.description)" class="problem-description"></div>
             <el-input v-model="answers[String(prob.id)]" type="textarea" :rows="3" :readonly="viewOnly" :placeholder="viewOnly ? '教师端仅查看，不可作答' : '输入答案'"/>

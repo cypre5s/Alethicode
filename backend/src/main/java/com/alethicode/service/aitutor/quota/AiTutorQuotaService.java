@@ -11,19 +11,14 @@ import java.time.ZoneOffset;
 import java.util.List;
 
 /**
- * Enforces per-user quotas for the LangGraph tutor workflow to prevent
- * single-account token-burn attacks (CRIT-3, 2026-05-02 渗透报告):
+ * 强制执行 LangGraph 导学工作流的用户级配额。
  *
  * <ul>
- *   <li>{@code maxActiveSessionsPerUser} — hard cap on concurrent active
- *       tutor sessions (default 10). Backed by SQL on the projection.</li>
- *   <li>{@code dailyLlmRunsPerUser} — hard cap on tutor workflow runs per
- *       UTC day (default 50). Backed by an atomic Redis INCR with a
- *       1-day TTL keyed by {@code ai_quota:daily_runs:<userId>:<UTC date>}.</li>
+ *   <li>{@code maxActiveSessionsPerUser} 限制并发活跃导学会话数，由投影表 SQL 统计。</li>
+ *   <li>{@code dailyLlmRunsPerUser} 限制 UTC 日内导学运行次数，由带 TTL 的 Redis 原子计数实现。</li>
  * </ul>
  *
- * Quota violations throw {@link QuotaExceededException}, which the caller
- * (controller) maps to HTTP 429 with a {@code Retry-After} hint.
+ * 超限抛出 {@link QuotaExceededException}，由控制器映射为带 {@code Retry-After} 的 429。
  */
 @Service
 public class AiTutorQuotaService {

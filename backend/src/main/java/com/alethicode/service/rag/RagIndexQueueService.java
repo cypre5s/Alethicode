@@ -14,23 +14,17 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Application-facing entry point that writes a row to {@code rag_index_outbox}.
+ * 面向业务代码的 RAG outbox 写入入口。
  *
- * <p>The contract:
+ * <p>调用约束：
  * <ol>
- *   <li>Caller writes the business table (page / notebook / memory) inside its own
- *       transaction.</li>
- *   <li>Same transaction calls {@link #enqueueIndex} or {@link #enqueueDelete}.</li>
- *   <li>If the business commit succeeds, the outbox row is committed alongside it
- *       and {@link RagIndexOutboxWorker} picks it up on its next tick. If the
- *       business commit fails, the outbox row is rolled back automatically.
- *       Result: the index never gets ahead of the business state, and the
- *       business write never depends on alethicode-rag being up.</li>
+ *   <li>调用方先在自身事务内写业务表。</li>
+ *   <li>同一事务内调用 {@link #enqueueIndex} 或 {@link #enqueueDelete}。</li>
+ *   <li>业务提交成功时 outbox 行一起提交；业务回滚时 outbox 自动回滚。</li>
  * </ol>
  *
- * <p>Idempotency is provided by the unique constraint on
- * {@code (entity_type, entity_id, action)}; calling enqueueIndex twice for the
- * same row coalesces into a single pending entry with the latest payload.
+ * <p>{@code (entity_type, entity_id, action)} 唯一约束保证幂等，同一业务对象的重复索引请求会合并为
+ * 带最新 payload 的一条待处理记录。</p>
  */
 @Service
 public class RagIndexQueueService {
@@ -38,25 +32,21 @@ public class RagIndexQueueService {
     private static final Logger log = LoggerFactory.getLogger(RagIndexQueueService.class);
 
     /**
-     * Singleton no-op used by manual {@code new}-instantiated services in
-     * test fixtures and the workflow admin convenience path that lacks a
-     * Spring bean container. Production traffic always goes through the
-     * Spring-managed bean, never this NOOP.
+     * 供测试夹具和无 Spring 容器的管理端便捷路径使用的单例空实现。
+     *
+     * 生产流量必须经过 Spring 托管 bean。
      */
     public static final RagIndexQueueService NOOP = new RagIndexQueueService(null, null) {
         @Override
         public void enqueueIndex(RagEntityType entityType, String entityId, String content, Map<String, Object> metadata) {
-            // intentionally no-op
         }
 
         @Override
         public void enqueueDelete(RagEntityType entityType, String entityId) {
-            // intentionally no-op
         }
 
         @Override
         public void enqueueIndex(RagEntityType entityType, String entityId, String content) {
-            // intentionally no-op
         }
     };
 
@@ -69,16 +59,9 @@ public class RagIndexQueueService {
     }
 
     /**
-     * Enqueue an INDEX request. Always coalesces into a single pending row
-     * keyed by (entity_type, entity_id, INDEX): repeated calls for the same
-     * business object overwrite the payload, reset attempts, and reset the
-     * indexed/given-up markers so the next worker pass re-indexes with the
-     * latest content.
+     * 入队 INDEX 请求，并将同一业务对象的重复请求合并为单条待处理行。
      *
-     * <p>Joins the surrounding transaction when present; if the caller is
-     * not transactional, Spring opens a short tx for this single insert.
-     * Either way, a business write that rolls back also rolls back the
-     * outbox row, so the index never gets ahead of business state.
+     * <p>存在外层事务时加入外层事务；没有外层事务时由 Spring 为本次插入开启短事务。</p>
      */
     @Transactional
     public void enqueueIndex(RagEntityType entityType, String entityId, String content, Map<String, Object> metadata) {
@@ -151,8 +134,7 @@ public class RagIndexQueueService {
     }
 
     /**
-     * Convenience for {@link RagIndexAction#INDEX} only. Used by a few callers
-     * (DocumentParsingServiceImpl) where the metadata block is built ad-hoc.
+     * 仅包含内容的 INDEX 入队便捷方法。
      */
     public void enqueueIndex(RagEntityType entityType, String entityId, String content) {
         enqueueIndex(entityType, entityId, content, Map.of());

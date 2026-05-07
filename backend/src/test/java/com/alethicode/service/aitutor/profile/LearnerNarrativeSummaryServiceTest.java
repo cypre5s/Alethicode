@@ -43,7 +43,6 @@ class LearnerNarrativeSummaryServiceTest {
     @Test
     void loadOrGenerateGeneratesWhenRowMissing() throws Exception {
         when(memoryService.inferLearningStyle(anyLong())).thenReturn(LearningStyle.STEP_BY_STEP);
-        // First call (loadRow) throws, then after generateAndPersist, second call returns the new row.
         ResultSet rs = mockResultSet("近 30 天小明做了 5 道题", 1, false, false);
         when(jdbc.queryForObject(anyString(), any(RowMapper.class), anyLong()))
                 .thenThrow(new EmptyResultDataAccessException(1))
@@ -51,7 +50,6 @@ class LearnerNarrativeSummaryServiceTest {
                     RowMapper<?> mapper = inv.getArgument(1);
                     return mapper.mapRow(rs, 0);
                 });
-        // Materials collection
         when(jdbc.queryForObject(anyString(), eq(Long.class), anyLong()))
                 .thenReturn(5L, 3L, 100L);
         when(jdbc.queryForList(anyString(), anyLong())).thenReturn(List.of());

@@ -399,8 +399,8 @@
             this.progress = (progressRes.data && progressRes.data.data) || {}
             await this.loadSupplementPlan()
           }
-        } catch {
-          // fail-fast: 数据加载失败时 hasCourse 为 false, UI 降级显示"浏览课程"
+        } catch (err) {
+          void err
         }
         try {
           const reviewRes = await api.getReviewDue(9, this.languagePackId)
@@ -527,7 +527,7 @@
     padding: 32px 24px 48px;
   }
 
-  /* ── Two-Column Layout (golden ratio 1.618:1) ── */
+  /* 双列布局 */
   .dashboard-columns {
     display: grid;
     grid-template-columns: 1.618fr 1fr;
@@ -544,7 +544,7 @@
     gap: 20px;
   }
 
-  /* ── Hero Banner ── */
+  /* 顶部横幅 */
   .hero-banner {
     background: linear-gradient(135deg, #e8f0fe 0%, #f0f6ff 40%, #fff 100%);
     border: 1px solid #dce6f5;
@@ -653,7 +653,7 @@
     line-height: 1.6;
   }
 
-  /* ── Continue Learning Card ── */
+  /* 继续学习卡片 */
   .continue-card {
     background: var(--bg-card, #fff);
     border: 1px solid var(--border-color, #e8e8e8);
@@ -772,7 +772,7 @@
     &:active { transform: scale(0.97); }
   }
 
-  /* ── Skeleton ── */
+  /* 骨架屏 */
   .continue-skeleton {
     display: flex;
     flex-direction: column;
@@ -792,7 +792,7 @@
     100% { background-position: -200% 0; }
   }
 
-  /* ── Quick Actions ── */
+  /* 快捷操作 */
   .quick-actions {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -852,7 +852,7 @@
     color: var(--text-secondary, #999);
   }
 
-  /* ── Recent Activity ── */
+  /* 最近动态 */
   .recent-activity {}
   .activity-list {
     background: var(--bg-card, #fff);
@@ -926,7 +926,7 @@
     }
   }
 
-  /* ── Announcements ── */
+  /* 公告 */
   .announce-section {}
   .announce-list {
     background: var(--bg-card, #fff);
@@ -974,7 +974,7 @@
     flex-shrink: 0;
   }
 
-  /* ── Section Heading ── */
+  /* 分区标题 */
   .section-heading {
     font-size: 16px;
     font-weight: 700;
@@ -982,7 +982,7 @@
     margin: 0 0 14px;
   }
 
-  /* ── Next Step / Weekly / Review ── */
+  /* 下一步、周报与复习 */
   .weekly-section {}
   .weekly-section--main {
     margin-top: 24px;
@@ -1085,7 +1085,7 @@
     color: var(--text-primary, #1a1a1a);
   }
 
-  /* ── Review Section ── */
+  /* 复习区 */
   .review-section {}
   .review-grid {
     display: flex;
@@ -1150,7 +1150,7 @@
   .tag-unknown { background: #f5f5f5; color: #8c8c8c; }
 
 
-  /* ── Responsive ── */
+  /* 响应式 */
   @media (max-width: 900px) {
     .dashboard-columns {
       grid-template-columns: 1fr;

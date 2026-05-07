@@ -1,6 +1,6 @@
 /**
- * Alethicode Frontend Smoke Test Suite
- * Run: cd frontend && node tests/test_frontend_smoke.js
+ * Alethicode 前端冒烟测试。
+ * 运行：cd frontend && node tests/test_frontend_smoke.js
  */
 const hljs = require('highlight.js')
 const path = require('path')
@@ -28,7 +28,7 @@ function assert(cond, msg) {
 
 console.log('\n=== Alethicode Frontend Smoke Tests ===\n')
 
-// 1. highlight.js
+// 检查 highlight.js。
 console.log('--- highlight.js ---')
 
 test('hljs: Python highlighting works', () => {
@@ -58,7 +58,7 @@ test('hljs: Chinese content does not break highlighting', () => {
   assert(r.value.length > 0)
 })
 
-// 2. Key file existence
+// 检查关键文件是否存在。
 console.log('\n--- Key Files ---')
 
 const keyFiles = [
@@ -76,7 +76,7 @@ for (const f of keyFiles) {
   })
 }
 
-// 3. API module structure
+// 检查 API 模块结构。
 console.log('\n--- API Module ---')
 
 test('api.js exports skill profile methods', () => {
@@ -85,7 +85,7 @@ test('api.js exports skill profile methods', () => {
   assert(content.includes('getProblemRecommendations'), 'missing getProblemRecommendations')
 })
 
-// 4. Component checks
+// 检查组件文件。
 console.log('\n--- Component Checks ---')
 
 test('CodeMirror.vue has extra-tools slot', () => {
@@ -123,7 +123,6 @@ test('highlight.js plugin has try-catch wrapping', () => {
   assert(content.includes('try {') || content.includes('try{'), 'should have try-catch')
 })
 
-// Summary
 console.log(`\n${'='.repeat(50)}`)
 console.log(`TOTAL: ${passed + failed} | PASS: ${passed} | FAIL: ${failed}`)
 if (errors.length) {

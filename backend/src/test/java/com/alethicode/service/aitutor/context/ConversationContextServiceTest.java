@@ -56,8 +56,6 @@ class ConversationContextServiceTest {
     void switchModeRejectsModeNotAllowedInCurrentPhase() {
         assertThatThrownBy(() -> service.switchMode("twf_a", ConversationMode.VISUALIZE, Phase.AC_REVIEW))
                 .isInstanceOf(LegacyBusinessException.class);
-
-        // VISUALIZE allowed in READING per the matrix; AC_REVIEW excludes IDEATE
         assertThatThrownBy(() -> service.switchMode("twf_a", ConversationMode.IDEATE, Phase.AC_REVIEW))
                 .isInstanceOf(LegacyBusinessException.class);
     }

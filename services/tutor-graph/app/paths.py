@@ -1,9 +1,4 @@
-"""Runtime path helpers shared by multiple tutor-graph modules.
-
-Keeping this lookup in one place means that if the repo layout or the
-Docker image layout ever changes again (e.g. when renaming ``app/`` or
-moving ``contracts/``), only this file must be updated.
-"""
+"""集中处理 tutor-graph 在本地与容器中的运行时路径。"""
 
 from __future__ import annotations
 
@@ -11,17 +6,9 @@ from pathlib import Path
 
 
 def locate_card_schema_dir() -> Path:
-    """Locate ``contracts/tutor_workflow/cards`` across both deployment layouts.
+    """定位本地与容器布局中的卡片 schema 目录。
 
-    - Repo layout: ``<repo>/services/tutor-graph/app/paths.py`` ->
-      ``<repo>/contracts/tutor_workflow/cards`` (4 levels up).
-    - Container layout: ``/app/app/paths.py`` ->
-      ``/app/contracts/tutor_workflow/cards`` (3 levels up, because the
-      Dockerfile copies ``contracts`` as a sibling of ``app`` under ``/app``).
-
-    Hard-coding a fixed number of parents breaks one of the two layouts.
-    Searching parents instead stays correct for both and fails fast at
-    module import if neither directory exists.
+    通过向上搜索同时支持源码仓库和容器布局，避免硬编码父目录层级。
     """
     here = Path(__file__).resolve()
     for parent in here.parents:

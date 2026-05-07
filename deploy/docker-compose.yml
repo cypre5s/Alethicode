@@ -185,11 +185,10 @@ services:
       - "127.0.0.1:7233:7233"
 
   memgraph:
-    # Graph storage backend for LightRAG (alethicode-rag).
-    # Decision (2026-04-28): Memgraph over PG+AGE — issue #2255 reports 12h+
-    # downtime upgrading PGGraphStorage; issue #1277 reports 3-5min query
-    # latency at 3.5k nodes/4.5k edges. Memgraph speaks bolt via the neo4j
-    # driver LightRAG already imports, no schema migration needed.
+    # LightRAG 的图存储后端使用 Memgraph。
+    # 2026-04-28 决策：不采用 PG+AGE；issue #2255 记录 PGGraphStorage 升级会有
+    # 12h+ 停机，issue #1277 记录 3.5k 节点/4.5k 边时查询延迟达 3-5min。
+    # Memgraph 通过 LightRAG 已依赖的 neo4j driver 走 bolt 协议，无需 schema 迁移。
     # WSL2 6.6 内核兼容性决策：原 `memgraph/memgraph:latest` (v3.9.0) 在
     # 4/29 实测中容器启动后即 signal 11 SIGSEGV (exit 139) 死循环（dmesg 抓到
     # "memgraph: potentially unexpected fatal signal 11"），关闭 rseq
@@ -281,10 +280,13 @@ services:
       RAG_INTERNAL_TOKEN: ${RAG_INTERNAL_TOKEN:-${INTERNAL_SERVICE_KEY:-dev-internal-key}}
       RAG_INTERNAL_PREVIOUS_TOKEN: ${RAG_INTERNAL_PREVIOUS_TOKEN:-${INTERNAL_SERVICE_PREVIOUS_KEY:-}}
       RAG_WORKING_DIR: /data/alethicode-rag/workspace
-      # network_mode: host 下，原来的 service-name 解析失效，改走 host 暴露端口
-      # 2C4G 优化：走 PgBouncer 暴露的 6432 端口（host 网络下与容器同地址空间）
-      POSTGRES_HOST: 127.0.0.1
-      POSTGRES_PORT: 6432
+      # network_mode: host 下，原来的 service-name 解析失效，改走 host 暴露端口。
+      # 默认走 PgBouncer 暴露的 6432（生产 docker compose 全栈拉起时与
+      # backend / tutor-graph 共用 PgBouncer 池）；本地 start.sh 路径 PgBouncer
+      # 已弃用（CHANGELOG 2026-05-03），通过 ALETHICODE_RAG_POSTGRES_PORT=5436
+      # 直连 PG，与 backend / tutor-graph 在 dev 模式下保持一致。
+      POSTGRES_HOST: ${ALETHICODE_RAG_POSTGRES_HOST:-127.0.0.1}
+      POSTGRES_PORT: ${ALETHICODE_RAG_POSTGRES_PORT:-6432}
       POSTGRES_USER: onlinejudge
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DATABASE: alethicode
@@ -333,9 +335,9 @@ services:
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     ports:
-      - "127.0.0.1:16686:16686"  # UI
-      - "127.0.0.1:4318:4318"    # OTLP HTTP
-      - "127.0.0.1:4317:4317"    # OTLP gRPC
+      - "127.0.0.1:16686:16686"  # Jaeger UI
+      - "127.0.0.1:4318:4318"    # OTLP HTTP 接收端
+      - "127.0.0.1:4317:4317"    # OTLP gRPC 接收端
     deploy:
       resources:
         limits:

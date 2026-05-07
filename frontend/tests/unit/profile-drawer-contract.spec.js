@@ -24,7 +24,7 @@ describe('learner profile drawer contracts', () => {
     expect(composableSource).toContain('api.overrideProfileSummary(text)')
 
     expect(composableSource).toContain('export function useProfileApi()')
-    // No global ref / store leak: refs must be created inside the factory.
+    // ref 必须在工厂内部创建，避免泄漏到全局状态。
     const refDeclarations = composableSource.match(/const (profile|loading|saving|error) = ref\(/g) || []
     expect(refDeclarations.length).toBe(4)
   })

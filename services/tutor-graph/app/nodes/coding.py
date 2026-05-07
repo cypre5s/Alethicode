@@ -1,4 +1,4 @@
-"""Coding node — records code snapshot, optionally generates execution trace explanation."""
+"""记录代码快照，并按需生成执行过程解释。"""
 
 from __future__ import annotations
 

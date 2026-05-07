@@ -42,7 +42,9 @@ export default {
     if (this.isAuthenticated) {
       try {
         recordEvent('feature_click', { name: 'feedback_button_view' })
-      } catch (e) { /* silent */ }
+      } catch (e) {
+        void e
+      }
     }
   },
   methods: {
@@ -50,12 +52,16 @@ export default {
       this.dialogVisible = true
       try {
         recordEvent('feedback_opened', {})
-      } catch (e) { /* silent */ }
+      } catch (e) {
+        void e
+      }
     },
     onSubmitted (payload) {
       try {
         recordEvent('feedback_submitted', payload || {})
-      } catch (e) { /* silent */ }
+      } catch (e) {
+        void e
+      }
     }
   }
 }

@@ -16,9 +16,15 @@ public interface LanguagePackQaService {
 
     List<Map<String, Object>> listMessages(String username, Long sessionId);
 
-    Map<String, Object> sendMessage(String username, Long sessionId, String content);
+    /**
+     * @param references ChatComposer 抽出的引用 token 列表（{@code @page:<n>} /
+     *                   {@code @kc:<id>} / {@code @notebook:<id>}），用于把对应页正文 /
+     *                   知识点 / 笔记的实际内容注入 LLM context。null 等价于空列表。
+     */
+    Map<String, Object> sendMessage(String username, Long sessionId, String content, List<String> references);
 
-    Map<String, Object> sendMessageAsync(String username, Long sessionId, String content);
+    /** 见 {@link #sendMessage} 关于 {@code references} 的说明。 */
+    Map<String, Object> sendMessageAsync(String username, Long sessionId, String content, List<String> references);
 
     void submitFeedback(String username, Long messageId, String feedbackLabel, String comment);
 

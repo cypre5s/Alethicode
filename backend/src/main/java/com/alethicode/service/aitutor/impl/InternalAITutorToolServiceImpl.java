@@ -47,7 +47,7 @@ import java.util.UUID;
 public class InternalAITutorToolServiceImpl implements InternalAITutorToolService {
 
     private static final Logger log = LoggerFactory.getLogger(InternalAITutorToolServiceImpl.class);
-    /** Match the evidence pack assembler used by the legacy Java tutor so card payloads stay consistent. */
+    /** 与旧 Java Tutor 证据包组装器保持一致，保证卡片载荷稳定。 */
     private static final int COURSEWARE_HIT_LIMIT = 5;
 
     private final NamedParameterJdbcTemplate jdbc;
@@ -209,8 +209,7 @@ public class InternalAITutorToolServiceImpl implements InternalAITutorToolServic
         if (problemId == null) {
             throw new IllegalArgumentException("problemId is required");
         }
-        // Language pack hits are the primary signal when the problem belongs to a pack; otherwise the
-        // retrieval service falls back to KC and chapter indices on the legacy courseware chunk table.
+        // 题目属于语言包时优先检索语言包，否则回退到旧课件 chunk 表的 KC 与章节索引。
         Long languagePackId = resolveLanguagePackId(problemId);
         List<Long> kcIds = coursewareRetrievalService.loadProblemKcIds(problemId, languagePackId);
         String chapter = coursewareRetrievalService.loadPrimaryChapter(problemId, languagePackId);
@@ -231,8 +230,7 @@ public class InternalAITutorToolServiceImpl implements InternalAITutorToolServic
         if (userId == null) {
             throw new IllegalArgumentException("userId is required");
         }
-        // Resolve taxonomy + query text from a single event lookup to avoid N+1 on hot paths
-        // (ERROR_FEEDBACK fires on every WA submission).
+        // 从单次事件查询中解析分类与查询文本，避免 WA 热路径上出现 N+1。
         LatestErrorContext errorContext = sessionId == null
                 ? LatestErrorContext.EMPTY
                 : loadLatestErrorContext(sessionId);
@@ -245,8 +243,7 @@ public class InternalAITutorToolServiceImpl implements InternalAITutorToolServic
         result.put("problem_id", problemId);
         result.put("language", language);
         result.put("error_taxonomy", errorContext.taxonomy());
-        // Keep the legacy `similar_errors` key so existing Python tutor_graph consumers
-        // continue to work while exposing the full decomposition for callers that need it.
+        // 保留旧的 similar_errors key，兼容现有 Python tutor_graph 消费方。
         List<Map<String, Object>> notebookHits = retrieved.getOrDefault("similar_notebook_hits", List.of());
         List<Map<String, Object>> memoryHits = retrieved.getOrDefault("similar_memory_hits", List.of());
         result.put("similar_notebook_hits", notebookHits);
@@ -286,12 +283,9 @@ public class InternalAITutorToolServiceImpl implements InternalAITutorToolServic
     }
 
     /**
-     * Read the latest ERROR_FEEDBACK event for the session and extract both the
-     * taxonomy (from {@code node_outputs.error_diagnosis.error_pattern}) and the
-     * query text (root cause summary, falling back to the student's raw err_info).
+     * 读取会话最近一次 ERROR_FEEDBACK，并提取错误分类与检索文本。
      *
-     * <p>Single SQL round-trip: ERROR_FEEDBACK fires on every WA submission, so the
-     * two earlier per-field methods doubled the query count on the hot path.
+     * <p>ERROR_FEEDBACK 会在每次 WA 提交后触发，单次 SQL 往返可以降低热路径查询次数。</p>
      */
     private LatestErrorContext loadLatestErrorContext(String sessionId) {
         List<Map<String, Object>> rows = jdbc.queryForList(
@@ -988,7 +982,7 @@ public class InternalAITutorToolServiceImpl implements InternalAITutorToolServic
     }
 
     /**
-     * Dedicated exception to map "resource not found" → HTTP 404 in controller.
+     * 供控制器把资源不存在映射为 HTTP 404 的专用异常。
      */
     public static class ProblemNotFoundException extends RuntimeException {
         public ProblemNotFoundException(String message) {

@@ -14,19 +14,9 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import java.util.Set;
 
 /**
- * Fail-fast check for the historical {@code root/root123456} super-user credential.
- * The bootstrap fixtures used to ship a default {@code root} account whose password
- * was leaked in {@code AGENTS.md}; if a prod deployment never rotates it, anyone with
- * network access can take over the platform with admin rights. This validator turns
- * that silent failure into a hard startup error on prod profiles.
+ * 启动时检查历史默认 {@code root/root123456} 管理员凭据。
  *
- * <p>Behaviour:
- * <ul>
- *   <li>prod-like profiles: refuse to start when the {@code root} user still matches
- *       the well-known default. Missing {@code root} (custom deployment) is accepted.</li>
- *   <li>non-prod profiles: emit a single WARN so developers never lose track of the
- *       risk, but never block startup.</li>
- * </ul>
+ * <p>生产类 profile 中若仍使用泄露默认密码则拒绝启动；非生产环境只记录警告，避免影响本地开发。</p>
  */
 @Configuration
 public class RootPasswordValidator {
@@ -34,7 +24,7 @@ public class RootPasswordValidator {
     private static final Logger log = LoggerFactory.getLogger(RootPasswordValidator.class);
     private static final String ROOT_USERNAME = "root";
     private static final String LEAKED_DEFAULT_PASSWORD = "root123456";
-    /** Profiles that are considered production-like and require a strong root password. */
+    /** 需要强制校验 root 密码的生产类 profile。 */
     private static final Set<String> PROD_PROFILES = Set.of("prod", "production", "release");
 
     @Bean

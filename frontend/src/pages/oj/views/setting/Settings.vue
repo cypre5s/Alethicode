@@ -152,7 +152,7 @@ html.settings-no-scrollbar body {
   height: 100%;
 }
 
-/* Toast */
+/* 提示条 */
 #settings-toasts {
   position: fixed;
   bottom: 28px;
@@ -193,7 +193,7 @@ html.settings-no-scrollbar body {
 }
 .settings-toast-dot.warn { background: #fbbc04; }
 
-/* Ripple */
+/* 点击涟漪 */
 .st-ripple {
   position: absolute;
   border-radius: 50%;
@@ -204,7 +204,7 @@ html.settings-no-scrollbar body {
 }
 @keyframes st-rip { to { transform: scale(4); opacity: 0; } }
 
-/* AccountSetting / SecuritySetting 子路由遗留样式 */
+/* 账号与安全设置子路由遗留样式 */
 .setting-main {
   position: relative;
   margin: 10px 20px;
@@ -258,7 +258,7 @@ html.settings-no-scrollbar body {
   align-items: start;
 }
 
-/* ---- Sidebar ---- */
+/* 侧边栏 */
 .sidebar {
   background: var(--st-bg-card);
   border: 1px solid var(--st-border);
@@ -309,7 +309,7 @@ html.settings-no-scrollbar body {
   border: 1px solid var(--st-blue-b); font-weight: 500;
 }
 
-/* ---- Sidebar Nav ---- */
+/* 侧边导航 */
 .sidebar-nav { padding: 8px 0 12px; }
 .sidebar-nav-item {
   display: flex; align-items: center; gap: 10px;
@@ -339,12 +339,12 @@ html.settings-no-scrollbar body {
   background: #f0f2f5; color: var(--st-text-2);
 }
 
-/* ---- Main Content ---- */
+/* 主内容 */
 .main-content {
   display: flex; flex-direction: column; gap: 18px; min-width: 0;
 }
 
-/* Transition */
+/* 过渡动画 */
 .st-fade-enter-active { animation: st-fadeUp .4s ease both; }
 .st-fade-leave-active { animation: st-fadeUp .2s ease reverse both; }
 </style>

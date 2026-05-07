@@ -49,8 +49,6 @@
         </el-table-column>
       </el-table>
     </el-card>
-
-    <!-- 评分弹窗 -->
     <el-dialog v-model="showGradeModal" :title="'评分 - ' + (currentStudent.username || '')" width="800px">
       <div v-if="currentDetails.length === 0" style="text-align: center; color: #808695; padding: 40px;">
         该学生暂无详细提交记录

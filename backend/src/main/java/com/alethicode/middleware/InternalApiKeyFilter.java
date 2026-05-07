@@ -13,9 +13,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 
 /**
- * Spring Security filter that enforces X-Internal-Service-Key on all /internal/** requests.
- * Defense-in-depth: even if a controller endpoint forgets to call validateServiceKey(),
- * this filter ensures unauthenticated requests are rejected at the filter chain level.
+ * 在过滤器层校验所有 {@code /internal/**} 请求的内部服务密钥。
+ *
+ * 该校验是内部控制器自检之外的安全边界，避免遗漏接口级校验时放行未认证请求。
  */
 @Component
 public class InternalApiKeyFilter extends OncePerRequestFilter {

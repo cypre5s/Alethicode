@@ -1,10 +1,9 @@
 package com.alethicode.service.rag;
 
 /**
- * Thrown when a call to alethicode-rag fails (transport error, 4xx/5xx
- * response). Application code that talks to the RAG layer should treat
- * this as a fail-fast signal — per the calling contract there is no
- * silent degradation to old SQL retrieval.
+ * 表示 alethicode-rag 调用失败。
+ *
+ * 该异常是 fail fast 信号，调用方不得静默降级到旧 SQL 检索。
  */
 public class RagServiceException extends RuntimeException {
 

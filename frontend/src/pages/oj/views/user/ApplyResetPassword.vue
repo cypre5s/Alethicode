@@ -9,7 +9,6 @@
     <div class="toasts" ref="toastContainer"></div>
 
     <div class="card-wrap">
-      <!-- Left brand panel -->
       <div class="brand-panel">
         <div class="brand-deco deco-1"></div>
         <div class="brand-deco deco-2"></div>
@@ -28,7 +27,6 @@
         </div>
       </div>
 
-      <!-- Right form panel -->
       <div class="form-panel">
         <div class="form-top">
           <div class="form-top-brand">Alethicode</div>
@@ -40,7 +38,6 @@
         </div>
 
         <div class="form-body" v-if="!successApply">
-          <!-- Email -->
           <div class="field">
             <div class="field-label">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
@@ -64,7 +61,6 @@
             </div>
           </div>
 
-          <!-- Captcha -->
           <div class="field">
             <div class="field-label">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
@@ -108,7 +104,6 @@
           </div>
         </div>
 
-        <!-- Success state -->
         <div class="form-body success-body" v-else>
           <div class="success-icon-wrap">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#34a853" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="16 8.5 10 15 7.5 12.5"/></svg>

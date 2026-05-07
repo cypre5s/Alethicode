@@ -29,7 +29,6 @@ const messages = languages.reduce((result, lang) => {
   }
   return result
 }, {})
-// load language packages
 const i18n = createI18n({
   legacy: false,
   globalInjection: true,

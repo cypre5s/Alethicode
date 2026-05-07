@@ -1,20 +1,4 @@
-"""Query endpoints.
-
-All four endpoints share the same internal call shape:
-    rag.aquery(query, param=default_query_param())
-
-They differ only in the `query` text the Java caller supplies and the
-top_k / business filters baked into the request body. We deliberately
-do NOT hand-craft separate retrieval algorithms per endpoint; the
-algorithm IS LightRAG's mix-mode retrieval. The four endpoints exist so
-the Java caller can pass intent-specific top_k and so we can later add
-endpoint-specific filtering / re-ranking without breaking the
-contract.
-
-`only_need_context=True` returns the structured context blob (entities
-+ relations + chunks) so the Java tutor / agent layer can compose the
-final prompt itself. We never let LightRAG generate the answer.
-"""
+"""提供 Java 侧调用的四类 RAG 查询端点。"""
 
 from __future__ import annotations
 
@@ -46,10 +30,7 @@ router = APIRouter(
 
 
 def _coerce_hits(raw: Any) -> QueryHits:
-    """LightRAG returns either a string (when only_need_context=True with
-    legacy versions) or a structured dict (newer versions). This adapter
-    folds both into our `QueryHits` shape so the Java caller never needs
-    to care about LightRAG version skew."""
+    """归一化 LightRAG 不同版本返回的查询结果。"""
 
     if raw is None:
         return QueryHits(raw_context=None)

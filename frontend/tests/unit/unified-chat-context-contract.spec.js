@@ -7,12 +7,11 @@ function readSource(relativePath) {
   return fs.readFileSync(path.resolve(__dirname, relativePath), 'utf8')
 }
 
-// useReferenceParse.js uses ES module syntax that this repo's old babel-jest
-// pipeline cannot consume. Evaluate the function source directly via Node so
-// the test still exercises the real implementation rather than a copy.
+// 旧版 babel-jest 无法直接消费 useReferenceParse.js 的 ES module 语法；
+// 测试通过 Node 执行真实函数源码，避免复制一份实现。
 const parseReferences = (() => {
   const source = readSource('../../src/pages/oj/views/problem/useReferenceParse.js')
-  // Trim ES module syntax so Function() can evaluate the body.
+  // 去掉 ES module 语法，让 Function() 可直接执行函数体。
   const transformed = source
     .replace(/export\s+default\s+parseReferences\s*$/m, '')
     .replace(/export\s+function\s+parseReferences/, 'function parseReferences')
@@ -62,8 +61,7 @@ describe('unified chat context (P3) contracts', () => {
 
   test('UnifiedAgentPanel surfaces @ card / @last_ / @courseware tokens via the shared composer hook', () => {
     const panelSource = readSource('../../src/pages/oj/views/problem/UnifiedAgentPanel.vue')
-    // Phase 1 sprint 把 @ 菜单从 panel 内联实现迁移到 useChatComposer + AtMentionMenu 共享组件，
-    // panel 通过 setup() 给 hook 注入卡片 / 课件 / Phase 2 占位三组 atProviders。
+    // @ 菜单已迁移到 useChatComposer + AtMentionMenu；panel 通过 setup() 注入三组 atProviders。
     expect(panelSource).toContain('lastConversationCards')
     expect(panelSource).toContain("from '@oj/components/chat/useChatComposer'")
     expect(panelSource).toContain('AtMentionMenu')

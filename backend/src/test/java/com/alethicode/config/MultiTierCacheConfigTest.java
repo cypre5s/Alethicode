@@ -44,8 +44,6 @@ class MultiTierCacheConfigTest {
 
         org.springframework.cache.Cache cache = manager.getCache("problemAccess");
         assertThat(cache).isNotNull();
-
-        // Spring caffeine cache wraps null as a sentinel; .get(...) returns the wrapped null.
         cache.put("missing-key", null);
         assertThat(cache.get("missing-key")).isNotNull();
         assertThat(cache.get("missing-key").get()).isNull();
@@ -59,8 +57,6 @@ class MultiTierCacheConfigTest {
             CaffeineCache cache = (CaffeineCache) manager.getCache(name);
             assertThat(cache).isNotNull();
             Cache<Object, Object> native_ = cache.getNativeCache();
-            // recordStats is opt-in; if not enabled, .stats() returns Stats.empty() which has totalLoadCount=0
-            // for a fresh cache. We force a get + put + miss to make hitCount/missCount tick.
             native_.getIfPresent("missing");
             native_.put("k", "v");
             native_.getIfPresent("k");
@@ -84,10 +80,6 @@ class MultiTierCacheConfigTest {
             maxObserved = Math.max(maxObserved, ttl);
             assertThat(ttl).isBetween(baseNanos, maxNanos);
         }
-
-        // After 5_000 samples we should see the jitter actually exercise both ends:
-        // a non-trivial spread (≥ 80% of the theoretical range) is required, otherwise
-        // the "avalanche defense" claim collapses back to a fixed TTL.
         long observedRange = maxObserved - minObserved;
         long minRequired = (maxNanos - baseNanos) * 8 / 10;
         assertThat(observedRange).isGreaterThanOrEqualTo(minRequired);
@@ -103,8 +95,6 @@ class MultiTierCacheConfigTest {
 
     @Test
     void zeroSecondTtlDegradesGracefullyWithoutDivisionByZero() {
-        // Defensive: tests against an edge case where someone configures TTL=0 in the future.
-        // The expiry must still return 0 (immediate expiry) rather than throw.
         MultiTierCacheConfig.JitteredExpiry expiry = new MultiTierCacheConfig.JitteredExpiry(0);
 
         assertThat(expiry.expireAfterCreate("k", "v", 0L)).isZero();
@@ -112,9 +102,6 @@ class MultiTierCacheConfigTest {
 
     @Test
     void cachesSpecBaselineMatchesAdr0006() {
-        // Sanity check that the spec table (name + maxSize + ttl) hasn't drifted.
-        // ADR-0006 §3 lists: problemAccess=2000/60, sessionOwnership=5000/30,
-        // learnerState=2000/30, courseware=500/300, aiProviderConfig=50/60.
         CaffeineSpec ignored = CaffeineSpec.parse("maximumSize=1");  // forces loading of spec parser
 
         CacheManager manager = config.caffeineCacheManager(null);

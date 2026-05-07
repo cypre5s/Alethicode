@@ -1,8 +1,7 @@
 package com.alethicode.service.submission;
 
 /**
- * Abstraction for judge task execution, decoupled from the dispatch mechanism.
- * Both thread-pool dispatch and Redis Stream dispatch delegate here.
+ * 判题任务执行抽象，使线程池与 Redis Stream 调度共享同一执行入口。
  */
 public interface SubmissionJudgeExecutor {
 

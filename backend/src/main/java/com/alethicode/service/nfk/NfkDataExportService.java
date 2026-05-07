@@ -35,8 +35,8 @@ import java.util.Map;
  *
  * <p>{@code readiness_level} 阈值（故意保守，宁可 WARM 不过度乐观）：
  * <ul>
- *   <li>HOT：students ≥ 30, problems ≥ 30, kc_coverage ≥ 0.7, interactions ≥ 800；</li>
- *   <li>WARM：students ≥ 10, problems ≥ 10, kc_coverage ≥ 0.4, interactions ≥ 200；</li>
+ *   <li>HOT：学生数 ≥ 30，题目数 ≥ 30，KC 覆盖率 ≥ 0.7，交互数 ≥ 800；</li>
+ *   <li>WARM：学生数 ≥ 10，题目数 ≥ 10，KC 覆盖率 ≥ 0.4，交互数 ≥ 200；</li>
  *   <li>其它 → COLD，不建议训 NFK。</li>
  * </ul>
  */

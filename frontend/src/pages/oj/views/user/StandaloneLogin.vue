@@ -9,7 +9,6 @@
     <div class="toasts" ref="toastContainer"></div>
 
     <div class="card-wrap">
-      <!-- Left brand panel — snake cursor interaction -->
       <div class="brand-panel" ref="brandPanel" @mousemove="onSnakeMove" @mouseleave="onSnakeLeave">
         <canvas ref="snakeCanvas" class="snake-canvas" />
         <div class="brand-deco deco-1"></div>
@@ -34,7 +33,6 @@
         </div>
       </div>
 
-      <!-- Right form panel -->
       <div class="form-panel">
         <div class="form-top">
           <div class="form-top-brand">Alethicode</div>
@@ -182,7 +180,7 @@
       this.initParticles()
       api.csrf().catch(() => {})
 
-      // ── Snake init (non-reactive, all state on _snake* props) ──
+      // 交互动画状态放在实例私有字段上，避免高频帧触发 Vue 响应式更新。
       this._snake = Array.from({ length: SNAKE_LEN }, () => ({ x: 0, y: 0 }))
       this._letterData = []
       this._mouse = { x: 0, y: 0, active: false }
@@ -216,7 +214,6 @@
     methods: {
       ...mapActions(['changeModalStatus', 'getProfile']),
 
-      /* ── Particle system ── */
       initParticles () {
         const cv = this.$refs.particleCanvas
         if (!cv) return
@@ -273,7 +270,6 @@
         draw()
       },
 
-      /* ── Toast ── */
       showToast (msg, type) {
         const tc = this.$refs.toastContainer
         if (!tc) return
@@ -290,7 +286,6 @@
         }, 2800)
       },
 
-      /* ── Field errors ── */
       clearFieldErr (key) {
         this.fieldErr[key] = false
         this.fieldErr[key + 'Msg'] = ''
@@ -304,10 +299,8 @@
         })
       },
 
-      /* ── Password toggle ── */
       togglePw () { this.pwVisible = !this.pwVisible },
 
-      /* ── Login ── */
       handleLogin () {
         const user = this.formLogin.username.trim()
         const pass = this.formLogin.password
@@ -344,7 +337,6 @@
         })
       },
 
-      /* ── TFA check ── */
       checkTfa () {
         const u = this.formLogin.username
         if (u && document.cookie.indexOf('csrftoken=') !== -1) {
@@ -354,7 +346,6 @@
         }
       },
 
-      /* ── Navigation ── */
       goRegister () {
         const redirect = typeof this.$route.query.redirect === 'string' ? this.$route.query.redirect : '/'
         this.$router.push({ name: 'register', query: { redirect } })
@@ -363,7 +354,6 @@
         this.$router.push({ name: 'apply-reset-password' })
       },
 
-      /* ── Snake cursor ── */
       onSnakeMove (e) {
         const rect = this.$refs.brandPanel.getBoundingClientRect()
         this._mouse.x = e.clientX - rect.left
@@ -384,9 +374,7 @@
       },
 
       /**
-       * Measure each .ltr glyph's center position relative to the brand panel.
-       * Applies the pretext character-measurement concept via DOM bounding rects,
-       * giving us per-character 2-D coordinates for the physics scatter.
+       * 测量每个 `.ltr` 字形中心点，为物理散开动画提供二维坐标。
        */
       _measureLetters () {
         const panel = this.$refs.brandPanel
@@ -447,18 +435,18 @@
         const s = this._snake
         const n = s.length
 
-        // Python brand palette: #FFD43B yellow / #3776AB blue-purple, alternating per segment
+        // 使用 Python 品牌黄蓝配色，让每节身体交替着色。
         const PY_YELLOW = [255, 212, 59]
         const PY_PURPLE = [55, 118, 171]
 
-        // Body — draw tail-to-head so head overlaps
+        // 从尾到头绘制，保证头部覆盖身体。
         for (let i = n - 1; i >= 0; i--) {
           const t = i / (n - 1)
           const radius = Math.max(8 - t * 5, 2.5)
           const alpha = 0.96 - t * 0.32
           const col = i % 2 === 0 ? PY_YELLOW : PY_PURPLE
 
-          // Dark outline for contrast on blue banner
+          // 深色描边保证蓝色背景上的对比度。
           ctx.strokeStyle = `rgba(0, 0, 0, ${0.22 * (1 - t * 0.5)})`
           ctx.lineWidth = 1
           ctx.beginPath()
@@ -467,7 +455,7 @@
           ctx.fill()
           ctx.stroke()
 
-          // Inner highlight shimmer
+          // 内部高光强化立体感。
           ctx.fillStyle = `rgba(255, 255, 255, ${0.18 * (1 - t)})`
           ctx.beginPath()
           ctx.arc(s[i].x - radius * 0.2, s[i].y - radius * 0.2, radius * 0.38, 0, Math.PI * 2)
@@ -479,7 +467,6 @@
         const neck = s[1]
         const faceAngle = Math.atan2(head.y - neck.y, head.x - neck.x)
 
-        // Eyes
         ctx.fillStyle = '#ffffff'
         ;[-0.52, 0.52].forEach(da => {
           ctx.beginPath()
@@ -487,7 +474,6 @@
           ctx.fill()
         })
 
-        // Pupils
         ctx.fillStyle = '#111827'
         ;[-0.52, 0.52].forEach(da => {
           ctx.beginPath()
@@ -495,7 +481,6 @@
           ctx.fill()
         })
 
-        // Tongue
         const tBase = { x: head.x + Math.cos(faceAngle) * 9, y: head.y + Math.sin(faceAngle) * 9 }
         const tTip = { x: head.x + Math.cos(faceAngle) * 21, y: head.y + Math.sin(faceAngle) * 21 }
 
@@ -534,18 +519,17 @@
             }
           }
 
-          // Spring toward origin
+          // 弹回原始字形位置。
           ld.vx += -ld.dx * SPRING_K
           ld.vy += -ld.dy * SPRING_K
 
-          // Damp
           ld.vx *= DAMPING
           ld.vy *= DAMPING
 
           ld.dx += ld.vx
           ld.dy += ld.vy
 
-          // Clamp displacement
+          // 限制偏移，避免字形被甩出品牌面板。
           const MAX_D = 55
           if (ld.dx > MAX_D) ld.dx = MAX_D
           if (ld.dx < -MAX_D) ld.dx = -MAX_D
@@ -581,7 +565,7 @@
   background: #f0f4ff;
 }
 
-/* ── Background ── */
+/* 背景 */
 .bg-mesh {
   position: fixed; inset: 0; z-index: 0;
   background:
@@ -609,7 +593,7 @@
 
 .particle-canvas { position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: .5; }
 
-/* ── Card ── */
+/* 卡片 */
 .card-wrap {
   position: relative; z-index: 1;
   display: grid; grid-template-columns: 1fr 1fr;
@@ -622,7 +606,7 @@
 }
 @keyframes card-in { to { opacity: 1; transform: translateY(0) scale(1); } }
 
-/* ── Brand panel (left) ── */
+/* 品牌面板 */
 .brand-panel {
   background: linear-gradient(145deg, #1a73e8 0%, #1250c4 55%, #0e3fa0 100%);
   padding: 48px 44px;
@@ -696,7 +680,7 @@
 
 @keyframes fadeup { to { opacity: 1; transform: translateY(0); } }
 
-/* ── Form panel (right) ── */
+/* 表单面板 */
 .form-panel { background: #fff; display: flex; flex-direction: column; }
 
 .form-top {
@@ -719,7 +703,7 @@
   opacity: 0; animation: fadein .4s .45s ease forwards;
 }
 
-/* ── Fields ── */
+/* 表单字段 */
 .field { margin-bottom: 16px; }
 .field-label {
   font-size: 11px; font-weight: 600; color: #5f6368;
@@ -767,7 +751,7 @@
 }
 .field-error.show { opacity: 1; transform: translateY(0); }
 
-/* ── Login button ── */
+/* 登录按钮 */
 .login-btn {
   width: 100%; height: 48px; border-radius: 10px;
   background: linear-gradient(135deg, #1a73e8, #1f83f8);
@@ -797,7 +781,7 @@
 @keyframes spin { to { transform: rotate(360deg); } }
 .login-btn.success { background: linear-gradient(135deg, #34a853, #2bbd4e); box-shadow: 0 4px 16px rgba(52,168,83,.35); pointer-events: none; }
 
-/* ── Aux ── */
+/* 辅助入口 */
 .form-aux { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; }
 .remember-row { display: flex; align-items: center; gap: 7px; cursor: pointer; }
 .custom-check {
@@ -818,7 +802,7 @@
 .register-link { color: #1a73e8; font-weight: 500; cursor: pointer; transition: color .15s; }
 .register-link:hover { color: #1558d6; }
 
-/* ── Toast ── */
+/* 提示条 */
 .toasts {
   position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
   z-index: 9999; display: flex; flex-direction: column; gap: 8px;
@@ -841,7 +825,7 @@
 .t-dot.warn { background: #f59e0b; }
 .t-dot.err { background: #ea4335; }
 
-/* ── Ripple ── */
+/* 点击涟漪 */
 .rip { position: relative; overflow: hidden; }
 .ripple {
   position: absolute; border-radius: 50%;

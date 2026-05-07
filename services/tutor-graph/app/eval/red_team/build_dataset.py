@@ -1,11 +1,9 @@
-"""Build adversarial_dataset.jsonl from case_definitions.py.
+"""从 case_definitions.py 构建 adversarial_dataset.jsonl。
 
-Idempotent: running this script always produces the same JSONL given the
-same source. The JSONL is committed alongside case_definitions.py so that
-non-Python tooling (e.g., human reviewers, future LLM fine-tuning) can
-consume it directly.
+幂等：同一份源文件每次都会生成相同 JSONL。JSONL 与 case_definitions.py
+一起提交，便于非 Python 工具（例如人工评审和未来 LLM 微调）直接消费。
 
-Usage:
+用法：
     python -m app.eval.red_team.build_dataset
 """
 
@@ -22,10 +20,10 @@ from app.eval.red_team.case_definitions import (
 
 
 def serialize() -> str:
-    """Render ALL_CASES as one JSON object per line, sorted keys for stability."""
+    """将 ALL_CASES 渲染为每行一个 JSON 对象，并稳定排序 key。"""
     lines: list[str] = []
     for case in ALL_CASES:
-        # Pydantic v2: model_dump returns dict; we also strip empty defaults.
+        # Pydantic v2 的 model_dump 返回 dict；这里保留空默认值保证数据集完整。
         payload = case.model_dump(mode="json", exclude_defaults=False)
         lines.append(json.dumps(payload, ensure_ascii=False, sort_keys=True))
     return "\n".join(lines) + "\n"

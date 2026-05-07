@@ -1,8 +1,5 @@
 /**
- * Vuex module for problem page state management.
- *
- * Centralizes shared state that was previously scattered across
- * the monolithic Problem.vue data() function.
+ * 集中管理题目页共享状态，避免 Problem.vue 继续承载跨面板状态。
  */
 import storage from '@/utils/storage'
 import { buildProblemCodeKey } from '@/utils/constants'
@@ -29,27 +26,23 @@ const state = {
   statusVisible: false,
   submissionExists: false,
 
-  // AI Tutor
   drawerVisible: false,
   chatHistory: [],
   loadingAI: false,
   aiStage: 'DISCOVERY',
   userInputMessage: '',
 
-  // Analysis
   activeTab: 'chat',
   analysisLoading: false,
   analysisData: null,
   antiPatterns: [],
   attributionPath: null,
 
-  // Debug
   debugging: false,
   debugInput: '',
   debugOutput: '',
   debugError: false,
 
-  // Diagnosis
   diagnosing: false,
   diagnosisResult: null,
   consecutiveErrors: 0

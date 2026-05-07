@@ -38,9 +38,11 @@ function initHttpClient() {
           if (mod && typeof mod.reportApiError === 'function') {
             mod.reportApiError(url, status, message)
           }
-        }).catch(() => { /* silent */ })
+        }).catch(err => { void err })
       }
-    } catch (_) { /* silent */ }
+    } catch (err) {
+      void err
+    }
     return Promise.reject(error)
   })
   initialized = true

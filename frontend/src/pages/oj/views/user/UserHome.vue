@@ -4,8 +4,6 @@
     <div class="toast-container" ref="toastContainer"></div>
 
     <div class="dash-wrap">
-
-      <!-- ═══ Hero ═══ -->
       <div class="hero card" ref="hero">
         <div class="h-profile">
           <div class="h-avatar ripple-host"
@@ -73,8 +71,6 @@
           </div>
         </div>
       </div>
-
-      <!-- ═══ 主区：左(热力图+KC) ║ 右(标签进度+复习+错题) ═══ -->
       <div class="main-grid">
         <div class="card" ref="mainVisualCard">
           <div class="card-head">
@@ -131,8 +127,6 @@
             @prereq-click="onPrereqClick"
           />
         </div>
-
-        <!-- 右：标签进度 + 今日待复习 + 最近错题 -->
         <div class="side-stack" ref="sideStack">
           <div class="card tag-progress-card">
             <div class="card-head">
@@ -205,8 +199,6 @@
           </div>
         </div>
       </div>
-
-      <!-- ═══ 下方：最近提交 ║ 我的易错点 ═══ -->
       <div class="bottom-grid">
         <div class="card">
           <div class="card-head">
@@ -772,7 +764,7 @@
 .card-body { padding: 12px 18px 16px; }
 
 
-/* ═══ Hero ═══ */
+/* 首屏 */
 .hero {
   display: grid; grid-template-columns: 200px 1fr auto; margin-bottom: 18px;
   @media (max-width: 860px) { grid-template-columns: 1fr; }
@@ -815,7 +807,7 @@
 .stat-l { font-size: 10px; color: #888; margin-top: 3px; }
 .diff-pill .stat-n { font-size: 16px; }
 
-/* ═══ Grids ═══ */
+/* 网格 */
 .main-grid { display: grid; grid-template-columns: 1fr 340px; gap: 18px; margin-bottom: 18px; @media(max-width:860px){grid-template-columns:1fr;} }
 .main-grid > .card { align-self: start; }
 .bottom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; @media(max-width:860px){grid-template-columns:1fr;} }
@@ -887,7 +879,7 @@
 .verdict { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 5px; flex-shrink: 0; transition: all .15s; }
 .v-ac { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
 
-/* ═══ Ripple ═══ */
+/* 点击涟漪 */
 .ripple-host { position: relative; overflow: hidden; }
 .ripple-dot {
   position: absolute; border-radius: 50%; background: rgba(0,0,0,.08);
@@ -895,7 +887,7 @@
 }
 @keyframes rpl { to { transform: scale(4); opacity: 0; } }
 
-/* ═══ Tooltip ═══ */
+/* 悬浮提示 */
 .g-tooltip {
   position: fixed; pointer-events: none; z-index: 9998;
   background: #1a1d2e; color: #fff; font-size: 11px; line-height: 1.5;
@@ -904,7 +896,7 @@
   &::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 5px solid transparent; border-top-color: #1a1d2e; }
 }
 
-/* ═══ Toast ═══ */
+/* 提示条 */
 .toast-container {
   position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
   z-index: 9999; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none;
@@ -918,7 +910,7 @@
 @keyframes tin  { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:none; } }
 @keyframes tout { from { opacity:1; } to { opacity:0; transform:translateY(-8px); } }
 
-/* ═══ Skeleton ═══ */
+/* 骨架屏 */
 @keyframes shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
 .skel-list { padding: 8px 0; }
 .skel-bar {
@@ -944,7 +936,7 @@
   background: #f0f6ff; color: #1a73e8; border: 1px solid #d2e3fc;
 }
 
-/* ═══ Viz Tabs ═══ */
+/* 可视化标签 */
 .viz-tabs {
   display: flex; gap: 2px; background: #f0f2f5; border-radius: 8px; padding: 2px;
 }

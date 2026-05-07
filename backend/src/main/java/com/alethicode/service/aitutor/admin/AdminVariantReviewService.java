@@ -252,8 +252,6 @@ public class AdminVariantReviewService {
         return ApiResponse.success("Rejected");
     }
 
-    // ---- exclusive helpers ----
-
     private String normalizeTitleWithDisplayId(Long problemId, String displayId) {
         String currentTitle = jdbcTemplate.query(
                 "select title from problem where id = ?",
@@ -268,8 +266,6 @@ public class AdminVariantReviewService {
         }
         return displayId + " " + titleWithoutPrefix;
     }
-
-    // ---- shared utility methods ----
 
     private UserAuth resolveUser(Authentication authentication) {
         if (authentication == null || !authentication.isAuthenticated() || authentication instanceof AnonymousAuthenticationToken) {

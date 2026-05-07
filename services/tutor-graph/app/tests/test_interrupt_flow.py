@@ -1,8 +1,4 @@
-"""Tests for LangGraph interrupt/resume flow in the transfer node.
-
-LangGraph 1.x's async ``interrupt()`` relies on ContextVar propagation across
-asyncio tasks, which is only reliable on Python 3.11+. Our production runtime
-targets 3.11+, but CI environments may still be on 3.10 — skip gracefully."""
+"""测试迁移练习节点的 LangGraph interrupt / resume 流程。"""
 
 from __future__ import annotations
 
@@ -22,7 +18,7 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture
 def mock_clients():
-    """Minimal mocked java + llm clients with fixture responses."""
+    """构造最小 Java 与 LLM mock 客户端。"""
     java = MagicMock()
     java.get_workflow_context = AsyncMock(return_value={
         "statement": "累加 1..n", "samples": [], "languages": ["Python3"],
@@ -71,7 +67,7 @@ def mock_clients():
 
 @pytest.mark.asyncio
 async def test_transfer_interrupts_before_materialize(mock_clients):
-    """transfer_draft should interrupt() before calling Java transfer API."""
+    """transfer_draft 调用 Java 物化接口前必须先 interrupt。"""
     java, llm = mock_clients
     checkpointer = MemorySaver()
     graph = build_tutor_graph(java_client=java, llm_client=llm, checkpointer=checkpointer)
@@ -97,13 +93,13 @@ async def test_transfer_interrupts_before_materialize(mock_clients):
     assert state is not None
     assert state.next, "graph should have pending next nodes (interrupted)"
 
-    # materialize was NOT called yet
+    # interrupt 前不得物化迁移练习。
     java.create_transfer_problem.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_transfer_resume_confirm_materializes(mock_clients):
-    """After confirm resume, materialize_transfer_problem_node should be called."""
+    """确认恢复后必须调用 materialize_transfer_problem_node。"""
     from langgraph.types import Command
 
     java, llm = mock_clients
@@ -137,7 +133,7 @@ async def test_transfer_resume_confirm_materializes(mock_clients):
 
 @pytest.mark.asyncio
 async def test_transfer_resume_reject_does_not_materialize(mock_clients):
-    """After reject resume, materialize should NOT be called."""
+    """拒绝恢复后不得物化迁移练习。"""
     from langgraph.types import Command
 
     java, llm = mock_clients

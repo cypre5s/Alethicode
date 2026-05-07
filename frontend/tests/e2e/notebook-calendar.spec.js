@@ -1,5 +1,5 @@
 /**
- * Phase 4 · E2E #2 — 错题本日历视图
+ * 错题本日历视图 E2E。
  */
 const { test, expect } = require('@playwright/test')
 const { loginViaApi, resolveRealBackendConfig } = require('./support/authRegressionHelper')
@@ -22,7 +22,7 @@ test.describe('Phase 4 · notebook-calendar', () => {
     const count = await cells.count()
     expect(count).toBeGreaterThanOrEqual(28)
 
-    // 切换到 archive
+    // 切换到归档视图。
     await page.locator('.nb-tab', { hasText: '错题档案' }).click()
     await expect(page).toHaveURL(/view=archive/)
     await expect(page.locator('.nav-sidebar-title, .nav-empty')).toBeVisible({ timeout: 10000 })

@@ -79,9 +79,6 @@ class ParsonsTokenSegmenterTest {
 
     @Test
     void segmentLevel3MarksDeepestRemainingBlockAsHidden() {
-        // 7 个候选：2 个 indent=3、2 个 indent=2、3 个 indent=1。
-        // FadingDecision(3,3,3) 会把 indent=3 的两个 + indent=2 的一个挑为 FADED，
-        // 剩下的 indent=2 行就是 HIDDEN 应该挑中的最深块。
         String code = """
                 def solve():
                     n = int(input())
@@ -118,7 +115,6 @@ class ParsonsTokenSegmenterTest {
                 """;
         List<ParsonsBlock> blocks = segmenter.segment(code, new FadingDecision(2, 2, 2));
         assertThat(blocks).hasSize(2);
-        // 首尾锚点都保留为 visible，候选 0 → 阶梯降级，但仍然要返回卡片
         assertThat(blocks).extracting(ParsonsBlock::fadingState)
                 .containsOnly(ParsonsBlock.FadingState.VISIBLE);
     }

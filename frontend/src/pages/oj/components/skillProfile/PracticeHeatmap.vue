@@ -5,12 +5,10 @@
     aria-label="Submission Heatmap"
     :style="heatmapVars"
   >
-    <!-- 加载状态 -->
     <div v-if="loading && !safeHeatmapData.total_ac" class="heatmap-loading-overlay">
       <div class="skeleton-loading" style="width: 100%; height: 100%; min-height: 180px;"></div>
     </div>
 
-    <!-- 错误状态 -->
     <div v-if="error && !loading" class="heatmap-error">
       <div class="error-content">
         <el-icon :size="32" class="error-icon"><Connection /></el-icon>
@@ -20,7 +18,6 @@
     </div>
 
     <div v-else class="heatmap-content" :class="{ 'is-stale': loading }">
-      <!-- 统计信息 -->
       <div class="heatmap-stats">
         <div class="stat-item">
           <div class="stat-value">{{ safeHeatmapData.total_ac || 0 }}</div>
@@ -44,11 +41,9 @@
         </div>
       </div>
 
-      <!-- 热力图 -->
       <div class="heatmap-container" ref="heatmapContainer">
         <div class="heatmap-scroll-wrapper">
           <div class="heatmap-main" role="grid">
-            <!-- 星期标签 -->
             <div class="weekday-labels" aria-hidden="true">
               <span
                 v-for="(label, index) in weekdayRows"
@@ -59,7 +54,6 @@
               </span>
             </div>
             
-            <!-- 天数网格 -->
             <div class="days-grid">
               <el-tooltip
                 v-for="(day, index) in processedData"
@@ -86,7 +80,6 @@
             </div>
           </div>
           
-          <!-- 月份标签 -->
           <div class="month-labels" aria-hidden="true">
             <span v-for="month in monthLabels" :key="month.index" :style="{left: month.position}">
               {{ month.name }}
@@ -94,7 +87,6 @@
           </div>
         </div>
 
-        <!-- 图例 -->
         <div class="heatmap-legend" aria-hidden="true">
           <span class="legend-label">Less</span>
           <div class="legend-colors">
@@ -173,7 +165,7 @@ export default {
       const counts = this.safeHeatmapData.ac_counts || []
 
       return dates.map((date, index) => {
-        // 修正：count>0 但 level 为 0 时重新计算
+        // 后端可能漏算低频活跃等级，前端按提交数补齐颜色层级。
         let level = levels[index] || 0
         const count = counts[index] || 0
 
@@ -188,7 +180,6 @@ export default {
           date: date,
           level: level,
           count: count,
-          // XSS 防护：moment 格式安全，count 为数字
           tooltip: `${moment(date).format('YYYY-MM-DD')}: ${count} submissions`
         }
       })
@@ -202,13 +193,13 @@ export default {
       let lastLabelIndex = -999 // 防标签重叠
 
       dates.forEach((dateStr, index) => {
-        // 仅检查每列首日（grid-auto-flow: column，7 行）
+        // 月份标签只挂在每列首日，避免同一周重复显示。
         if (index % 7 === 0) {
           const date = moment(dateStr)
           const month = date.month()
 
           if (month !== currentMonth) {
-            // 防重叠：至少 4 周（28px+间距）距离
+            // 月份标签至少间隔 4 周，避免小屏重叠。
             if (index - lastLabelIndex > 28) {
               const weekIndex = Math.floor(index / 7)
               labels.push({
@@ -426,10 +417,10 @@ export default {
         width: var(--hm-cell-size);
         height: var(--hm-cell-size);
         border-radius: 2px;
-        background-color: var(--bg-panel); /* 默认空 */
+        background-color: var(--bg-panel);
         transition: transform 0.1s;
         
-        /* 贡献度绿色：0 空 / 1 浅绿 / 4 深绿 */
+        /* 贡献度绿色：0 空，4 最深。 */
         &.level-0 { background-color: #ebedf0; }
         &.level-1 { background-color: #9be9a8; }
         &.level-2 { background-color: #40c463; }

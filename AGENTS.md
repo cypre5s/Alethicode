@@ -92,6 +92,27 @@ ip route get 47.98.184.170
 
 此路由在 WSL 重启后失效，需重新添加。
 
+### ECS 部署排障易错点
+
+- 浏览器控制台里的 `chrome-extension://.../autoconsent.js no eval` 与
+  `google-analytics ... ERR_BLOCKED_BY_CLIENT` 通常来自浏览器扩展或广告拦截，
+  不是后端故障；后端问题优先看 `/api/*` HTTP 状态和容器日志。
+- 遇到 `/api/*` 502 时，先分层验证：`curl http://127.0.0.1:8081/actuator/health`
+  确认 backend，再 `curl http://127.0.0.1/api/website` 确认 frontend Nginx
+  转发。若 backend 健康但 frontend 502，检查 `docker logs java-oj-frontend`
+  是否有 `connect() failed (111: Connection refused) while connecting to upstream`。
+- frontend Nginx 不应长期持有 backend 容器旧 IP。`deploy/frontend-nginx.conf`
+  必须通过 Docker DNS `127.0.0.11` 运行时解析 `backend`；如果临时恢复，可先
+  `docker exec java-oj-frontend nginx -s reload`，随后重建 frontend 镜像固化配置。
+- 课件 RAG 的 embedding 模型、base URL 和既有索引表必须一致。当前生产索引对应
+  智谱 `embedding-3`，应使用
+  `EMBEDDING_MODEL=embedding-3` 与
+  `EMBEDDING_BASE_URL=https://open.bigmodel.cn/api/paas/v4`；误配到 DashScope
+  `text-embedding-v4` 会导致查询空结果或 embedding 401。
+- `alethicode-rag /health` 中 `rag_initialized=false` 只表示健康接口读取的进程内
+  状态字段，不能单独判断课件索引不可用；应结合 RAG 日志、LightRAG 表计数和一次
+  `/v1/rag/query/courseware` smoke test 验证真实检索结果。
+
 ## 仓库结构
 
 ```text

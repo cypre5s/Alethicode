@@ -1,4 +1,4 @@
-"""Tests for explicit SKELETON workflow node."""
+"""测试显式 SKELETON 工作流节点。"""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Tests for metacognitive coach plan state transitions."""
+"""测试元认知辅导计划状态迁移。"""
 
 from __future__ import annotations
 

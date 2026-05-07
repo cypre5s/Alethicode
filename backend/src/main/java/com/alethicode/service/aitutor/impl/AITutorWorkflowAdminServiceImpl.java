@@ -263,7 +263,7 @@ public class AITutorWorkflowAdminServiceImpl {
                         learnerMemoryService,
                         new com.alethicode.service.aitutor.profile.LearnerMemorySemanticRetrievalService(
                                 jdbcTemplate, ragServiceClient, objectMapper),
-                        // ragServiceClient injected at line above replaces 16-dim aiModelGateway path
+                        // RAG 客户端替代旧 16 维向量检索路径。
                         new com.alethicode.service.aitutor.profile.LearnerNarrativeSummaryService(
                                 jdbcTemplate, aiModelGateway, learnerMemoryService, objectMapper),
                         crossCourseProfileService)
@@ -1526,7 +1526,7 @@ public class AITutorWorkflowAdminServiceImpl {
     }
 
     /**
-     * Fail-fast checks on LLM-generated I/O text: catch common digit-place formatting bugs before persisting.
+     * 持久化前快速拦截 LLM 生成输入输出中的常见数位格式错误。
      */
     private void validateTransferSamplesAndTestCasesSemantic(
             List<Map<String, Object>> samples,

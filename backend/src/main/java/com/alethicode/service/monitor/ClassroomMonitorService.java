@@ -36,8 +36,6 @@ public class ClassroomMonitorService {
         this.classroomMonitorFacade = classroomMonitorFacade;
     }
 
-    // ── public API ──────────────────────────────────────────
-
     public ApiResponse<Object> monitorStats(String classroomId, Authentication authentication) {
         return classroomMonitorFacade.monitorStats(classroomId, authentication);
     }
@@ -215,8 +213,6 @@ public class ClassroomMonitorService {
         return monitorCoach(classroomId, coachParams, authentication);
     }
 
-    // ── private helpers ─────────────────────────────────────
-
     private List<Long> classroomProblemObjectIds(String classroomId) {
         return jdbcTemplate.query(
                 "select problem_id from classroom_problem where classroom_id = ?",
@@ -280,8 +276,6 @@ public class ClassroomMonitorService {
     private long toMillis(Timestamp timestamp) {
         return timestamp == null ? 0 : timestamp.toInstant().toEpochMilli();
     }
-
-    // ── shared utilities ────────────────────────────────────
 
     private boolean classroomExists(String classroomId) {
         Integer count = jdbcTemplate.queryForObject("select count(*) from classroom where id = ?", Integer.class, classroomId);

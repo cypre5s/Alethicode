@@ -49,7 +49,7 @@ public class AgentObservabilityService {
      * 本地 LangGraph 投影当前主要写 TASK_COMPLETED / TASK_FAILED 终态事件；
      * trace_span 作为增强埋点存在时也会被纳入同一统计口径。
      *
-     * @param range today / 7d / 30d
+     * @param range 支持 today、7d、30d
      */
     public Map<String, Object> getAgentsOverview(String range) {
         RangeSpec spec = resolveRange(range);
@@ -350,8 +350,6 @@ public class AgentObservabilityService {
         analytics.put("memory_recall", memoryCompareRow);
         return analytics;
     }
-
-    // ----- helpers -----
 
     private Map<String, Object> decodePayload(Object rawPayload) {
         if (rawPayload == null) {

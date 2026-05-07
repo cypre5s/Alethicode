@@ -96,11 +96,10 @@ public class AiResponseNormalizer {
     }
 
     /**
-     * Parses the given text into a {@code Map}.
+     * 将文本解析为 {@code Map}。
      *
-     * <p>Returns an empty, immutable map both when {@code raw} is blank and when parsing fails.
-     * Callers that need to distinguish "model returned a literal {@code {}}" from "model output
-     * is not JSON" must use {@link #tryParseJsonMap(String)} instead.
+     * <p>空文本或解析失败都返回不可变空 Map；需要区分空对象和非 JSON 时使用
+     * {@link #tryParseJsonMap(String)}。</p>
      */
     public Map<String, Object> parseJsonMap(String raw) {
         if (raw == null || raw.isBlank()) return Map.of();
@@ -112,9 +111,7 @@ public class AiResponseNormalizer {
     }
 
     /**
-     * Strict JSON object parser. Returns {@link java.util.Optional#empty()} only when the input
-     * text is not a JSON object; a legitimately empty JSON object is returned as an empty but
-     * present {@code Map}.
+     * 严格解析 JSON 对象，只有输入不是对象时返回 {@link java.util.Optional#empty()}。
      */
     public java.util.Optional<Map<String, Object>> tryParseJsonMap(String raw) {
         if (raw == null || raw.isBlank()) return java.util.Optional.empty();
@@ -125,8 +122,6 @@ public class AiResponseNormalizer {
             return java.util.Optional.empty();
         }
     }
-
-    // --- private helpers ---
 
     private String unwrapJsonCodeFence(String content) {
         String raw = (content == null ? "" : content).trim();

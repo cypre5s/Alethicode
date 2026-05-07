@@ -1064,7 +1064,6 @@ public class KcExtractionServiceImpl implements KcExtractionService {
             try {
                 values.add(Integer.parseInt(String.valueOf(item).strip()));
             } catch (NumberFormatException ignored) {
-                // ignore
             }
         }
         return List.copyOf(values);

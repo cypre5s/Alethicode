@@ -19,22 +19,17 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * Cross-cutting REST exception mapping. Individual {@code @RestController}s can
- * still declare their own {@code @ExceptionHandler}s for business-specific
- * mapping; this advice handles framework-level validation / parsing / upload
- * errors uniformly.
+ * 统一处理框架层 REST 异常。
  *
- * <p>Spring's default dispatcher already prefers a controller-local handler to a
- * {@code @ControllerAdvice}, so we do not need a custom order. Keep this advice
- * free of business-specific mappings to avoid accidentally overriding a
- * controller's handler.
+ * <p>业务异常仍由具体控制器处理；本类只覆盖校验、解析、上传和通用限流异常，避免覆盖
+ * 控制器本地的业务映射。</p>
  */
 @ControllerAdvice
 public class GlobalRestExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalRestExceptionHandler.class);
 
-    /** {@code @Valid} on a {@code @RequestBody} DTO failed. */
+    /** 处理请求体 DTO 校验失败。 */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiResponse<Object>> handleMethodArgumentNotValid(
             MethodArgumentNotValidException e) {
@@ -42,7 +37,7 @@ public class GlobalRestExceptionHandler {
                 .map(fe -> {
                     Map<String, String> m = new LinkedHashMap<>();
                     m.put("field", fe.getField());
-                    // defaultMessage is controlled by our validation annotations, not user input
+                    // 校验消息来自服务端注解，不直接使用用户输入。
                     m.put("message", fe.getDefaultMessage() == null ? "invalid" : fe.getDefaultMessage());
                     return m;
                 })
@@ -52,7 +47,7 @@ public class GlobalRestExceptionHandler {
                 .body(ApiResponse.error("validation failed: " + fieldErrors));
     }
 
-    /** {@code @Validated} on method params (query/path) failed. */
+    /** 处理查询参数或路径参数校验失败。 */
     @ExceptionHandler(ConstraintViolationException.class)
     public ResponseEntity<ApiResponse<Object>> handleConstraintViolation(
             ConstraintViolationException e) {
@@ -61,7 +56,7 @@ public class GlobalRestExceptionHandler {
                 .body(ApiResponse.error("validation failed: " + e.getMessage()));
     }
 
-    /** Malformed / missing JSON body. */
+    /** 处理缺失或格式错误的 JSON 请求体。 */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiResponse<Object>> handleBodyNotReadable(
             HttpMessageNotReadableException e) {
@@ -70,7 +65,7 @@ public class GlobalRestExceptionHandler {
                 .body(ApiResponse.error("request body is missing or malformed"));
     }
 
-    /** Upload size cap. Keep the generic message so we don't leak container limits. */
+    /** 处理上传大小超限，并隐藏具体容器限制。 */
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<ApiResponse<Object>> handleMaxUpload(MaxUploadSizeExceededException e) {
         return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
@@ -78,9 +73,7 @@ public class GlobalRestExceptionHandler {
     }
 
     /**
-     * Last-resort {@link RequestNotPermitted} handler so controllers that forgot
-     * to define their own rate-limit exception handler still return a well-formed
-     * 429 instead of a generic 500. Per-controller handlers still take precedence.
+     * 处理未被控制器本地捕获的限流异常。
      */
     @ExceptionHandler(RequestNotPermitted.class)
     public ResponseEntity<ApiResponse<Object>> handleRateLimitExceeded(RequestNotPermitted e) {

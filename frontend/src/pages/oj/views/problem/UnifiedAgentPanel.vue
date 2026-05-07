@@ -257,6 +257,7 @@
             v-else-if="item.type === 'skeleton_code'"
             :data="item.data"
             @insert-code="$emit('insert-code', $event)"
+            @request-parsons="$emit('request-parsons')"
           />
 
           <div v-else-if="item.type === 'error_diagnosis'">
@@ -461,7 +462,7 @@
 
         <div class="quick-actions">
           <a
-            v-for="action in quickActions"
+            v-for="action in filteredQuickActions"
             :key="action.key"
             :class="{ 'is-disabled': isInputBlocked }"
             @click="isInputBlocked ? null : handleQuickAction(action)"
@@ -574,7 +575,7 @@
 </template>
 
 <script>
-import { markRaw, ref, computed, defineAsyncComponent } from 'vue'
+import { markRaw, ref, computed, defineAsyncComponent, watch } from 'vue'
 import api from '@oj/api'
 import { checkInputSequence } from '@oj/utils/inputValidator'
 const MotionOverlay = defineAsyncComponent(() => import('@oj/components/MotionOverlay.vue'))
@@ -609,7 +610,7 @@ import {
   CircleCheck, CircleClose, DArrowRight, Lightning,
   School, Delete, Close, Flag, Refresh, RefreshLeft,
   WarningFilled, VideoPause, ArrowUp, QuestionFilled, Loading,
-  ChatDotRound, User
+  ChatDotRound, User, Grid, Collection, Document
 } from '@element-plus/icons-vue'
 
 const ICON_COMPONENTS = markRaw({
@@ -621,7 +622,10 @@ const ICON_COMPONENTS = markRaw({
   Sort,
   CircleCheck,
   DArrowRight,
-  Lightning
+  Lightning,
+  Grid,
+  Collection,
+  Document
 })
 
 export default {
@@ -633,6 +637,7 @@ export default {
     'switch-input-mode',
     'show-warmup',
     'request-skeleton',
+    'request-parsons',
     'request-transfer',
     'highlight-errors',
     'insert-code',
@@ -724,23 +729,60 @@ export default {
   },
   setup (props, { emit }) {
     const moRef = ref(null)
-    const coursewarePacks = ref([])
-    const coursewarePacksLoaded = ref(false)
-    const coursewarePacksLoading = ref(false)
+    const coursewarePack = ref(null)
+    const coursewarePackLoaded = ref(false)
+    const coursewarePackLoading = ref(false)
+    const coursewareDocuments = ref([])
+    const coursewareDocumentsLoaded = ref(false)
+    const coursewareDocumentsLoading = ref(false)
 
-    function ensureCoursewarePacksLoaded () {
-      if (coursewarePacksLoaded.value || coursewarePacksLoading.value) return Promise.resolve()
-      coursewarePacksLoading.value = true
+    /**
+     * 通过 listQaPacks 反查当前 problem.language_pack_id 对应的课件包基础信息。
+     * 命中失败（无权限 / 未关联课件 / 服务故障）一律返回空对象，不阻塞 @ 菜单其他组。
+     */
+    function ensureCurrentCoursewarePackLoaded () {
+      const lpId = props.languagePackId
+      if (!lpId) {
+        coursewarePackLoaded.value = true
+        coursewarePack.value = null
+        return Promise.resolve()
+      }
+      if (coursewarePackLoaded.value || coursewarePackLoading.value) return Promise.resolve()
+      coursewarePackLoading.value = true
       return api.getLanguagePackQaPacks().then(res => {
         const packs = res && res.data && Array.isArray(res.data.data) ? res.data.data : []
-        coursewarePacks.value = packs
-        coursewarePacksLoaded.value = true
+        coursewarePack.value = packs.find(p => p && String(p.id) === String(lpId)) || null
+        coursewarePackLoaded.value = true
       }).catch(err => {
-        // 课件列表失败通常代表无权限或服务不可用；记录错误但不阻塞 @ 菜单。
-        console.warn('[UnifiedAgentPanel] load courseware packs failed:', err && err.message)
-        coursewarePacks.value = []
+        console.warn('[UnifiedAgentPanel] load courseware pack failed:', err && err.message)
+        coursewarePack.value = null
       }).finally(() => {
-        coursewarePacksLoading.value = false
+        coursewarePackLoading.value = false
+      })
+    }
+
+    /**
+     * 拉取当前 problem.language_pack_id 下所有 normalized 文档（一份 PDF = 一章）。
+     * 章号取后端按 (sort_order, id) 排序后的 1-based 序号；按章号产出 @page:章.页 candidate。
+     */
+    function ensureCoursewareDocumentsLoaded () {
+      const lpId = props.languagePackId
+      if (!lpId) {
+        coursewareDocumentsLoaded.value = true
+        coursewareDocuments.value = []
+        return Promise.resolve()
+      }
+      if (coursewareDocumentsLoaded.value || coursewareDocumentsLoading.value) return Promise.resolve()
+      coursewareDocumentsLoading.value = true
+      return api.getLanguagePackDocuments(lpId).then(res => {
+        const docs = res && res.data && Array.isArray(res.data.data) ? res.data.data : []
+        coursewareDocuments.value = docs.filter(doc => doc && doc.status === 'normalized')
+        coursewareDocumentsLoaded.value = true
+      }).catch(err => {
+        console.warn('[UnifiedAgentPanel] load courseware documents failed:', err && err.message)
+        coursewareDocuments.value = []
+      }).finally(() => {
+        coursewareDocumentsLoading.value = false
       })
     }
 
@@ -828,32 +870,73 @@ export default {
       return cards
     }
 
-    function buildCoursewareItems () {
-      const packs = Array.isArray(coursewarePacks.value) ? coursewarePacks.value : []
-      return packs
-        .filter(pack => pack && pack.id != null)
-        .map(pack => ({
-          key: 'courseware-' + pack.id,
-          token: '@courseware:' + pack.id,
-          label: '课件 · ' + (pack.name || ('LP-' + pack.id)),
-          desc: pack.description || (pack.documents_count != null ? pack.documents_count + ' 份文档' : ''),
-          hoverPreview: pack.description || (pack.documents_count != null ? pack.documents_count + ' 份文档' : '')
-        }))
+    /**
+     * 课件整包 fallback：仅当当前 problem 关联了课件包时才暴露 @courseware:<lpId>，
+     * 不再展示其他课件包，避免 @ 菜单串到当前题目无关的课件。
+     */
+    function buildCurrentCoursewareItems () {
+      const lpId = props.languagePackId
+      if (!lpId) return []
+      const pack = coursewarePack.value
+      const name = pack && pack.name ? pack.name : ('LP-' + lpId)
+      const desc = pack && pack.description
+        ? pack.description
+        : (pack && pack.documents_count != null ? pack.documents_count + ' 份文档' : '整包 RAG 检索')
+      return [{
+        key: 'courseware-' + lpId,
+        token: '@courseware:' + lpId,
+        label: '课件 · ' + name,
+        desc,
+        hoverPreview: desc
+      }]
+    }
+
+    /**
+     * 二级目录的「课件页」候选项：
+     *   章号 = normalized 文档按 (sort_order, id) 的 1-based 序号；
+     *   每章下展开 page_count 个候选，subgroup 标签让 AtMentionMenu 渲染独立小节，
+     *   token 形如 @page:1.7（章.页），后端 ReferenceResolver 按当前 lp 推断 lpId。
+     */
+    function buildCoursewarePageItems () {
+      const docs = Array.isArray(coursewareDocuments.value) ? coursewareDocuments.value : []
+      if (!docs.length) return []
+      const items = []
+      docs.forEach((doc, idx) => {
+        const chapter = idx + 1
+        const docTitle = doc && doc.original_filename ? doc.original_filename : '课件 ' + chapter
+        const subgroup = '第 ' + chapter + ' 章 · ' + docTitle
+        const total = Math.max(0, Number(doc && doc.page_count) || 0)
+        for (let p = 1; p <= total; p++) {
+          items.push({
+            key: 'page-' + chapter + '-' + p,
+            token: '@page:' + chapter + '.' + p,
+            label: '第 ' + p + ' 页',
+            desc: docTitle,
+            subgroup
+          })
+        }
+      })
+      return items
     }
 
     const atProviders = [
       { key: 'cards', group: '会话卡片', items: buildCardItems },
       {
         key: 'coursewares',
-        group: '课件',
+        group: '课件 · 当前课程包',
         lazyLoad: true,
-        items: () => ensureCoursewarePacksLoaded().then(() => buildCoursewareItems())
+        items: () => ensureCurrentCoursewarePackLoaded().then(() => buildCurrentCoursewareItems())
+      },
+      {
+        key: 'courseware-pages',
+        group: '课件页 · 当前课程包',
+        lazyLoad: true,
+        items: () => ensureCoursewareDocumentsLoaded().then(() => buildCoursewarePageItems())
       },
       {
         key: 'phase2-placeholders',
         group: '即将上线（Phase 2）',
         items: () => [
-          { key: 'placeholder-page', token: '@page:<n>', label: '@page', desc: '引用课件具体页', placeholder: true },
           { key: 'placeholder-kc', token: '@kc:<id>', label: '@kc', desc: '引用知识点节点', placeholder: true },
           { key: 'placeholder-notebook', token: '@notebook:<id>', label: '@notebook', desc: '引用学习笔记条目', placeholder: true }
         ]
@@ -945,12 +1028,26 @@ export default {
       }
     })
 
+    // 切题 / 切课件包时清空已加载的整包与文档目录，避免 @ 菜单串到上一题的课件
+    watch(() => props.languagePackId, () => {
+      coursewarePack.value = null
+      coursewarePackLoaded.value = false
+      coursewareDocuments.value = []
+      coursewareDocumentsLoaded.value = false
+      composer.handlers.refreshProvider('coursewares')
+      composer.handlers.refreshProvider('courseware-pages')
+    })
+
     return {
       moRef: moRef,
-      coursewarePacks: coursewarePacks,
-      coursewarePacksLoaded: coursewarePacksLoaded,
-      coursewarePacksLoading: coursewarePacksLoading,
-      ensureCoursewarePacksLoaded: ensureCoursewarePacksLoaded,
+      coursewarePack: coursewarePack,
+      coursewarePackLoaded: coursewarePackLoaded,
+      coursewarePackLoading: coursewarePackLoading,
+      ensureCurrentCoursewarePackLoaded: ensureCurrentCoursewarePackLoaded,
+      coursewareDocuments: coursewareDocuments,
+      coursewareDocumentsLoaded: coursewareDocumentsLoaded,
+      coursewareDocumentsLoading: coursewareDocumentsLoading,
+      ensureCoursewareDocumentsLoaded: ensureCoursewareDocumentsLoaded,
       rawText: composer.rawText,
       atMenuVisible: composer.atMenuVisible,
       atQuery: composer.atQuery,
@@ -987,6 +1084,14 @@ export default {
       if (event.includes('TRANSFER')) return '正在寻找相似题目...'
       return '正在思考中...'
     },
+    /**
+     * 输入栏 / Welcome 区共享的快捷动作。
+     * 拼装挑战已下沉到骨架代码卡片底部入口，由 {@link methods.isHiddenTutorAction} 统一隐藏。
+     */
+    filteredQuickActions () {
+      const list = Array.isArray(this.quickActions) ? this.quickActions : []
+      return list.filter(action => !this.isHiddenTutorAction(action))
+    },
     effectiveWelcomeActions () {
       const ICON_MAP = {
         knowledge_review: 'Reading',
@@ -1002,7 +1107,7 @@ export default {
           icon: ICON_MAP[item.key] || (i === 0 ? 'Reading' : 'Lightning')
         })).filter(action => !this.isHiddenTutorAction(action))
       }
-      return this.quickActions
+      return this.filteredQuickActions
     },
     isApprovalState () {
       return this.runtimeContext && this.runtimeContext.runtimeState === 'WAITING_HUMAN_APPROVAL'
@@ -1222,7 +1327,10 @@ export default {
       const normalizedEvent = String((action && action.event) || '').toUpperCase()
       const normalizedKey = String((action && action.key) || '').trim().toLowerCase()
       const normalizedLabel = String((action && action.label) || '').trim()
-      return normalizedEvent === 'CODING' || normalizedKey === 'coding' || normalizedLabel === '开始编码' || normalizedLabel === '编码'
+      if (normalizedEvent === 'CODING' || normalizedKey === 'coding' || normalizedLabel === '开始编码' || normalizedLabel === '编码') return true
+      // 拼装挑战已下沉到骨架代码卡片底部，独立快捷入口隐藏避免重复
+      if (normalizedKey === 'parsons') return true
+      return false
     },
     handleRequestVisualize () {
       this.$emit('request-visualize')
@@ -1815,6 +1923,7 @@ export default {
 }
 
 .input-area {
+  position: relative;
   padding: 12px 16px;
   border-top: 1px solid var(--border-color);
   flex-shrink: 0;

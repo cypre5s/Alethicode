@@ -175,8 +175,6 @@ public class InternalLanguagePackQualityController {
                         .body(Map.of("error", "quality report not found for task " + taskId)));
     }
 
-    // ---- view builders ----
-
     private Map<String, Object> toLintReportView(ReferenceLintReport report) {
         Map<String, Object> view = new LinkedHashMap<>();
         view.put("passable", report.passable());
@@ -246,8 +244,6 @@ public class InternalLanguagePackQualityController {
         view.put("create_time", record.createTime() == null ? null : record.createTime().toString());
         return view;
     }
-
-    // ---- request readers ----
 
     private ReferenceLintContext readLintContext(Map<String, Object> request) {
         return new ReferenceLintContext(

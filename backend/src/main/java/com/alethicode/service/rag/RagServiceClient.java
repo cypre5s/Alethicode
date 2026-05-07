@@ -11,25 +11,20 @@ import com.alethicode.service.rag.dto.RagTransferQueryRequest;
 import java.util.Map;
 
 /**
- * Synchronous facade over the alethicode-rag HTTP service.
+ * alethicode-rag HTTP 服务的同步访问门面。
  *
- * <p>This interface is the only path Java code reaches the RAG service —
- * never construct {@code WebClient} requests inline. There are exactly
- * two write paths:
+ * <p>Java 侧访问 RAG 服务必须经过本接口，不在业务代码内直接构造 {@code WebClient} 请求。
+ * 写路径只有两类：
  *
  * <ul>
- *   <li>{@link #indexNow(RagEntityType, String, String, Map)} — direct call
- *       used only by {@link RagIndexOutboxWorker}. Application code should
- *       NOT call this; it bypasses the outbox guarantee.</li>
- *   <li>{@link #deleteNow(RagEntityType, String)} — same, mirror for the
- *       DELETE action.</li>
+ *   <li>{@link #indexNow(RagEntityType, String, String, Map)} 仅由
+ *       {@link RagIndexOutboxWorker} 调用，业务代码不得绕过 outbox。</li>
+ *   <li>{@link #deleteNow(RagEntityType, String)} 同理，只对应 DELETE 动作。</li>
  * </ul>
  *
- * <p>For application code that writes business tables, use
+ * <p>业务表写入后应使用
  * {@link RagIndexQueueService#enqueueIndex} / {@link RagIndexQueueService#enqueueDelete};
- * those write the outbox row inside the same DB transaction as the
- * business INSERT/UPDATE so the index never gets ahead of the business
- * state.
+ * outbox 行与业务写入处于同一事务，避免索引状态领先于业务状态。</p>
  */
 public interface RagServiceClient {
 

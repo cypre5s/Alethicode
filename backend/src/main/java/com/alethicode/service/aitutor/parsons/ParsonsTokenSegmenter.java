@@ -16,11 +16,11 @@ import java.util.Set;
  *   <li>缩进按每 4 空格 / 1 制表符为一级；不足 4 空格的混合缩进按 round-down。</li>
  *   <li>fading_state 选择：根据 {@link FadingDecision} 在「中段非函数签名 / 非 print 收尾」的候选块里
  *       依序挑选指定数量为 {@code FADED}，{@code fadingLevel=3} 再额外挑 1 个最深嵌套的为 {@code HIDDEN}。</li>
- *   <li>candidate 不足时阶梯降级：实际 faded 数量取 min(目标, candidate)；不抛错以保证 dispatch 必出卡。</li>
+ *   <li>候选块不足时阶梯降级：实际渐隐数量取目标与候选数量的较小值；不抛错以保证发卡。</li>
  * </ul>
  *
- * <p>语言无关：默认行为按行切分，对所有题面参考代码可用。Python AST micro 切分留作后续增强，
- * 当前 fadingLevel=3 通过把更多块设 hidden 实现「认知负荷加大」的等价语义。</p>
+ * <p>语言无关：默认按行切分，对所有题面参考代码可用。Python AST 微切分留作后续增强，
+ * 当前 fadingLevel=3 通过隐藏更多块实现「认知负荷加大」的等价语义。</p>
  */
 @Service
 public class ParsonsTokenSegmenter {

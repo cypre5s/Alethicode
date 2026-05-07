@@ -1,4 +1,4 @@
-"""Error feedback / diagnosis node."""
+"""错误反馈与诊断节点。"""
 
 from __future__ import annotations
 

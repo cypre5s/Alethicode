@@ -126,7 +126,7 @@ class JudgeClient(object):
             os.chown(user_output_dir, RUN_USER_UID, RUN_GROUP_GID)
             os.chmod(user_output_dir, 0o711)
             os.chdir(user_output_dir)
-            # todo check permission
+            # 文件输出模式依赖沙箱用户权限，后续若改目录权限需同步验证。
             user_output_file = os.path.join(user_output_dir, self._io_mode["output"])
             real_user_output_file = os.path.join(user_output_dir, "stdio.txt")
             shutil.copyfile(in_file, os.path.join(user_output_dir, self._io_mode["input"]))
@@ -161,7 +161,7 @@ class JudgeClient(object):
                                  **kwargs)
         run_result["test_case"] = test_case_file_id
 
-        # if progress exited normally, then we should check output result
+        # 程序正常退出后再比较输出结果。
         run_result["output_md5"] = None
         run_result["output"] = None
         if run_result["result"] == _judger.RESULT_SUCCESS:
@@ -181,7 +181,7 @@ class JudgeClient(object):
                         run_result["error"] = _judger.ERROR_SPJ_ERROR
                 else:
                     run_result["output_md5"], is_ac = self._compare_output(test_case_file_id, user_output_file)
-                    # -1 == Wrong Answer
+                    # -1 表示 Wrong Answer。
                     if not is_ac:
                         run_result["result"] = _judger.RESULT_WRONG_ANSWER
 

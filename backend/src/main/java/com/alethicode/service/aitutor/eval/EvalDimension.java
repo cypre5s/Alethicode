@@ -1,8 +1,7 @@
 package com.alethicode.service.aitutor.eval;
 
 /**
- * Evaluation dimensions for LLM-as-Judge rubric,
- * aligned with MRBench 8-dimension pedagogy assessment.
+ * LLM-as-Judge 评估维度，对齐 MRBench 的教学评估框架。
  */
 public enum EvalDimension {
     FACTUAL_CORRECTNESS("事实正确性", "内容是否与 evidence 中的客观事实一致"),

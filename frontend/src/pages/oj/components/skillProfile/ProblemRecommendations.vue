@@ -39,8 +39,6 @@
             </el-button>
           </div>
         </div>
-
-        <!-- 策略说明 -->
         <div class="strategy-info">
           <el-icon :size="16" color="#2196f3"><InfoFilled /></el-icon>
           <span>{{ getStrategyDesc() }}</span>

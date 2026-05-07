@@ -2,7 +2,6 @@
   <transition name="pf-slide">
     <div v-if="visible" class="pf-overlay" @click.self="handleDismiss">
       <div class="pf-sheet">
-        <!-- Header -->
         <div class="pf-head">
           <div class="pf-head-icon">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
@@ -24,7 +23,6 @@
           </button>
         </div>
 
-        <!-- Code snippet -->
         <div v-if="codeSnippet" class="pf-code">
           <div class="pf-code-lineno">第 {{ lineNumber }} 行</div>
           <pre class="pf-code-text"><code>{{ codeSnippet }}</code></pre>
@@ -34,7 +32,6 @@
           >{{ highlightReason }}</span>
         </div>
 
-        <!-- Socratic question -->
         <div class="pf-question">
           <div class="pf-question-avatar">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
@@ -59,7 +56,6 @@
           </div>
         </div>
 
-        <!-- Action buttons -->
         <div class="pf-actions">
           <button class="pf-btn pf-btn-primary" @click="handleGoEdit">
             去修改
@@ -73,7 +69,6 @@
           </button>
         </div>
 
-        <!-- Force submit confirmation -->
         <transition name="pf-expand">
           <div v-if="confirmExpanded" class="pf-confirm">
             <div class="pf-confirm-text">
@@ -407,7 +402,7 @@ export default {
   }
 }
 
-// ─── Transitions ────────────────────────────────────
+// 过渡动画。
 .pf-slide-enter-active,
 .pf-slide-leave-active {
   transition: opacity 0.2s ease;

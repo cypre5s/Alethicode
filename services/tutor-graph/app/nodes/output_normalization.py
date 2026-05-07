@@ -1,4 +1,4 @@
-"""Helpers for normalizing LLM outputs to card contract shapes."""
+"""将 LLM 输出规约为卡片契约结构。"""
 
 from __future__ import annotations
 

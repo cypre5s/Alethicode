@@ -1,6 +1,5 @@
 <template>
   <div class="profile-setting">
-    <!-- Avatar Card -->
     <div class="st-card">
       <div class="card-head">
         <div class="card-title">
@@ -10,7 +9,6 @@
         <span class="card-meta">JPG · PNG · GIF · 最大 2 MB</span>
       </div>
       <div class="card-body">
-        <!-- Cropper Mode -->
         <template v-if="avatarOption.imgSrc">
           <div class="cropper-area">
             <div class="cropper-main">
@@ -62,7 +60,6 @@
           </div>
         </template>
 
-        <!-- Upload Zone -->
         <template v-else>
           <div
             class="upload-zone"
@@ -93,7 +90,6 @@
 
         <input type="file" ref="fileInput" accept=".jpg,.jpeg,.png,.bmp,.gif" style="display:none" @change="onFileSelect">
 
-        <!-- Preview strip -->
         <div class="preview-strip" v-if="previewFile.name">
           <img v-if="previewFile.src" :src="previewFile.src" class="preview-thumb" />
           <div v-else class="preview-thumb-placeholder">{{ avatarLetter }}</div>
@@ -111,7 +107,6 @@
       </div>
     </div>
 
-    <!-- Upload Confirm Modal -->
     <ElDialog v-model="uploadModalVisible" title="确认上传头像" width="400px">
       <div class="upload-modal-body">
         <p>您的头像将设置为：</p>
@@ -133,7 +128,6 @@
       </div></template>
     </ElDialog>
 
-    <!-- Profile Form Card -->
     <div class="st-card" style="animation-delay:.12s">
       <div class="card-head">
         <div class="card-title">
@@ -142,13 +136,11 @@
         </div>
       </div>
       <div class="card-body">
-        <!-- Section: Basic Info -->
         <div class="section-sep">
           <div class="section-sep-line"></div>
           基本信息
         </div>
         <div class="form-grid">
-          <!-- Real Name -->
           <div class="field">
             <label class="field-label">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -168,7 +160,6 @@
             </div>
           </div>
 
-          <!-- Mood -->
           <div class="field">
             <label class="field-label">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -188,7 +179,6 @@
             </div>
           </div>
 
-          <!-- School -->
           <div class="field">
             <label class="field-label">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -207,7 +197,6 @@
             </div>
           </div>
 
-          <!-- Major -->
           <div class="field">
             <label class="field-label">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -228,13 +217,11 @@
 
         </div>
 
-        <!-- Section: Social -->
         <div class="section-sep">
           <div class="section-sep-line"></div>
           社交主页
         </div>
         <div class="form-grid">
-          <!-- Blog -->
           <div class="field">
             <label class="field-label">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -255,7 +242,6 @@
             </div>
           </div>
 
-          <!-- GitHub -->
           <div class="field">
             <label class="field-label">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -275,7 +261,6 @@
           </div>
         </div>
 
-        <!-- Footer -->
         <div class="form-footer">
           <span class="footer-hint">
             <span class="hint-dot"></span>
@@ -390,7 +375,6 @@ export default {
     onNameInput () {},
     onMoodInput () {},
 
-    // File handling
     triggerUpload () {
       this.$refs.fileInput.click()
     },
@@ -448,7 +432,6 @@ export default {
       }
     },
 
-    // Cropper
     realTime (data) {
       this.preview = data
     },
@@ -490,7 +473,6 @@ export default {
       })
     },
 
-    // Form save
     saveAll () {
       if (this.saveState !== 'idle') return
       this.saveState = 'saving'
@@ -524,7 +506,7 @@ export default {
   gap: 18px;
 }
 
-/* Card */
+/* 卡片 */
 .st-card {
   background: var(--st-bg-card);
   border: 1px solid var(--st-border);
@@ -554,7 +536,7 @@ export default {
 .card-meta { font-size: 11px; color: var(--st-text-3); }
 .card-body { padding: 18px 22px 22px; }
 
-/* Upload Zone */
+/* 上传区域 */
 .upload-zone {
   border: 2px dashed var(--st-blue-b);
   border-radius: var(--st-radius);
@@ -599,7 +581,7 @@ export default {
   color: var(--st-blue); font-weight: 500;
 }
 
-/* Preview strip */
+/* 预览条 */
 .preview-strip {
   display: flex; align-items: center; gap: 14px;
   padding: 12px 16px; margin-top: 12px;
@@ -632,7 +614,7 @@ export default {
 }
 .preview-remove:hover { background: var(--st-red); color: #fff; border-color: var(--st-red); }
 
-/* Cropper area */
+/* 裁剪区域 */
 .cropper-area {
   display: flex; gap: 16px; flex-wrap: wrap;
 }
@@ -660,7 +642,7 @@ export default {
   width: fit-content; box-shadow: var(--st-shadow-sm);
 }
 
-/* Upload modal */
+/* 上传弹窗 */
 .upload-modal-body {
   text-align: center;
   p { font-size: 14px; margin-bottom: 12px; color: var(--st-text-2); }
@@ -670,7 +652,7 @@ export default {
   box-shadow: 0 0 0 3px #fff, 0 0 0 5px #e8f0fe;
 }
 
-/* Form sections */
+/* 表单分区 */
 .section-sep {
   font-size: 11px; font-weight: 600; color: var(--st-text-3);
   letter-spacing: .6px; text-transform: uppercase;
@@ -743,7 +725,7 @@ export default {
   pointer-events: none; color: var(--st-text-3);
 }
 
-/* Form footer */
+/* 表单底部 */
 .form-footer {
   display: flex; align-items: center; justify-content: space-between;
   padding-top: 20px; border-top: 1px solid var(--st-border-s); margin-top: 4px;
@@ -757,7 +739,7 @@ export default {
 }
 .footer-btns { display: flex; gap: 10px; }
 
-/* Buttons */
+/* 按钮 */
 .st-btn {
   display: inline-flex; align-items: center; gap: 7px;
   padding: 9px 20px; border-radius: var(--st-radius-s);

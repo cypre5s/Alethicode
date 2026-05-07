@@ -55,8 +55,6 @@ class RagIndexOutboxWorkerOfflineCatchupTest {
                 jdbcTemplate, ragServiceClient, new ObjectMapper(),
                 meterRegistry, true, 30_000
         );
-
-        // queryForList(sql, BATCH_SIZE) → return all pending rows (indexed_at == null and given_up_at == null and not in retry-backoff)
         when(jdbcTemplate.queryForList(anyString(), eq(RagIndexOutboxWorker.BATCH_SIZE)))
                 .thenAnswer(inv -> outbox.stream()
                         .filter(r -> r.get("indexed_at") == null && r.get("given_up_at") == null)
@@ -66,17 +64,11 @@ class RagIndexOutboxWorkerOfflineCatchupTest {
                         })
                         .map(LinkedHashMap::new)
                         .map(m -> {
-                            // Coerce shape returned by SQL (payload_json key, integers).
                             m.put("payload_json", m.get("payload_json"));
                             return (Map<String, Object>) m;
                         })
                         .limit(RagIndexOutboxWorker.BATCH_SIZE)
                         .toList());
-
-        // markSuccess: UPDATE ... SET indexed_at = now() WHERE id = ?
-        // markFailedRetry: UPDATE ... SET attempts = ?, last_error = ?, next_retry_at = now() + interval ?, updated_at = now() WHERE id = ?
-        // markGivenUp:    UPDATE ... SET attempts = ?, last_error = ?, given_up_at = now(), updated_at = now() WHERE id = ?
-        // We dispatch by SQL substring + arity to mutate `outbox` accordingly.
         doAnswer(inv -> {
             String sql = inv.getArgument(0);
             Object[] args = inv.getArguments();
@@ -110,12 +102,9 @@ class RagIndexOutboxWorkerOfflineCatchupTest {
             }
             return 0;
         }).when(jdbcTemplate).update(anyString(), any(Object[].class));
-
-        // Same handler for varargs (single Object) overload — a common JdbcTemplate signature.
         doAnswer(inv -> {
             String sql = inv.getArgument(0);
             Object[] args = inv.getArguments();
-            // shift sql off, leave the rest as positional params
             Object[] params = new Object[args.length - 1];
             System.arraycopy(args, 1, params, 0, args.length - 1);
             if (sql.contains("indexed_at = now()") && params.length == 1) {
@@ -179,8 +168,6 @@ class RagIndexOutboxWorkerOfflineCatchupTest {
             }
             return 0;
         }).when(jdbcTemplate).update(anyString(), any(Object.class), any(Object.class), any(Object.class), any(Object.class));
-
-        // RAG indexer behaviour: throws when ragDown=true, succeeds when false.
         when(ragServiceClient.indexNow(any(), anyString(), anyString(), any()))
                 .thenAnswer(inv -> {
                     if (ragDown.get()) {
@@ -196,16 +183,12 @@ class RagIndexOutboxWorkerOfflineCatchupTest {
 
     @Test
     void offlineThenOnline_outboxBacksOffThenCatchesUpInOnePass() {
-        // Seed 3 pending rows
         seedPending("p1", 0);
         seedPending("p2", 0);
         seedPending("p3", 0);
-
-        // ---- Phase 1: alethicode-rag offline ----
         ragDown.set(true);
         int processed = worker.drainOnce();
         assertThat(processed).isEqualTo(3);
-        // All 3 rows have attempts=1 and a future next_retry_at; none indexed; none given up.
         for (Map<String, Object> r : outbox) {
             assertThat(r.get("attempts")).isEqualTo(1);
             assertThat(r.get("indexed_at")).isNull();
@@ -215,18 +198,12 @@ class RagIndexOutboxWorkerOfflineCatchupTest {
         assertThat(meterRegistry.counter("rag_outbox_failure_total").count()).isEqualTo(3.0);
         assertThat(meterRegistry.counter("rag_outbox_giveup_total").count()).isEqualTo(0.0);
         assertThat(meterRegistry.counter("rag_outbox_success_total").count()).isEqualTo(0.0);
-
-        // ---- Phase 2: simulate "wait until backoff expires" ----
         for (Map<String, Object> r : outbox) {
             r.put("next_retry_at_epoch_ms", System.currentTimeMillis() - 1L);
         }
-
-        // alethicode-rag back online
         ragDown.set(false);
         int processedAfter = worker.drainOnce();
         assertThat(processedAfter).isEqualTo(3);
-
-        // All rows now indexed; none given up; success counter +3.
         for (Map<String, Object> r : outbox) {
             assertThat(r.get("indexed_at")).isNotNull();
             assertThat(r.get("given_up_at")).isNull();
@@ -238,8 +215,6 @@ class RagIndexOutboxWorkerOfflineCatchupTest {
     void persistentOutage_eventuallyMovesAllRowsToGivenUp() {
         seedPending("dead-1", 0);
         ragDown.set(true);
-
-        // Drain 5 times, advancing backoff each time so the row is always picked up.
         for (int i = 0; i < 5; i++) {
             for (Map<String, Object> r : outbox) {
                 r.put("next_retry_at_epoch_ms", System.currentTimeMillis() - 1L);

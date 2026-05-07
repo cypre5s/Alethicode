@@ -1,23 +1,21 @@
 /**
- * Parse Unified Chat reference tokens out of a raw chat message.
+ * 从 Unified Chat 原始消息中提取引用 token。
  *
- * Supported tokens (mirrors backend ReferenceResolver):
- *   - @card:<id>            – explicit card anchor, e.g. @card:C-V-001
- *   - @last_<kind>          – shorthand: @last_error / @last_visualize / @last_ideate /
- *                             @last_guide / @last_review / @last_post_ac / @last_transfer
- *   - @courseware:<lpId>    – language pack reference for in-place RAG
- *   - @page:<lpId>:<n>      – language pack page (lpId optional in courseware QA page)
- *   - @kc:<kcId>            – knowledge concept node reference
- *   - @notebook:<entryId>   – LearnerNotebook entry reference
+ * 支持的 token 与后端 `ReferenceResolver` 保持一致：`@card:<id>`、
+ * `@last_<kind>`、`@courseware:<lpId>`、`@page:<lpId>:<n>`、
+ * `@page:<chapter>.<pageNo>`、`@kc:<kcId>`、`@notebook:<entryId>`。
  *
- * Returns the raw token list (not the resolved cards). The backend resolves them
- * against the current session via /internal/ai-tutor/sessions/{id}/references/resolve.
+ * `@page` 同时兼容 legacy 全局页号 (`@page:7` / `@page:42:7`) 与二级目录
+ * (`@page:1.7` / `@page:42:1.7`)；二级目录的章号是当前课件包内 normalized
+ * 文档按 sort_order 排序后的 1-based 序号。
+ *
+ * 这里只返回原始 token，实际引用解析由后端按当前会话完成。
  */
 
 const CARD_REF = /@card:([A-Za-z0-9_-]+)/g
 const SHORTHAND_REF = /@last_([a-z_]+)/g
 const COURSEWARE_REF = /@courseware:(\d+)/g
-const PAGE_REF = /@page:(?:(\d+):)?(\d+)/g
+const PAGE_REF = /@page:(?:(\d+):)?(\d+)(?:\.(\d+))?/g
 const KC_REF = /@kc:([A-Za-z0-9_.\-]+)/g
 const NOTEBOOK_REF = /@notebook:([A-Za-z0-9_\-]+)/g
 
@@ -58,7 +56,9 @@ export function parseReferences(text) {
 
   PAGE_REF.lastIndex = 0
   while ((m = PAGE_REF.exec(raw)) !== null) {
-    pushToken(m[1] ? `@page:${m[1]}:${m[2]}` : `@page:${m[2]}`)
+    const lpPrefix = m[1] ? `${m[1]}:` : ''
+    const tail = m[3] ? `${m[2]}.${m[3]}` : m[2]
+    pushToken(`@page:${lpPrefix}${tail}`)
   }
 
   KC_REF.lastIndex = 0

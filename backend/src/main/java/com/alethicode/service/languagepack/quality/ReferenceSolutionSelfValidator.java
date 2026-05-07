@@ -189,8 +189,6 @@ public class ReferenceSolutionSelfValidator {
             // judge 在 self-validation 阶段使用临时 testcase 目录，expected `.out` 写空，
             // 因此程序输出非空时 resultCode 必然为 -1 (WRONG_ANSWER)。这并不代表 reference
             // 真的不可用——我们应当用题包里的 expected_output 与 strip(actual) 再比一次：
-            //   - 一致 → AC（误报修正）
-            //   - 不一致 → 真实 WA，写 diff
             // 仅当出现 TLE/MLE/RE 等执行级别的非零码时，才按对应分类记录。
             if (cr.passed() || cr.resultCode() == -1) {
                 if (expected.equals(actual)) {

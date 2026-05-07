@@ -1,4 +1,4 @@
-"""Standard server_event enum and emitter helpers."""
+"""定义标准 server_event 枚举和事件构造工具。"""
 
 from __future__ import annotations
 

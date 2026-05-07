@@ -1,4 +1,4 @@
-"""AC review node — post-AC summary and next practice direction."""
+"""生成 AC 后复盘与下一步练习建议。"""
 
 from __future__ import annotations
 

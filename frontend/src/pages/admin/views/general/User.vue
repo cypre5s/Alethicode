@@ -174,7 +174,6 @@
         </el-form-item>
       </el-form>
     </Panel>
-    <!--对话框-->
     <el-dialog :title="$t('m.User_Info')" v-model="showUserDialog" :close-on-click-modal="false">
       <el-form :model="user" label-width="120px" label-position="left">
         <el-row :gutter="20">
@@ -301,7 +300,7 @@ student02,pass456,s02@example.com,李四</code></pre>
         keyword: '',
         showUserDialog: false,
         showImportHelp: false,
-        // 当前用户model
+        // 当前用户模型。
         user: {},
         loadingTable: false,
         loadingGenerate: false,

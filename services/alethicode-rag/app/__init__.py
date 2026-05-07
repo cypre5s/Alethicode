@@ -1,1 +1,1 @@
-"""Alethicode RAG microservice package."""
+"""Alethicode RAG 微服务包。"""

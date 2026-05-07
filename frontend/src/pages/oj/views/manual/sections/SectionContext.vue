@@ -20,19 +20,26 @@
           <p>这是把"我正在看的内容"传给 AI 最准的方式，比反复粘贴文本要靠谱。</p>
         </div>
         <figure class="ctx-explainer__figure" aria-label="@ 引用菜单示意图">
-          <svg viewBox="0 0 320 200" role="img" aria-hidden="true">
-            <rect x="8" y="120" width="304" height="64" rx="10" fill="var(--bg-card)" stroke="var(--border-color)"/>
-            <text x="20" y="148" font-family="var(--font-mono)" font-size="14" fill="var(--text-disabled)">@</text>
-            <text x="36" y="148" font-family="var(--font-mono)" font-size="14" fill="var(--text-primary)">last_error</text>
-            <text x="20" y="170" font-family="var(--font-sans)" font-size="11" fill="var(--text-disabled)">输入 @ 浮出可引用菜单</text>
+          <svg viewBox="0 0 320 240" role="img" aria-hidden="true">
+            <rect x="8" y="160" width="304" height="64" rx="10" fill="var(--bg-card)" stroke="var(--border-color)"/>
+            <text x="20" y="188" font-family="var(--font-mono)" font-size="14" fill="var(--text-disabled)">@</text>
+            <text x="36" y="188" font-family="var(--font-mono)" font-size="14" fill="var(--text-primary)">page:1.7</text>
+            <text x="20" y="210" font-family="var(--font-sans)" font-size="11" fill="var(--text-disabled)">输入 @ 浮出可引用菜单</text>
 
-            <rect x="8" y="8" width="304" height="100" rx="10" fill="var(--bg-card)" stroke="var(--border-color)"/>
-            <rect x="20" y="20" width="280" height="20" rx="4" fill="var(--bg-panel)"/>
-            <text x="28" y="34" font-family="var(--font-mono)" font-size="11" fill="var(--text-secondary)">@last_error · 错误诊断</text>
-            <rect x="20" y="46" width="280" height="20" rx="4" fill="var(--bg-panel)"/>
-            <text x="28" y="60" font-family="var(--font-mono)" font-size="11" fill="var(--text-secondary)">@last_guide · 题目导读</text>
-            <rect x="20" y="72" width="280" height="20" rx="4" fill="var(--bg-panel)"/>
-            <text x="28" y="86" font-family="var(--font-mono)" font-size="11" fill="var(--text-secondary)">@card:C-V-001 · 教学可视化</text>
+            <rect x="8" y="8" width="304" height="140" rx="10" fill="var(--bg-card)" stroke="var(--border-color)"/>
+
+            <text x="20" y="26" font-family="var(--font-sans)" font-size="10" font-weight="700" fill="var(--text-disabled)" letter-spacing="0.5">会话卡片</text>
+            <rect x="20" y="32" width="280" height="20" rx="4" fill="var(--bg-panel)"/>
+            <text x="28" y="46" font-family="var(--font-mono)" font-size="11" fill="var(--text-secondary)">@last_error · 错误诊断</text>
+
+            <line x1="20" y1="62" x2="300" y2="62" stroke="var(--border-color)" stroke-dasharray="2 3"/>
+            <text x="20" y="78" font-family="var(--font-sans)" font-size="10" font-weight="700" fill="var(--text-disabled)" letter-spacing="0.5">第 1 章 · 入门.pptx</text>
+            <rect x="20" y="84" width="280" height="20" rx="4" fill="var(--bg-panel)"/>
+            <text x="28" y="98" font-family="var(--font-mono)" font-size="11" fill="var(--text-secondary)">@page:1.7 · 第 7 页</text>
+
+            <line x1="20" y1="114" x2="300" y2="114" stroke="var(--border-color)" stroke-dasharray="2 3"/>
+            <text x="20" y="128" font-family="var(--font-sans)" font-size="10" font-weight="700" fill="var(--text-disabled)" letter-spacing="0.5">第 2 章 · 进阶.pptx</text>
+            <rect x="20" y="134" width="280" height="10" rx="3" fill="var(--bg-panel)"/>
           </svg>
         </figure>
       </div>

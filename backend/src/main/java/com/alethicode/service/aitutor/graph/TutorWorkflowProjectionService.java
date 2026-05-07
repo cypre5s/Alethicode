@@ -92,10 +92,9 @@ public class TutorWorkflowProjectionService {
     }
 
     /**
-     * Parse a projection JSON column. Returns {@link Map#of()} on any failure so the
-     * caller (controller) never receives a raw String under a key that downstream
-     * code treats as {@code Map<String, Object>} — that would surface as an
-     * unrelated {@link ClassCastException} on {@code GET /api/ai/tutor-workflow-sessions/{id}}.
+     * 解析投影 JSON 列，失败时返回空 Map。
+     *
+     * 控制器下游会按 Map 读取这些字段，返回原始字符串会把脏数据暴露成不相关的类型转换异常。
      */
     private Object parseJsonField(Object value) {
         if (value == null) return Map.of();
@@ -158,14 +157,9 @@ public class TutorWorkflowProjectionService {
     }
 
     /**
-     * Count currently active tutor workflow sessions owned by a specific user,
-     * limited to those updated within {@link #ACTIVE_TTL_HOURS}. Sessions that
-     * are still {@code is_active=TRUE} in DB but stale beyond the window are
-     * treated as implicitly expired and don't count toward the quota.
+     * 统计指定用户当前有效的活跃导学会话数。
      *
-     * <p>Used by {@link com.alethicode.service.aitutor.quota.AiTutorQuotaService}
-     * to enforce the per-user concurrent-session cap (CRIT-3, 2026-05-02 渗透报告)
-     * without punishing students who forget to close old conversations.
+     * <p>只有 {@link #ACTIVE_TTL_HOURS} 窗口内更新过的会话计入配额；超窗旧会话视为隐式过期。</p>
      */
     public long countActiveSessionsForUser(long userId) {
         Long count = jdbc.queryForObject(

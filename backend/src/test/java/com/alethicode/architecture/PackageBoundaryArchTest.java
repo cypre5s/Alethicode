@@ -31,8 +31,6 @@ class PackageBoundaryArchTest {
 
     private static final JavaClasses CLASSES = new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
-            // ArchUnit 默认会包含 generated/synthetic 类；这里显式不排除 jar，
-            // 仅关注 com.alethicode.* 业务源码。
             .importPackages(ROOT);
 
     /**

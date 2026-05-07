@@ -127,8 +127,6 @@ public class ReferenceSolutionLinter {
         return new ReferenceLintReport(List.copyOf(hard), List.copyOf(soft));
     }
 
-    // ---- REF001: print(set/dict) 必须 sorted ----
-
     private void checkRef001(List<String> lines,
                              Map<String, String> assignedTypes,
                              List<LintViolation> hard) {
@@ -214,8 +212,6 @@ public class ReferenceSolutionLinter {
         }
     }
 
-    // ---- REF002: 浮点 print 未限位 ----
-
     private void checkRef002(List<String> lines,
                              Map<String, String> assignedTypes,
                              ReferenceLintContext context,
@@ -273,8 +269,6 @@ public class ReferenceSolutionLinter {
                 || norm.contains("decimal") || norm.contains("precision") || norm.contains("digits");
     }
 
-    // ---- REF003: random 未 seed ----
-
     private void checkRef003(List<String> lines, List<LintViolation> hard) {
         boolean importsRandom = false;
         boolean hasSeed = false;
@@ -300,8 +294,6 @@ public class ReferenceSolutionLinter {
             ));
         }
     }
-
-    // ---- REF004: 多次 input() 无 EOF/StopIteration 防护 ----
 
     private void checkRef004(List<String> lines, List<LintViolation> hard) {
         int inputCount = 0;
@@ -333,8 +325,6 @@ public class ReferenceSolutionLinter {
             ));
         }
     }
-
-    // ---- REF007: 中英文标点不一致 ----
 
     private void checkRef007(List<String> lines, ReferenceLintContext context, List<LintViolation> hard) {
         Set<Character> descriptionPunct = collectFullWidthPunct(context.description());
@@ -378,8 +368,6 @@ public class ReferenceSolutionLinter {
         return result;
     }
 
-    // ---- REF005: 缺 if __name__ guard（软） ----
-
     private void checkRef005(List<String> lines, List<LintViolation> soft) {
         for (String line : lines) {
             if (MAIN_GUARD.matcher(line).find()) {
@@ -393,8 +381,6 @@ public class ReferenceSolutionLinter {
         ));
     }
 
-    // ---- REF006: > 60 非空行（软） ----
-
     private void checkRef006(List<String> lines, List<LintViolation> soft) {
         long nonBlank = lines.stream().filter(l -> !l.isBlank()).count();
         if (nonBlank > SOFT_LINE_LIMIT) {
@@ -406,8 +392,6 @@ public class ReferenceSolutionLinter {
             ));
         }
     }
-
-    // ---- helpers ----
 
     private boolean isPython(String language) {
         if (language == null) {

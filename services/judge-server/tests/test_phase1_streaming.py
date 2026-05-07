@@ -49,7 +49,7 @@ def test_format_sse_event_handles_chinese_payload():
 
 
 def test_sse_stream_bridge_emits_case_then_done_in_order():
-    """SseStreamBridge 必须按"case 多次 → done 一次"的顺序产生 SSE event。"""
+    """SseStreamBridge 必须按“case 多次 → done 一次”的顺序产生 SSE event。"""
 
     def runner(on_case_done):
         results = []
@@ -82,7 +82,7 @@ def test_sse_stream_bridge_emits_error_event_when_runner_raises():
     events = list(bridge.stream())
 
     parsed = [_parse_sse_event(e) for e in events]
-    # case 事件可能在 error 之前到达；最后一个一定是 error，且总 event 数为 2
+    # case 事件可能在 error 之前到达；最后一个一定是 error，且总 event 数为 2。
     assert parsed[-1]["event"] == ERROR_EVENT
     error_payload = json.loads(parsed[-1]["data"])
     assert "boom" in error_payload["error"]

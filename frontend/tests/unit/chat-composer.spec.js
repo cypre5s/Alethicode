@@ -1,8 +1,8 @@
 /* eslint-env jest */
 /**
- * Phase 1 · 输入框基础设施契约测试
+ * 输入框基础设施契约测试。
  *
- * jest 23 + babel-jest 23 不会自动 transform 项目源文件中的 ESM `import / export` 语法
+ * jest 23 + babel-jest 23 不会自动转换项目源文件中的 ESM `import / export` 语法
  * （现有 spec 也都用 babel.transformSync 手动加载源文件，例如
  * frontend/tests/unit/workflow-server-state.spec.js）。
  *
@@ -58,8 +58,8 @@ function createMockVueRuntime() {
     }
   }
 
-  function watch() { /* noop in jest mock */ }
-  function onUnmounted() { /* noop in jest mock */ }
+  function watch() { return undefined }
+  function onUnmounted() { return undefined }
   function isRef(v) { return Boolean(v && v.__v_isRef) }
 
   return { ref, computed, watch, onUnmounted, isRef }
@@ -373,6 +373,53 @@ describe('chat composer · useChatComposer 行为', () => {
     c.handlers.submit()
     expect(onSubmit).not.toHaveBeenCalled()
   })
+
+  test('atGroups 按 item.subgroup 拆出二级目录小节', () => {
+    const c = makeComposer({
+      atProviders: [
+        {
+          key: 'courseware-pages',
+          group: '课件页',
+          items: () => [
+            { key: 'p11', token: '@page:1.1', label: '第 1 页', subgroup: '第 1 章 · 入门.pptx' },
+            { key: 'p12', token: '@page:1.2', label: '第 2 页', subgroup: '第 1 章 · 入门.pptx' },
+            { key: 'p21', token: '@page:2.1', label: '第 1 页', subgroup: '第 2 章 · 进阶.pptx' }
+          ]
+        }
+      ]
+    })
+    c.handlers.onInput('@')
+    const groups = c.atGroups.value
+    expect(groups.length).toBe(2)
+    expect(groups[0].group).toBe('第 1 章 · 入门.pptx')
+    expect(groups[0].items.map(it => it.token)).toEqual(['@page:1.1', '@page:1.2'])
+    expect(groups[1].group).toBe('第 2 章 · 进阶.pptx')
+    expect(groups[1].items.map(it => it.token)).toEqual(['@page:2.1'])
+  })
+
+  test('subgroup 与无 subgroup 的 provider 共存时各自独立分组', () => {
+    const c = makeComposer({
+      atProviders: [
+        {
+          key: 'cards',
+          group: '会话卡片',
+          items: () => [{ key: 'c1', token: '@card:C-V-001', label: '导读卡片' }]
+        },
+        {
+          key: 'courseware-pages',
+          group: '课件页',
+          items: () => [
+            { key: 'p11', token: '@page:1.1', label: '第 1 页', subgroup: '第 1 章 · 入门.pptx' },
+            { key: 'p21', token: '@page:2.1', label: '第 1 页', subgroup: '第 2 章 · 进阶.pptx' }
+          ]
+        }
+      ]
+    })
+    c.handlers.onInput('@')
+    const groups = c.atGroups.value
+    expect(groups.map(g => g.group)).toEqual(['会话卡片', '第 1 章 · 入门.pptx', '第 2 章 · 进阶.pptx'])
+    expect(groups[0].items.map(it => it.token)).toEqual(['@card:C-V-001'])
+  })
 })
 
 describe('chat composer · AtMentionMenu 静态契约', () => {
@@ -393,6 +440,13 @@ describe('chat composer · AtMentionMenu 静态契约', () => {
   test('hover preview 浮窗只在 showHoverPreview 且有 hoverPreview 时渲染', () => {
     expect(atMenuSource).toContain('v-if="showHoverPreview && hoveredItem && hoveredItem.hoverPreview"')
   })
+
+  test('菜单以浮层向上展开，不参与输入框文档流', () => {
+    expect(atMenuSource).toContain('position: absolute')
+    expect(atMenuSource).toContain('bottom: calc(100% + 8px)')
+    expect(atMenuSource).toContain('left: 0')
+    expect(atMenuSource).toContain('right: 0')
+  })
 })
 
 describe('chat composer · SlashCommandMenu 静态契约', () => {
@@ -406,6 +460,13 @@ describe('chat composer · SlashCommandMenu 静态契约', () => {
   test('placeholder 命令视觉降级', () => {
     expect(slashMenuSource).toContain("'is-placeholder': item.status === 'placeholder'")
     expect(slashMenuSource).toContain('class="slash-command-tag"')
+  })
+
+  test('命令菜单以浮层向上展开，不参与输入框文档流', () => {
+    expect(slashMenuSource).toContain('position: absolute')
+    expect(slashMenuSource).toContain('bottom: calc(100% + 8px)')
+    expect(slashMenuSource).toContain('left: 0')
+    expect(slashMenuSource).toContain('right: 0')
   })
 })
 

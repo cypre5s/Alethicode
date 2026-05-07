@@ -176,7 +176,7 @@ public class ClassroomAssignmentSmartComposer {
         if (kcIds.isEmpty()) {
             return studentIds.get(0);
         }
-        // pick the student whose mastery is closest to aggregated mean across kcIds for representativeness
+        // 选择 KC 掌握度最接近全班均值的学生，作为代表性样本。
         Long bestId = studentIds.get(0);
         double bestDistance = Double.MAX_VALUE;
         for (Long studentId : studentIds) {

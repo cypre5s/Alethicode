@@ -1,4 +1,4 @@
-"""Tests for parsons_node: dispatch routing, payload extraction, failure handling."""
+"""测试 parsons_node 的路由、载荷提取和失败处理。"""
 
 from __future__ import annotations
 

@@ -1,12 +1,10 @@
 package com.alethicode.service.rag.dto;
 
 /**
- * Entity types supported by the alethicode-rag indexing pipeline.
+ * alethicode-rag 索引管线支持的实体类型。
  *
- * <p>The slug values are wire-level identifiers consumed by the Python
- * service ({@code services/alethicode-rag/app/schemas.py::EntityType});
- * the SQL CHECK constraint on {@code rag_index_outbox.entity_type} pins
- * the same set, so any new value must land in all three places at once.
+ * <p>{@code slug} 是 Python 服务和 {@code rag_index_outbox.entity_type} 共同使用的线协议值；
+ * 新增类型时三处必须同步。</p>
  */
 public enum RagEntityType {
     COURSEWARE_PAGE("courseware-page"),

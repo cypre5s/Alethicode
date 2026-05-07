@@ -54,7 +54,6 @@ class AdaptiveFadingPolicyTest {
         Map<Long, MasteryWithSource> mixed = new LinkedHashMap<>();
         mixed.put(1L, MasteryWithSource.bkt(0.20, MasteryWithSource.FallbackReason.COVERAGE));
         mixed.put(2L, MasteryWithSource.bkt(0.40, MasteryWithSource.FallbackReason.COVERAGE));
-        // 平均 0.30 落在 level1 区间（>= 0.30）
         FadingDecision d = policy.decide(mixed);
         assertThat(d).isEqualTo(new FadingDecision(1, 1, 1));
     }

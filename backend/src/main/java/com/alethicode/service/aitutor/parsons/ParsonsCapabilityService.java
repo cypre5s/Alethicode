@@ -438,8 +438,6 @@ public class ParsonsCapabilityService {
         return payload;
     }
 
-    // ---- internal helpers ----
-
     private ProblemMeta loadProblemMeta(Long problemId) {
         try {
             return jdbcTemplate.queryForObject("""
@@ -742,8 +740,6 @@ public class ParsonsCapabilityService {
         }
         return "已多次错在第 " + (firstWrong + 1) + " 步，建议重新审题或回看示例。";
     }
-
-    // ---- DTO records ----
 
     public record DispatchRequest(
             Long userId,

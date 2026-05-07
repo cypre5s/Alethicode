@@ -11,8 +11,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Factory that builds ToolDefinition + ToolExecutor pairs for ReAct loops.
- * Each tool wraps an existing retrieval or query service.
+ * 构建 ReAct 工具定义与执行器的工厂。
  */
 public final class TutorToolRegistry {
 

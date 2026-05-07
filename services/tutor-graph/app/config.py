@@ -1,4 +1,4 @@
-"""Fail-fast configuration — every required env var must be present."""
+"""Fail-fast 读取 tutor-graph 必需配置。"""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ if CHECKPOINTER_MODE not in _CHECKPOINTER_MODES:
         f"expected one of {sorted(_CHECKPOINTER_MODES)}"
     )
 
-# Memory mode is intended for unit tests; skip the Postgres URI requirement.
+# memory 模式仅供单测使用，不要求 PostgreSQL URI。
 DATABASE_URI: str = (
     _require("TUTOR_GRAPH_DATABASE_URI")
     if CHECKPOINTER_MODE == "postgres"

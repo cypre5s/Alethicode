@@ -1,9 +1,4 @@
-"""Internal-only auth for tutor-graph.
-
-All ``/internal/graph/*`` endpoints must carry ``X-Internal-Service-Key``.
-The current key is required; the previous key is optional and exists only for
-zero-downtime rolling rotation.
-"""
+"""校验 Java 后端访问 tutor-graph 的内部服务密钥。"""
 
 from __future__ import annotations
 

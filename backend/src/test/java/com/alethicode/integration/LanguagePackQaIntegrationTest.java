@@ -119,8 +119,6 @@ class LanguagePackQaIntegrationTest extends AbstractJdbcIntegrationTest {
         Long hiddenTaskId = insertInitTask(hiddenReadyPackId);
         Long hiddenDocumentId = insertDocument(hiddenTaskId, hiddenReadyPackId, "hidden.pdf", "/tmp/lpqa-hidden-preview.pdf");
         insertPage(hiddenDocumentId, hiddenReadyPackId, 1, "隐藏", "这个页面不应该被学生看到。", "/tmp/lpqa-hidden-preview.pdf", true);
-
-        // Phase 3 切流：callForEmbedding 已从 AiModelGateway 删除，本 stub 一并清理。
         when(aiModelGateway.callForJson(anyString(), anyString())).thenReturn(Map.of(
                 "answer_markdown", "变量是用于保存数据的名称。",
                 "grounded", true,

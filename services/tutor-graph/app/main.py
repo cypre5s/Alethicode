@@ -1,4 +1,4 @@
-"""FastAPI entry point — exposes internal graph API endpoints."""
+"""暴露内部 graph API 的 FastAPI 入口。"""
 
 from __future__ import annotations
 
@@ -29,10 +29,7 @@ TERMINAL_SERVER_EVENTS = frozenset({"TASK_COMPLETED", "TASK_FAILED", "TASK_EXPIR
 INTERRUPT_TIMEOUT_SECONDS = 1800
 EVENT_CLEANUP_DELAY_SECONDS = 300
 
-# Global caps for per-run bookkeeping. Previously these were plain dicts that grew
-# forever when a run hung without emitting a terminal event, which allowed the
-# process to OOM over long uptimes. TTLCache enforces both a hard ceiling and an
-# absolute TTL well beyond any legitimate run lifetime.
+# run 运行态使用 TTLCache 控制上限，避免异常未终止 run 长期堆积导致进程 OOM。
 _MAX_TRACKED_RUNS = 10_000
 _RUN_BOOKKEEPING_TTL_SECONDS = 3 * 60 * 60  # 3h — strictly longer than interrupt timeout + buffer
 
@@ -48,15 +45,9 @@ _active_runs_lock = asyncio.Lock()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Bootstrap clients and checkpointer.
+    """初始化外部客户端和 checkpointer。
 
-    Checkpointer selection is explicit via ``TUTOR_GRAPH_CHECKPOINTER``:
-
-    - ``postgres`` (default) — Postgres AsyncSaver, fail-fast if unavailable
-    - ``memory`` — in-process MemorySaver, ONLY for tests/dev
-
-    No silent fallback. Production must run on Postgres so thread state
-    survives restart and interrupts can be resumed across replicas.
+    生产必须显式使用 PostgreSQL checkpointer，测试环境才允许选择 memory 模式。
     """
     global _graph, _java_client, _llm_client
     from app import config
@@ -99,23 +90,16 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        # Graceful shutdown sequence (SIGTERM-safe):
-        #   1. Cancel all background run pollers / interrupt timeouts so they
-        #      don't keep the event loop open beyond the shutdown window.
-        #   2. Drain active run bookkeeping; the Java gateway will retry once
-        #      the pod comes back up.
-        #   3. Close outbound HTTP clients.
-        #   4. Tear down the checkpointer connection pool.
+        # SIGTERM 安全关闭顺序：取消后台任务、清理运行态、关闭 HTTP 客户端和 checkpointer。
         logger.info("tutor_graph: beginning graceful shutdown; active_runs=%d pending_tasks=%d",
                     len(_active_runs), len(_background_tasks))
         for task in list(_background_tasks):
             task.cancel()
-        # Give cancelled tasks a brief grace period to propagate their CancelledError
-        # and clean up their own resources.
+        # 给取消中的任务短暂时间传播 CancelledError 并清理资源。
         if _background_tasks:
             try:
                 await asyncio.wait(_background_tasks, timeout=5.0)
-            except Exception as exc:  # pragma: no cover — defensive
+            except Exception as exc:  # pragma: no cover - 防御性关闭路径
                 logger.debug("shutdown wait failed: %s", exc)
         if _java_client:
             await _java_client.close()
@@ -126,16 +110,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="tutor-graph", lifespan=lifespan)
 
-# Wire OpenTelemetry AFTER the app is constructed so FastAPIInstrumentor can
-# register its middleware. Safe no-op when OTEL_EXPORTER_OTLP_ENDPOINT is unset
-# (e.g. unit tests / local dev without a collector).
+# app 构造后再注册 OpenTelemetry，确保 FastAPIInstrumentor 能正确挂载 middleware。
 from app.observability import configure_otel  # noqa: E402
 
 configure_otel(app)
 
 
 def _track_task(task: asyncio.Task) -> None:
-    """Keep a strong reference to a task so the GC cannot reclaim it prematurely."""
+    """持有后台任务强引用，避免任务过早被 GC 回收。"""
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
 
@@ -158,8 +140,7 @@ class CreateThreadResponse(BaseModel):
     session_id: str
 
 
-# Per-thread cross-run context cache (e.g. classroom_assignment session metadata).
-# Single-instance only — restart loses context, callers must re-establish if they care.
+# 单实例 thread 级上下文缓存；重启后调用方需要重新建立上下文。
 _thread_contexts: dict[str, dict] = {}
 
 
@@ -388,7 +369,7 @@ async def _execute_run(req: CreateRunRequest, run_id: str):
 
 
 async def _schedule_event_cleanup(run_id: str, delay_seconds: int = EVENT_CLEANUP_DELAY_SECONDS):
-    """Remove run events after a delay to prevent memory leaks."""
+    """延迟清理 run 事件，避免内存泄漏。"""
     try:
         await asyncio.sleep(delay_seconds)
     except asyncio.CancelledError:
@@ -399,7 +380,7 @@ async def _schedule_event_cleanup(run_id: str, delay_seconds: int = EVENT_CLEANU
 
 async def _schedule_interrupt_timeout(session_id: str, run_id: str, thread_id: str,
                                        delay_seconds: int = INTERRUPT_TIMEOUT_SECONDS):
-    """If the human never responds, expire the run and release the session slot."""
+    """人工确认超时后释放 run 和会话占用。"""
     try:
         await asyncio.sleep(delay_seconds)
     except asyncio.CancelledError:
@@ -469,7 +450,7 @@ async def get_run_events(
         request: Request = None,
         _auth: None = Depends(require_internal_service_key),
 ):
-    """SSE stream for run events. Falls back to JSON if Accept != text/event-stream."""
+    """通过 SSE 推送 run 事件，不支持 SSE 时返回 JSON。"""
     events = _run_events.get(run_id, [])
 
     accept = ""

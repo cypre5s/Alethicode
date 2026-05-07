@@ -118,15 +118,10 @@ class AiProviderValidationServiceTest {
         assertThat(resp.cases().getFirst().summary().get("length")).isEqualTo(reply.length());
     }
 
-    // Phase 3 切流：embedding case 已删除 — embedding 链路迁到 alethicode-rag 微服务，
-    // 它有自己的 /metrics + /health 端点，不再由 SpringAiModelGateway 验证。
-
     @Test
     void embeddingFlagOnRequestIsIgnoredButRunStillSucceeds() {
         when(gateway.callForJson(anyString(), anyString(), any()))
                 .thenReturn(Map.of("status", "ok", "steps", List.of("x"), "score", 1));
-
-        // includeEmbedding=true 仍然合法（向后兼容前端管理后台），但运行期被忽略。
         AiProviderValidationRunResponse resp = service.createValidationRun(
                 new AiProviderValidationRunRequest(null, true, false, true, false));
 
@@ -146,7 +141,6 @@ class AiProviderValidationServiceTest {
         when(toolLoop.execute(anyString(), any(), any(), any(), anyInt(),
                 any(ToolContext.class), any(StoppingCondition.class),
                 any(AiModelProfile.class), eq("required"))).thenReturn(result);
-        // Invocation with null toolContext also possible:
         when(toolLoop.execute(anyString(), any(), any(), any(), anyInt(),
                 (ToolContext) org.mockito.ArgumentMatchers.isNull(),
                 any(StoppingCondition.class),
@@ -189,8 +183,6 @@ class AiProviderValidationServiceTest {
 
         AiProviderValidationRunResponse resp = service.createValidationRun(
                 new AiProviderValidationRunRequest(null, true, true, false, false));
-
-        // Walk every summary and failure message; none should include the actual prompt.
         String forbidden = "Return exactly";
         for (AiProviderValidationCaseResult c : resp.cases()) {
             assertThat(c.failureMessage() == null || !c.failureMessage().contains(forbidden)).isTrue();

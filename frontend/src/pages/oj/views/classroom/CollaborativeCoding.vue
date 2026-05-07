@@ -85,7 +85,6 @@
     </div>
 
     <el-row :gutter="16" class="coding-content">
-      <!-- 左侧：代码编辑器 -->
       <el-col :span="18" class="coding-main-col">
         <el-card class="editor-card">
           <template #header><p>
@@ -187,8 +186,6 @@
           </div>
         </el-card>
       </el-col>
-
-      <!-- 右侧：在线用户和聊天 -->
       <el-col :span="6" class="coding-side-col">
         <el-card class="side-panel problem-panel">
           <template #header><p class="panel-title">
@@ -281,8 +278,6 @@
         </el-card>
       </el-col>
     </el-row>
-
-    <!-- 运行结果 Modal -->
     <el-dialog v-model="showResultModal" title="运行结果" width="800">
       <div class="run-result">
         <el-tabs model-value="output">
@@ -300,8 +295,6 @@
         </el-tabs>
       </div>
     </el-dialog>
-
-    <!-- 转移令牌 Modal -->
     <el-dialog v-model="showTransferModal" title="转移编辑令牌" width="400">
       <el-select v-model="transferTarget" placeholder="选择目标用户" style="width: 100%">
         <el-option v-for="user in onlineUsers.filter(u => Number(u.id) !== Number(relay.tokenHolderId))" 
@@ -315,8 +308,6 @@
         <el-button type="primary" @click="transferToken">确定</el-button>
       </div></template>
     </el-dialog>
-
-    <!-- 题目详情 Modal -->
     <el-dialog v-model="showProblemModal" :title="problemSummary ? problemSummary.title : '题目'" width="900">
       <div v-if="problemSummary" class="problem-modal-body">
         <div class="markdown-body" v-html="sanitize(problemSummary.fullHtml)"></div>
@@ -533,7 +524,6 @@ export default {
       this.ws = new window.WebSocket(wsUrl)
 
       this.ws.onopen = () => {
-        // WebSocket connected
         this.wsConnected = true
         this.reconnectAttempts = 0
       }
@@ -548,7 +538,6 @@ export default {
       }
 
       this.ws.onclose = () => {
-        // WebSocket closed
         this.wsConnected = false
         if (this.isUnmounting) return
         const delay = Math.min(10000, 1000 * Math.pow(2, this.reconnectAttempts))

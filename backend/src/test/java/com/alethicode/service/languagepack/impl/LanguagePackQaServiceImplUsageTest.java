@@ -54,7 +54,10 @@ class LanguagePackQaServiceImplUsageTest {
                 properties,
                 mock(VideoJobService.class),
                 mock(WorkflowRealtimeSupport.class),
-                mock(AiModelGateway.class)
+                mock(AiModelGateway.class),
+                mock(com.alethicode.service.aitutor.context.PageContextProvider.class),
+                mock(com.alethicode.service.aitutor.context.KcContextProvider.class),
+                mock(com.alethicode.service.aitutor.context.NotebookContextProvider.class)
         );
     }
 
@@ -100,7 +103,6 @@ class LanguagePackQaServiceImplUsageTest {
 
     @Test
     void getSessionUsageRejectsForeignSession() {
-        // user 9 但 session 33 不属于他：requireOwnedSessionId 抛 NOT_FOUND
         when(jdbcTemplate.queryForObject(anyString(), eq(Long.class), anyString()))
                 .thenReturn(9L);
         when(jdbcTemplate.query(

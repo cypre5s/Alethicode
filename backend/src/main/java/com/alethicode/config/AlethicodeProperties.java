@@ -358,13 +358,7 @@ public class AlethicodeProperties {
         private boolean qaAllowNotReady = false;
         private String baseUrl = "http://alethicode-rag:8200";
         private String internalToken = "dev-internal-key";
-        // Default 60s aligns with the asynchronous WebSocket-driven QA model:
-        // sendMessageAsync dispatches the RAG call to a background worker and
-        // streams TASK_STARTED/TASK_COMPLETED to the client. The client never
-        // blocks on the HTTP call directly. RAG cold queries (LightRAG mix
-        // mode + remote LLM keyword extraction + remote dashscope embedding)
-        // observed at 8-15s P95; 60s gives ~4x headroom for tail latency
-        // without colliding with the upstream LLM_API_TIMEOUT_SECONDS=300s.
+        // 60 秒匹配 WebSocket 异步问答模型，并为 RAG 冷查询尾延迟保留余量。
         private int queryTimeoutSeconds = 60;
         private int connectTimeoutSeconds = 5;
         private int indexTimeoutSeconds = 300;

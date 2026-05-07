@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-# 1) Mock _judger（C 扩展），暴露上游 server / judge_client 用到的常量。
+# 模拟 _judger（C 扩展），暴露上游 server / judge_client 用到的常量。
 if "_judger" not in sys.modules:
     _judger_mock = MagicMock()
     _judger_mock.VERSION = 0x020101
@@ -43,7 +43,7 @@ if "_judger" not in sys.modules:
     _judger_mock.ERROR_SPJ_ERROR = -11
     sys.modules["_judger"] = _judger_mock
 
-# 2) Mock pwd.getpwnam / grp.getgrnam 对三个特殊用户的查询。
+# 模拟 pwd.getpwnam / grp.getgrnam 对三个特殊用户的查询。
 import pwd  # noqa: E402
 import grp  # noqa: E402
 
@@ -73,7 +73,7 @@ def _fake_getgrnam(name):
 pwd.getpwnam = _fake_getpwnam
 grp.getgrnam = _fake_getgrnam
 
-# 3) Mock logging.FileHandler 退化成 NullHandler，规避 /log/* 写权限。
+# 模拟 logging.FileHandler 退化成 NullHandler，规避 /log/* 写权限。
 _real_file_handler = logging.FileHandler
 
 
@@ -85,7 +85,7 @@ class _NullFileHandler(logging.NullHandler):
 logging.FileHandler = _NullFileHandler
 
 
-# 4) 给 utils.py 提供一个有效的 TOKEN 与 judger_debug=1（避免清理不存在的临时目录）。
+# 给 utils.py 提供有效 TOKEN 与 judger_debug=1，避免清理不存在的临时目录。
 import os  # noqa: E402
 
 os.environ.setdefault("TOKEN", "alethicode-host-test-token")

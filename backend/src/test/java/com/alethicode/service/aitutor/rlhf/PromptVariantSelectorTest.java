@@ -51,7 +51,6 @@ class PromptVariantSelectorTest {
 
     @Test
     void selectVariantPrefersHigherMeanWhenAllExplored() {
-        // v1: 10 pulls / 8 positive (mean 0.8), v2: 10 pulls / 2 positive (mean 0.2)
         when(jdbcTemplate.queryForList(anyString(), any(Object[].class)))
                 .thenReturn(List.of(
                         makeStatsRow("prompt_variant::error_diagnosis::v1", 10, 8, 2, 1100.0),

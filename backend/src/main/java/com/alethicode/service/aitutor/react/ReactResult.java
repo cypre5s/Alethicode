@@ -4,11 +4,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Captures the outcome of a ReAct (Think-Act-Observe) loop execution.
+ * ReAct 工具循环的执行结果。
  *
- * @param result         parsed JSON from the final LLM content response
- * @param iterationsUsed number of Think-Act-Observe iterations consumed
- * @param toolCallLog    ordered log of tool invocations for traceability
+ * @param result 最终 LLM 内容响应解析出的 JSON
+ * @param iterationsUsed 消耗的 Think-Act-Observe 轮数
+ * @param toolCallLog 按顺序记录的工具调用日志
  */
 public record ReactResult(
         Map<String, Object> result,

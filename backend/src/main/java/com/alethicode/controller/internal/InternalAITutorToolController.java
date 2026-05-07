@@ -39,7 +39,7 @@ public class InternalAITutorToolController {
             throw new org.springframework.security.access.AccessDeniedException("Internal service key not configured");
         }
         if (key == null || key.isBlank()) {
-            // Some HTTP clients send the header with an empty value — do not NPE on key.getBytes.
+            // 空 Header 值必须按缺失密钥处理，避免进入常量时间匹配。
             throw new org.springframework.security.access.AccessDeniedException("Missing X-Internal-Service-Key header");
         }
         if (!internalServiceKeyMatcher.matches(key)) {
@@ -83,9 +83,7 @@ public class InternalAITutorToolController {
 
     @org.springframework.web.bind.annotation.ExceptionHandler(RuntimeException.class)
     public ResponseEntity<Map<String, String>> handleRuntimeException(RuntimeException e) {
-        // Internal API: the caller is tutor_graph, not an end user. Still redact the
-        // exception message so logs are the single source of truth and an accidental
-        // leak (e.g. key compromise) doesn't surface stack traces on the wire.
+        // 内部接口也只返回脱敏错误，详细异常统一留在服务端日志。
         org.slf4j.LoggerFactory.getLogger(InternalAITutorToolController.class)
                 .error("internal tool runtime error", e);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)

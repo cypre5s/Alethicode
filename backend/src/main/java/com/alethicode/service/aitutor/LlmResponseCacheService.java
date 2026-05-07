@@ -8,8 +8,9 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * In-memory LRU cache for non-personalized LLM responses.
- * Keyed by (problemId, event) for agent outputs that don't depend on learner state.
+ * 非个性化 LLM 响应的进程内缓存。
+ *
+ * key 按 problemId 与 event 组合，避免缓存依赖学习者状态的输出。
  */
 @Service
 public class LlmResponseCacheService {

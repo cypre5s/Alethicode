@@ -1,14 +1,5 @@
 /**
- * OJ 端 API 模块共享基础设施
- *
- * 拆分 `api.js` 时抽取出来的底层依赖，集中了：
- *   1. `httpClient` - 从全局 HTTP 工厂取到的 axios 实例
- *   2. `ajax(url, method, options)` - 统一的请求包装，负责业务层 error 处理与登录弹窗
- *   3. `tryAttachCollabSessionId` - 提交代码时补 classroom_session_id 的工具
- *   4. 图形验证码响应规范化：`normalizeCaptchaResponse` 等
- *
- * 所有业务域模块（account/problem/... ）只需要从这里引入 `ajax` 与 `tryAttachCollabSessionId`，
- * 不再各自持有底层 http 逻辑，便于统一调整鉴权 / 错误提示策略。
+ * OJ 端 API 共享鉴权、错误提示、协作会话字段和验证码规范化逻辑。
  */
 
 import store from '@/store'
@@ -21,8 +12,8 @@ const httpClient = getHttpClient()
  * 在协作（classroom collab）路由下自动补齐 `classroom_session_id`，
  * 避免每个调用方手写一遍 URL 解析。
  *
- * @param {Object} payload - 原始业务载荷
- * @returns {Object} 已补齐 `classroom_session_id`（若适用）的新对象
+ * @param {Object} payload 原始业务载荷。
+ * @returns {Object} 已补齐 `classroom_session_id`（若适用）的新对象。
  */
 export function tryAttachCollabSessionId(payload) {
   if (!payload || payload.problem_id) return payload
@@ -35,15 +26,15 @@ export function tryAttachCollabSessionId(payload) {
 /**
  * 统一的 AJAX 调用入口。
  *
- * @param {string} url - 相对后端前缀的路径
- * @param {string} method - HTTP 方法 (get/post/put/delete/patch)
+ * @param {string} url 相对后端前缀的路径。
+ * @param {string} method HTTP 方法。
  * @param {Object} [options]
- * @param {Object} [options.params] - URL 查询参数
- * @param {Object|FormData} [options.data] - 请求体（POST/PUT/PATCH）
- * @param {boolean} [options.silent=false] - 为 true 时抑制业务错误的弹窗通知
- * @param {AbortSignal} [options.signal] - 可选的 AbortController 信号
- * @param {number} [options.timeout=0] - 覆盖默认超时（毫秒，0 表示跟随 httpClient 默认）
- * @returns {Promise} axios response；业务 `error` 字段非空会被 reject
+ * @param {Object} [options.params] URL 查询参数。
+ * @param {Object|FormData} [options.data] 请求体。
+ * @param {boolean} [options.silent=false] 为 true 时抑制业务错误的弹窗通知。
+ * @param {AbortSignal} [options.signal] 可选的 AbortController 信号。
+ * @param {number} [options.timeout=0] 覆盖默认超时；0 表示跟随 httpClient 默认。
+ * @returns {Promise} axios response；业务 `error` 字段非空会被 reject。
  */
 export function ajax(url, method, options) {
   let params = {}
@@ -106,7 +97,7 @@ export function ajax(url, method, options) {
 
 /**
  * 把后端返回的验证码负载规范化为前端可直接 `<img :src="...">` 的 Data URI。
- * 后端历史上同一个接口返回过三种格式：
+ * 后端同一个接口存在三种返回格式：
  *   1. `{ captcha: 'ABCD' }`  - 只有文字，需要自己画 SVG
  *   2. `'data:image/...'`     - 完整 Data URI
  *   3. 相对 URL 或完整 URL    - 直接当 src

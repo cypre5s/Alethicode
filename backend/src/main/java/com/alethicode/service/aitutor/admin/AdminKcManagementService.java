@@ -225,8 +225,6 @@ public class AdminKcManagementService {
         return ApiResponse.success(Map.of("results", rows));
     }
 
-    // ---- exclusive helpers ----
-
     private Map<String, Object> kcRow(long id, String name, String nameEn, String chapter, String description,
                                       double pInit, double pTransit, double pSlip, double pGuess) {
         Integer problemCount = jdbcTemplate.queryForObject("select count(*) from ai_problem_kc_mapping where kc_id = ?", Integer.class, id);
@@ -262,8 +260,6 @@ public class AdminKcManagementService {
         );
         return count != null && count > 0;
     }
-
-    // ---- shared utility methods (duplicated from parent) ----
 
     private UserAuth resolveUser(Authentication authentication) {
         if (authentication == null || !authentication.isAuthenticated() || authentication instanceof AnonymousAuthenticationToken) {

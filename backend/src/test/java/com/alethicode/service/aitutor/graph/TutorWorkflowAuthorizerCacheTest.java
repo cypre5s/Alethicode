@@ -30,15 +30,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Cache-defense tests for {@link TutorWorkflowAuthorizer} on the {@code problemAccess} cache.
+ * {@link TutorWorkflowAuthorizer} 的 {@code problemAccess} 缓存防护测试。
  *
- * <p>Penetration: hammering an unknown problem id collapses to a single DB call.
- * <p>Stampede: concurrent lookups for a missing key collapse to a single DB call.
- * <p>Avalanche: many keys written back-to-back never expire on the same nanosecond.
+ * <p>覆盖缓存穿透、并发击穿和批量同时过期三类风险。</p>
  *
- * <p>Each test wires up the real {@link MultiTierCacheConfig} cache manager so the assertions
- * reflect production configuration (jittered expiry, null caching, single-flight loader),
- * not a hand-built test cache.
+ * <p>测试使用真实 {@link MultiTierCacheConfig} cache manager，确保断言反映生产配置。</p>
  */
 class TutorWorkflowAuthorizerCacheTest {
 
@@ -49,10 +45,6 @@ class TutorWorkflowAuthorizerCacheTest {
     @BeforeEach
     void setUp() {
         jdbc = mock(NamedParameterJdbcTemplate.class);
-        // Build a cache wired identically to MultiTierCacheConfig (jittered expiry +
-        // null caching) so the assertions reflect production semantics. We can't
-        // call MultiTierCacheConfig#caffeineCacheManager directly because it is
-        // package-private; mirroring the spec keeps the production wiring auditable.
         CaffeineCacheManager manager = new CaffeineCacheManager();
         manager.setAllowNullValues(true);
         manager.registerCustomCache(
@@ -162,9 +154,6 @@ class TutorWorkflowAuthorizerCacheTest {
 
     @Test
     void avalancheDefense_jitteredExpiryProducesNonZeroSpreadAcrossEntries() {
-        // Sample many independent expiries from a single JitteredExpiry instance and confirm
-        // they cover a non-trivial spread of the [base, base*1.3] window. Without per-entry
-        // jitter, the spread would be 0 and a synchronized expiry storm becomes possible.
         TestJitteredExpiry expiry = new TestJitteredExpiry(60);
 
         long min = Long.MAX_VALUE;
@@ -174,19 +163,15 @@ class TutorWorkflowAuthorizerCacheTest {
             min = Math.min(min, ttl);
             max = Math.max(max, ttl);
         }
-
-        // Probabilistically, after 1k samples the observed range should cover ≥ 70% of the
-        // theoretical jitter range. Tighter than this risks flake on extremely unlucky seeds.
         assertThat(max - min)
                 .as("avalanche-defense jitter window should not collapse")
                 .isGreaterThanOrEqualTo(expiry.maxJitterNanos() * 7 / 10);
     }
 
     /**
-     * Mirror of {@link com.alethicode.config.MultiTierCacheConfig.JitteredExpiry}. The
-     * production class is package-private; copying its parameters here lets the test live in
-     * the authorizer package and exercise jittered behaviour without relaxing the production
-     * visibility contract.
+     * {@link com.alethicode.config.MultiTierCacheConfig.JitteredExpiry} 的测试镜像。
+     *
+     * 生产类保持包可见，测试只复制参数，不放宽生产可见性契约。
      */
     private static final class TestJitteredExpiry implements Expiry<Object, Object> {
 

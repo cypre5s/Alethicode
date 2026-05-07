@@ -1,4 +1,4 @@
-"""HTTP client for Java internal tool API — all calls carry X-Internal-Service-Key."""
+"""调用 Java 内部工具 API，所有请求都携带内部服务密钥。"""
 
 from __future__ import annotations
 
@@ -134,10 +134,7 @@ class JavaToolsClient:
             timeout=self._visualize_timeout,
         )
         if r.status_code == 422:
-            # Propagate validator detail (mermaid syntax / chart schema / svg sanitize)
-            # so projection layer can record the precise reason; default httpx
-            # `raise_for_status` truncates to "Client error '422 ' for url ..." which
-            # makes ops blind to which validator failed.
+            # 保留可视化校验细节，避免 httpx 默认异常截断具体失败原因。
             detail = ""
             try:
                 body = r.json()
@@ -156,7 +153,7 @@ class JavaToolsClient:
         return r.json()
 
     async def get_last_cards(self, session_id: str, *, limit: int = 5) -> list[dict]:
-        """Unified Chat P3: list the last N cards in the session for chat evidence."""
+        """列出会话最近卡片，供对话节点作为上下文旁证。"""
         if not session_id:
             return []
         r = await self._client.get(
@@ -174,15 +171,7 @@ class JavaToolsClient:
         references: list[str],
         current_query: str | None = None,
     ) -> dict:
-        """Unified Chat P3: resolve refs to a dict with `cards` (CardSummary) and `coursewares`
-        (CoursewareSummary, requires `current_query`).
-
-        Backwards compatibility: callers that pass no `current_query` still get cards as before;
-        coursewares will be an empty list because the Java side skips RAG retrieval without a query.
-
-        Returns:
-            {"cards": [...], "coursewares": [...]} — both lists default to [] when missing.
-        """
+        """解析 `@` 引用，返回卡片与课件上下文。"""
         if not session_id or not references:
             return {"cards": [], "coursewares": []}
         payload: dict = {"references": references}

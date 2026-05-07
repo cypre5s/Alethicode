@@ -5,19 +5,12 @@ import org.springframework.lang.Nullable;
 import java.util.List;
 
 /**
- * Resolves {@code @courseware:<lpId>} references inside an AI tutor chat message into
- * {@link CoursewareSummary} bundles ready to be injected into the LLM prompt.
+ * 将 AI Tutor 对话中的 {@code @courseware:<lpId>} 引用解析为课件上下文摘要。
  *
- * <p>Owns two responsibilities the {@link ConversationContextService} could not absorb
- * cleanly because they cross the aitutor / languagepack package boundary:
+ * <p>该能力跨越 aitutor 与 languagepack 包边界，集中处理两件事：
  * <ol>
- *   <li><strong>Access control</strong> — only language packs the user can see in
- *       {@code LanguagePackQaService.listQaPacks(username)} are honoured; out-of-scope
- *       lp ids fail-fast with HTTP 403, never silently dropped.</li>
- *   <li><strong>RAG retrieval</strong> — for each authorised lp id, a top-k page-chunk
- *       retrieval is performed via the existing {@code PageRetrievalService.retrieve}
- *       (the same one that powers <code>/language-pack-qa</code>) so the chunk shape
- *       mirrors what the courseware QA page returns.</li>
+ *   <li>访问控制：只接受当前用户可见的语言包，越权引用直接 fail fast。</li>
+ *   <li>RAG 检索：对每个授权语言包检索 top-k 页面片段，结构与课件问答页保持一致。</li>
  * </ol>
  *
  * <p>Design: <code>docs/plans/2026-05-03-courseware-reference-token-design.md</code></p>
@@ -25,23 +18,16 @@ import java.util.List;
 public interface CoursewareContextProvider {
 
     /**
-     * Resolve the {@code @courseware:<lpId>} subset of the raw reference list.
+     * 解析原始引用列表中的 {@code @courseware:<lpId>} 子集。
      *
-     * <p>Tokens that are not courseware references are silently ignored (this method only
-     * cares about courseware refs); the non-courseware refs are still handled by
-     * {@link ConversationContextService#resolveReferences}.</p>
+     * <p>非课件引用由 {@link ConversationContextService#resolveReferences} 处理，此方法只关注课件引用。</p>
      *
-     * @param username        currently logged-in user; used to look up the per-user allowed
-     *                        language pack list ({@code LanguagePackQaService.listQaPacks})
-     * @param rawTokens       raw reference strings extracted from the user message; can mix
-     *                        {@code @card:*}, {@code @last_*}, {@code @courseware:*} freely
-     * @param currentQuery    the user's current question text, used as the RAG query
-     * @param recentContext   optional rolling context window passed to the retriever for
-     *                        better recall; pass {@code null} when not available
-     * @return one {@link CoursewareSummary} per authorised, distinct lp id (preserved insertion
-     *         order); empty list when no {@code @courseware:*} tokens are present
-     * @throws com.alethicode.exception.LegacyBusinessException 403 when the message references a
-     *         language pack the user is not allowed to access
+     * @param username 当前登录用户，用于查询可访问语言包
+     * @param rawTokens 从用户消息中提取的原始引用字符串
+     * @param currentQuery 当前问题文本，作为 RAG 查询
+     * @param recentContext 可选的滚动上下文窗口
+     * @return 每个已授权且去重的语言包对应一个 {@link CoursewareSummary}
+     * @throws com.alethicode.exception.LegacyBusinessException 引用越权语言包时抛出 403
      */
     List<CoursewareSummary> resolveCoursewareReferences(
             String username,

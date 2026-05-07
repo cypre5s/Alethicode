@@ -386,13 +386,15 @@ export default {
         try {
           await navigator.clipboard.writeText(text)
           return
-        } catch { /* fallthrough */ }
+        } catch (err) {
+          void err
+        }
       }
       const textarea = document.createElement('textarea')
       textarea.value = text
       document.body.appendChild(textarea)
       textarea.select()
-      try { document.execCommand('copy') } catch { /* silent */ }
+      try { document.execCommand('copy') } catch (err) { void err }
       document.body.removeChild(textarea)
     }
   }

@@ -1,15 +1,4 @@
-"""Indexing endpoints — `/v1/rag/index/{entity_type}` and DELETE.
-
-Phase 0 wires the actual LightRAG `ainsert` / `adelete_by_doc_id` calls.
-The metadata is stored as a `track_id` (entity_type + entity_id) so
-queries can later filter / surface the originating business object.
-
-LightRAG's `track_id` is the safest mapping for our purpose: business
-ids never collide with the SHA-based doc ids LightRAG generates
-internally, and `track_id` is preserved end-to-end through chunk +
-entity tables, allowing Java-side reverse lookup of `page_id` /
-`notebook_id` / `memory_key`.
-"""
+"""提供 LightRAG 索引写入与删除端点。"""
 
 from __future__ import annotations
 
@@ -53,12 +42,7 @@ async def submit_index(
     rag = await get_rag()
     track_id = _track_id(entity_type.value, payload.entity_id)
 
-    # LightRAG 1.4.15 `ainsert` only accepts `(input, ids, file_paths,
-    # track_id, split_by_character[_only])`. There is no first-class
-    # metadata channel: `track_id` is what we use to round-trip business
-    # ids end-to-end (chunks + entities + doc_status all carry it). Phase 1
-    # will add a sidecar PG table keyed by `track_id` if we need richer
-    # filtering (kc_ids, language_pack_id) on the retrieval path.
+    # LightRAG 无一等 metadata 通道，`track_id` 承载业务对象 id 并贯穿 chunk / entity / doc_status。
     file_path = (
         str(payload.metadata.get("source_path"))
         if payload.metadata.get("source_path")
@@ -90,7 +74,7 @@ async def delete_index(
     try:
         await rag.adelete_by_doc_id(track_id)
     except AttributeError:
-        # LightRAG renames this method across versions; try alternates.
+        # LightRAG 版本间方法名不稳定，此处显式兼容已知命名。
         await rag.adelete_by_track_id(track_id)  # type: ignore[attr-defined]
     return None
 
@@ -100,11 +84,7 @@ async def delete_index(
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def drain_pipeline() -> dict[str, bool]:
-    """Trigger LightRAG to drain all pending docs immediately instead of
-    waiting for the 30s outbox worker heartbeat. LightRAG's internal
-    ``aprocess_enqueue_documents`` has its own lock so repeated calls
-    are safe and serialized.
-    """
+    """立即触发 LightRAG 处理待入库文档。"""
     rag = await get_rag()
     if hasattr(rag, 'apipeline_process_enqueue_documents'):
         await rag.apipeline_process_enqueue_documents()

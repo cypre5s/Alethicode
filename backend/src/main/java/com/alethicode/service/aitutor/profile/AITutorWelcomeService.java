@@ -194,14 +194,11 @@ public class AITutorWelcomeService {
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> buildStarterActions(Map<String, Object> ctx) {
         // 起手页固定两个按钮：知识点回顾 + 思路分析。
-        // - 知识点回顾即使当前题目没有「弱 KC」也展示——主动请求复习是元认知教学
         //   的核心动作，不应被掌握度数据状态隐藏。后端 knowledge_review 节点已在
         //   weak_kcs 为空时 fallback 到当前题目的 current_kcs
         //   （services/tutor-graph/app/nodes/knowledge_review.py 第 41 行）。
-        // - 错误诊断（"我遇到了错误，帮我看看"）已下线 — 学生看到错误诊断入口
         //   容易绕过题目直接跳到答案，且做题页内的提交记录区已有"复盘错题"入口，
         //   起手页保留容易混淆。如果未来想恢复，把 ERROR_FEEDBACK action 加回即可。
-        // - 拼装挑战（Faded Parsons）按 weak_kcs 门槛追加：当且仅当当前题目存在
         //   mastery < WEAK_THRESHOLD 的 KC 时才出现，避免学霸进题就被脚手架按钮干扰；
         //   weak_kcs 弱时学生最需要"理解→产出"之间的拼装台阶。
         List<Map<String, Object>> actions = new ArrayList<>();

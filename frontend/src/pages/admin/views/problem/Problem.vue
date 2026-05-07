@@ -199,8 +199,6 @@
         <el-form-item class="full-width-editor-item" label="参考解代码">
           <code-mirror v-model="problem.reference_solution_code" :mode="referenceSolutionMode"></code-mirror>
         </el-form-item>
-
-        <!-- 测试用例内联编辑 -->
         <el-form-item class="test-cases-item" label="测试数据" :error="error.testCase">
           <div v-if="testCasesLoading" class="tc-loading">
             <i class="el-icon-loading"></i> 正在加载测试数据...

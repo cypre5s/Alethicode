@@ -198,8 +198,6 @@ public class WorkflowCheckpointService {
         ));
     }
 
-    // ---- exclusive helpers ----
-
     private boolean sessionOwnedByUser(Long userId, String sessionId) {
         Integer count = jdbcTemplate.queryForObject(
                 "select count(*) from ai_workflow_session where session_id = ? and user_id = ?",
@@ -272,8 +270,6 @@ public class WorkflowCheckpointService {
                 new LearnerState(false, Map.of(), List.of(), Map.of(), Map.of(), "low", "low", Map.of(), List.of(), "", true)
         ).availableActions();
     }
-
-    // ---- shared utility methods ----
 
     private UserAuth resolveUser(Authentication authentication) {
         if (authentication == null || !authentication.isAuthenticated() || authentication instanceof AnonymousAuthenticationToken) {

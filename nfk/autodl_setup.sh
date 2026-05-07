@@ -61,7 +61,7 @@ pip install --quiet \
 
 log "依赖安装完成"
 
-# ---- 3. 验证 GPU ----
+# 验证 GPU。
 log "=== GPU 验证 ==="
 python3 -c "
 import torch
