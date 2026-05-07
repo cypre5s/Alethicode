@@ -730,7 +730,6 @@
           const firstPackId = routePackId && this.packs.some(pack => String(pack.id) === String(routePackId))
             ? routePackId
             : String(this.packs[0].id)
-          document.title = '[DBG] v=' + visiblePacks.length + ' q=' + qaReadyPacks.length + ' merged=' + this.packs.length + ' qaReady=' + this.packs.filter(p => p.qa_ready).length + ' firstPack=' + firstPackId
           await this.switchPack(firstPackId)
         } catch (error) {
           const msg = error && error.response ? `${error.response.status} ${JSON.stringify(error.response.data).slice(0, 120)}` : String(error).slice(0, 120)
@@ -756,13 +755,15 @@
         this.messages = []
         this.citationPreview = null
         await this.$router.replace({ query: { ctx: encodeQaCtx(packId) } }).catch(() => {})
+        if (this.selectedLanguagePackId !== String(packId)) {
+          this.selectedLanguagePackId = String(packId)
+        }
         if (!selectedPack || !selectedPack.qa_ready) {
-          window.alert('[QA debug] switchPack early return: selectedPack=' + JSON.stringify(selectedPack ? { id: selectedPack.id, qa_ready: selectedPack.qa_ready, name: selectedPack.name } : null) + ' packId=' + packId + ' packs.length=' + this.packs.length)
           this.qaAvailabilityState = 'unready'
           return
         }
         this.qaAvailabilityState = 'ready'
-        await this.loadSessions()
+        await this.loadSessions(String(packId))
       },
       resolvePackById (packId) {
         if (!packId) {
@@ -771,11 +772,15 @@
         const packs = Array.isArray(this.$data.packs) ? this.$data.packs : []
         return packs.find(pack => String(pack.id) === String(packId)) || null
       },
-      async loadSessions () {
-        if (!this.selectedLanguagePackId) return
+      async loadSessions (explicitPackId) {
+        const effectivePackId = explicitPackId || this.selectedLanguagePackId
+        if (!effectivePackId) return
+        if (this.selectedLanguagePackId !== effectivePackId) {
+          this.selectedLanguagePackId = effectivePackId
+        }
         this.loadings.sessions = true
         try {
-          const res = await api.getLanguagePackQaSessions({ language_pack_id: this.selectedLanguagePackId })
+          const res = await api.getLanguagePackQaSessions({ language_pack_id: effectivePackId })
           this.sessions = res.data.data || []
           const sessionCtx = decodeQaCtx(this.$route.query.ctx)
           const routeSessionId = sessionCtx.s
@@ -792,11 +797,12 @@
           this.loadings.sessions = false
         }
       },
-      async startNewSession () {
-        if (!this.selectedLanguagePackId) return
+      async startNewSession (explicitPackId) {
+        const effectivePackId = explicitPackId || this.selectedLanguagePackId
+        if (!effectivePackId) return
         try {
           const res = await api.createLanguagePackQaSession({
-            language_pack_id: Number(this.selectedLanguagePackId)
+            language_pack_id: Number(effectivePackId)
           })
           const session = res.data.data
           this.sessions = [session, ...this.sessions]
