@@ -756,6 +756,7 @@
         this.citationPreview = null
         await this.$router.replace({ query: { ctx: encodeQaCtx(packId) } }).catch(() => {})
         if (!selectedPack || !selectedPack.qa_ready) {
+          window.alert('[QA debug] switchPack early return: selectedPack=' + JSON.stringify(selectedPack ? { id: selectedPack.id, qa_ready: selectedPack.qa_ready, name: selectedPack.name } : null) + ' packId=' + packId + ' packs.length=' + this.packs.length)
           this.qaAvailabilityState = 'unready'
           return
         }
