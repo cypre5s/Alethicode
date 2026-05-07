@@ -730,6 +730,7 @@
           const firstPackId = routePackId && this.packs.some(pack => String(pack.id) === String(routePackId))
             ? routePackId
             : String(this.packs[0].id)
+          document.title = '[DBG] v=' + visiblePacks.length + ' q=' + qaReadyPacks.length + ' merged=' + this.packs.length + ' qaReady=' + this.packs.filter(p => p.qa_ready).length + ' firstPack=' + firstPackId
           await this.switchPack(firstPackId)
         } catch (error) {
           const msg = error && error.response ? `${error.response.status} ${JSON.stringify(error.response.data).slice(0, 120)}` : String(error).slice(0, 120)
