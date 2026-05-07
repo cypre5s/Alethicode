@@ -268,6 +268,19 @@ Alethicode/
 - 涉及代码修改时，必须在 `CHANGELOG.md` 中用中文记录变更，格式遵循常见
   changelog 写法，说明变更类型和影响范围。
 
+## ECS 部署排障补充
+
+- 浏览器磁盘缓存可能缓存 API 的 GET 响应。Nginx 的 `/api/` location 必须
+  返回 `Cache-Control: no-store, no-cache, must-revalidate`，否则旧响应（包括
+  空数据或错误）会被浏览器长期复用，导致前端功能完全失效但无任何报错。
+  排查时若 Network 标签页中找不到 API 请求，先勾选「禁用缓存」确认请求是否
+  被磁盘缓存拦截。
+- 前端热部署（`docker cp` + `nginx -s reload`）后，旧 chunk 文件应先删除
+  （`rm -rf /usr/share/nginx/html/static`）再复制新文件，避免 Service Worker
+  precache 同时存在新旧 chunk 导致不可预测行为。
+- `docker restart` 后 Redis 会清空所有 HTTP session。已登录用户的旧 cookie
+  会触发 `Session was invalidated` 500 错误。重启 Redis 后所有用户必须重新登录。
+
 ## 文档维护
 
 - Markdown 文档使用一个 H1 作为标题，后续使用 H2/H3 建立清晰层级。
