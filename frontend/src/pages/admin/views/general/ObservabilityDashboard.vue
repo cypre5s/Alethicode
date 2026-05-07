@@ -412,7 +412,7 @@ export default {
 </script>
 
 <style scoped lang="less">
-@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600&family=Fira+Sans:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.cn/css2?family=Fira+Code:wght@500;600&family=Fira+Sans:wght@400;500;600;700&display=swap');
 
 .view {
   --dashboard-blue-700: #2563eb;
