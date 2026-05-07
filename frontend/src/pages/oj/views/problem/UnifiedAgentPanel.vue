@@ -971,15 +971,28 @@ export default {
       URL.revokeObjectURL(url)
     }
 
+    /**
+     * 检查基于 quickActions（后端 available_actions 投影）的动作是否当前可用。
+     * /ideate 和 /guide 是引导动作，始终可用；其余 Agent 动作需后端确认。
+     */
+    function requireActionAvailable (actionKey, label) {
+      const ALWAYS_ALLOWED = new Set(['ideate', 'problem_guide'])
+      if (ALWAYS_ALLOWED.has(actionKey)) return true
+      const actions = Array.isArray(props.quickActions) ? props.quickActions : []
+      if (actions.some(a => a.key === actionKey)) return true
+      notify.warning('当前状态下「' + label + '」不可用')
+      return false
+    }
+
     const slashCommands = [
       { key: 'cmd-ideate', group: 'Agent 动作', command: '/ideate', label: '思路分析', hint: '描述你的思路', run: () => emit('switch-input-mode', 'ideate') },
       { key: 'cmd-guide', group: 'Agent 动作', command: '/guide', label: '题目导读', run: () => emit('trigger-agent', { key: 'problem_guide', event: 'PROBLEM_GUIDE' }) },
-      { key: 'cmd-error', group: 'Agent 动作', command: '/error', label: '错误诊断', run: () => emit('trigger-agent', { key: 'error_chain', event: 'ERROR_DIAGNOSIS' }) },
-      { key: 'cmd-skeleton', group: 'Agent 动作', command: '/skeleton', label: '骨架代码', run: () => emit('request-skeleton') },
-      { key: 'cmd-transfer', group: 'Agent 动作', command: '/transfer', label: '迁移题', run: () => emit('trigger-agent', { key: 'transfer', event: 'TRANSFER' }) },
-      { key: 'cmd-review', group: 'Agent 动作', command: '/review', label: '知识点回顾', run: () => emit('trigger-agent', { key: 'knowledge_review', event: 'KNOWLEDGE_REVIEW' }) },
-      { key: 'cmd-postac', group: 'Agent 动作', command: '/post-ac', label: '过题总结', run: () => emit('trigger-agent', { key: 'post_ac', event: 'POST_AC' }) },
-      { key: 'cmd-visualize', group: 'Agent 动作', command: '/visualize', label: '教学可视化', run: () => emit('request-visualize') },
+      { key: 'cmd-error', group: 'Agent 动作', command: '/error', label: '错误诊断', run: () => { if (requireActionAvailable('error_chain', '错误诊断')) emit('trigger-agent', { key: 'error_chain', event: 'ERROR_DIAGNOSIS' }) } },
+      { key: 'cmd-skeleton', group: 'Agent 动作', command: '/skeleton', label: '骨架代码', run: () => { if (requireActionAvailable('skeleton', '骨架代码')) emit('request-skeleton') } },
+      { key: 'cmd-transfer', group: 'Agent 动作', command: '/transfer', label: '迁移题', run: () => { if (requireActionAvailable('transfer', '迁移题')) emit('trigger-agent', { key: 'transfer', event: 'TRANSFER' }) } },
+      { key: 'cmd-review', group: 'Agent 动作', command: '/review', label: '知识点回顾', run: () => { if (requireActionAvailable('knowledge_review', '知识点回顾')) emit('trigger-agent', { key: 'knowledge_review', event: 'KNOWLEDGE_REVIEW' }) } },
+      { key: 'cmd-postac', group: 'Agent 动作', command: '/post-ac', label: '过题总结', run: () => { if (requireActionAvailable('ac_review', '过题总结')) emit('trigger-agent', { key: 'post_ac', event: 'POST_AC' }) } },
+      { key: 'cmd-visualize', group: 'Agent 动作', command: '/visualize', label: '教学可视化', run: () => { if (requireActionAvailable('visualize', '教学可视化')) emit('request-visualize') } },
       { key: 'cmd-clear', group: '会话控制', command: '/clear', label: '清空对话', run: () => emit('clear-chat') },
       { key: 'cmd-export', group: '会话控制', command: '/export', label: '导出 Markdown', run: () => exportConversationMarkdown() },
       {
