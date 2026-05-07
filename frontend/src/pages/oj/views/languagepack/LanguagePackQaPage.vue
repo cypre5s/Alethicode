@@ -732,7 +732,8 @@
             : String(this.packs[0].id)
           await this.switchPack(firstPackId)
         } catch (error) {
-          console.error('[QA] loadPacks failed:', error)
+          const msg = error && error.response ? `${error.response.status} ${JSON.stringify(error.response.data).slice(0, 120)}` : String(error).slice(0, 120)
+          notify.error('[QA] loadPacks: ' + msg)
           if (!this.packs.length) {
             this.qaAvailabilityState = 'empty'
           }
@@ -783,7 +784,8 @@
           }
           await this.startNewSession()
         } catch (error) {
-          console.error('[QA] loadSessions failed:', error)
+          const msg = error && error.response ? `${error.response.status} ${JSON.stringify(error.response.data).slice(0, 120)}` : String(error).slice(0, 120)
+          notify.error('[QA] loadSessions: ' + msg)
         } finally {
           this.loadings.sessions = false
         }
@@ -798,7 +800,8 @@
           this.sessions = [session, ...this.sessions]
           await this.activateSession(session.id)
         } catch (error) {
-          console.error('[QA] startNewSession failed:', error)
+          const msg = error && error.response ? `${error.response.status} ${JSON.stringify(error.response.data).slice(0, 120)}` : String(error).slice(0, 120)
+          notify.error('[QA] startNewSession: ' + msg)
         }
       },
       async activateSession (sessionId) {
