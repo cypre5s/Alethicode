@@ -60,16 +60,14 @@ python -m pytest -q
 
 | 名称 | 公网 IP | 私网 IP | 规格 | 密钥文件 |
 |------|---------|---------|------|----------|
-| 新实例 | `120.55.59.61` | `172.29.148.191` | 2 核 / 3.4 GB / 40 GB | `ac.pem` |
-| 开发实例 | `47.98.184.170` | `172.29.148.190` | 2 核 / 4 GB / 79 GB | `wsl.pem` |
+| 开发实例 | `47.111.165.48` | `172.29.148.192` | | `wsl.pem` |
 
-两台均为 Ubuntu 22.04，用户名 `root`，密钥文件在项目根目录。
+实例为 Ubuntu 22.04，用户名 `root`，密钥文件在项目根目录。
 
 ### 连接命令
 
 ```bash
-ssh -i ac.pem root@120.55.59.61
-ssh -i wsl.pem root@47.98.184.170
+ssh -i wsl.pem root@47.111.165.48
 ```
 
 ### WSL2 TUN 代理绕过
@@ -78,15 +76,13 @@ ssh -i wsl.pem root@47.98.184.170
 流量但不支持 SSH 协议转发，导致 SSH banner 交换超时。连接前必须添加直连路由：
 
 ```bash
-sudo ip route add 120.55.59.61/32 via 10.206.0.1 dev eth4
-sudo ip route add 47.98.184.170/32 via 10.206.0.1 dev eth4
+sudo ip route add 47.111.165.48/32 via 10.206.0.1 dev eth4
 ```
 
 验证路由是否生效：
 
 ```bash
-ip route get 120.55.59.61
-ip route get 47.98.184.170
+ip route get 47.111.165.48
 # 应输出 "via 10.206.0.1 dev eth4"，而非 "via 198.18.0.2 dev eth0"
 ```
 
@@ -267,19 +263,6 @@ Alethicode/
   必须说明原因和剩余风险。
 - 涉及代码修改时，必须在 `CHANGELOG.md` 中用中文记录变更，格式遵循常见
   changelog 写法，说明变更类型和影响范围。
-
-## ECS 部署排障补充
-
-- 浏览器磁盘缓存可能缓存 API 的 GET 响应。Nginx 的 `/api/` location 必须
-  返回 `Cache-Control: no-store, no-cache, must-revalidate`，否则旧响应（包括
-  空数据或错误）会被浏览器长期复用，导致前端功能完全失效但无任何报错。
-  排查时若 Network 标签页中找不到 API 请求，先勾选「禁用缓存」确认请求是否
-  被磁盘缓存拦截。
-- 前端热部署（`docker cp` + `nginx -s reload`）后，旧 chunk 文件应先删除
-  （`rm -rf /usr/share/nginx/html/static`）再复制新文件，避免 Service Worker
-  precache 同时存在新旧 chunk 导致不可预测行为。
-- `docker restart` 后 Redis 会清空所有 HTTP session。已登录用户的旧 cookie
-  会触发 `Session was invalidated` 500 错误。重启 Redis 后所有用户必须重新登录。
 
 ## 文档维护
 

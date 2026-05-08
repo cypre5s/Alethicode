@@ -207,3 +207,176 @@ build 覆盖，源码层的修复（`LanguagePackQaPage.vue` 的 `setup()`）会
   publicProxy accessCache，导致 mounted 之后所有 `this.X` 读取永远返回
   undefined；该陷阱仅出现在 setup + data 混用的组件中。
 
+## 10. 后续修复（2026-05-07 续）：PDF 预览渲染失败 + 课件问答不引用课件
+
+> 同一天后续两个独立 bug 与本文件主题相关，记入此文方便下次定位类似问题。
+
+### 10.1 现象
+
+- 学生端 `language-pack-qa` 与 `/language-pack-qa/viewer` 的 PDF 预览全部红
+  字「页面渲染失败」（不是「PDF 加载失败」，二者错误位置不同）。
+- 同一会话里 AI 回答没有「已定位到课件页证据」卡片、没有任何课件页引用
+  按钮，对外表现为「LLM 不引用课件原文」。
+
+### 10.2 PDF.js modern build 用了 ES2025 API，老浏览器不支持
+
+#### 根因
+
+`pdfjs-dist@^5.6.205` 默认入口 `import * as pdfjsLib from 'pdfjs-dist'` 是
+modern build。从 PDF.js 5.5.52 起 `src/display/api.js` 与 `PDFObjects` 直接
+调用 ES2025 [TC39 proposal-upsert](https://github.com/tc39/proposal-upsert)
+的 `Map.prototype.getOrInsertComputed` / `WeakMap.prototype.getOrInsertComputed`
+（参 [mozilla/pdf.js#20680](https://github.com/mozilla/pdf.js/issues/20680)）：
+
+| 浏览器  | 支持版本   |
+| ------- | ---------- |
+| Chrome  | 145+       |
+| Firefox | 144+       |
+| Safari  | 26.2+      |
+| Edge    | 145+       |
+
+生产环境 Cursor 内置 Electron 39（Chromium 142）等多数用户浏览器**不**支持
+该 API，单页 `pdfPage.render()` 阶段抛
+`TypeError: this[#ra].getOrInsertComputed is not a function`，
+`PdfPageViewer.renderPage` 的 catch 写入「页面渲染失败」。
+
+注意：错误是 `renderPage()` 抛的，**不是** `loadAndRender()`。要对应到
+`PdfPageViewer.vue` 这两个 catch 的不同分支：
+
+```js
+async loadAndRender () { try { ... } catch (e) { this.error = 'PDF 加载失败' } }
+async renderPage ()    { try { ... } catch (e) { this.error = '页面渲染失败' } }
+```
+
+#### 证据收集
+
+`vite.config.mjs` 的 `terserOptions: { compress: { drop_console: true } }`
+让生产 dist 完全 strip 掉 `console.error`，看不到 PDF.js 的真实异常。诊断
+路径：
+
+1. 浏览器原生 `<embed>` PDF viewer 直接打开 `/api/.../preview#page=51` →
+   完整渲染第 51 页 → 证明 PDF 文件 / 后端 / cmaps 都没问题。
+2. SSH 到 ECS dist：
+   - 备份 `PdfPageViewer-CRVhEyEu.js` / `index-Bx3DsZ4T.js` / `index.html`。
+   - 把 PdfPageViewer chunk 的 `catch(e){this.error="页面渲染失败"}` 改成
+     `catch(e){this.error="页面渲染失败:"+e.message+"|"+e.name; document.title="ERR:"+e.message}`，
+     并复制为 `PdfPageViewer-PATCH00x.js`。
+   - 同步把 `PdfViewerPage`、`LanguagePackQaPage`、entry chunk 内对
+     `PdfPageViewer-CRVhEyEu.js` 的 import 全部改名 → `PATCH00x`，每一层
+     chunk 都要 rename，否则浏览器从 immutable HTTP cache 复用旧 chunk。
+   - 重命名 entry chunk 自身 + 改 `index.html` 引用（`index.html` nginx
+     `Cache-Control: no-cache, must-revalidate`，每次 revalidate）。
+   - 临时把 nginx `expires 30d; Cache-Control "public, immutable"` 改成
+     `expires off; Cache-Control "no-cache, no-store, must-revalidate"`，
+     bypass 浏览器 HTTP cache。
+   - 在 `/admin/_unsw.html`（PWA `navigateFallbackDenylist` 包含 `/admin/`，
+     不被 SW 拦截）放一个 unregister + `caches.delete()` 的小工具，让浏览器
+     脱离旧 SW 控制 + 清掉 workbox cache 后重新拉新 chunk。
+
+`document.title` 是 cursor browser snapshot 能直读的字段（`localStorage`
+要再开 DevTools 才能看），所以**优先**用 `document.title` 暴露错误，比
+`localStorage` 节省一步。
+
+最终拿到铁证：title `ERR:this[#ra].getOrInsertComputed is not a function | TypeError`。
+
+#### 补丁
+
+`frontend/src/components/PdfPageViewer.vue`：
+
+```diff
+-import * as pdfjsLib from 'pdfjs-dist'
+-import workerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
++import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
++import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.mjs?url'
+```
+
+legacy build 通过 core-js 把 `Map.prototype.getOrInsertComputed` /
+`WeakMap.prototype.getOrInsertComputed` 等 ES2025 API 全部 polyfill，是
+mozilla/pdf.js 官方对 broader compat 场景的推荐路径。`pdfjsAssetsPlugin`
+从 `pdfjs-dist/package.json` 解析的根目录复制 `cmaps`、`standard_fonts`，
+modern 与 legacy 共用同一份资源，**不需要**改 plugin。
+
+部署：`docker compose build --no-cache frontend && up -d --force-recreate frontend`
+即可，新镜像 dist 与 nginx config 全部重置，自动覆盖所有调试期 hot-patch。
+
+#### 教训
+
+- 升级 `pdfjs-dist` 主版本（4 → 5）必须把 `frontend/src/components/PdfPageViewer.vue`
+  的 import 路径同步审一次：modern entry 的兼容性预期是「最近 1-2 个
+  Chromium」，不能假设它兼容生产用户浏览器。
+- 学生端任何 `<canvas>` 渲染、PDF.js / 字体相关的「无报错但白屏」
+  问题，先用浏览器原生 `<embed>` / `<iframe>` 加载同一资源做交叉
+  验证，能立刻区分「数据问题」与「JS 库兼容性」。
+- 生产 dist 的 `drop_console: true` 会让 `console.error` 完全消失，
+  调试期间用 `document.title = "ERR:..."` 暴露 catch 体内的 error
+  比写 localStorage 更省一步（cursor browser snapshot 直接能看到 title）。
+- 浏览器有 4 层缓存，每一层都要绕：（1）PWA workbox `runtimeCaching`
+  的 `CacheFirst static-assets` →（2）workbox `navigateFallback` 缓存
+  的 `index.html` →（3）浏览器 HTTP `Cache-Control: immutable` →
+  （4）浏览器 module cache。Hot-patch 时要么把整个 module graph 全部
+  改名（每一层 chunk 内的 import 路径都要改），要么走 `_unsw.html` 卸
+  载 SW + 临时 nginx no-cache 的组合拳。
+
+### 10.3 LightRAG 1.4.x chunk metadata 不带 `entity_id`，Java 跳过所有 chunk
+
+#### 根因
+
+`alethicode-rag` 升级到 LightRAG 1.4.x 后，`aquery_data()` 返回的 chunk
+metadata 不再带 `entity_id` / `page_id`，只有
+`file_path = "language_pack/{lpId}/p{pageNo}"`（由
+`scripts/ops/rag_backfill.py` 写入 LightRAG 的 chunk source_path）。
+`alethicode-rag/app/routes/query.py` 的 `_coerce_data` 已经在 chunk
+metadata 上 `meta.update(_parse_courseware_path(fp))` 注入了
+`language_pack_id` + `page_no`，**但 Java 端没读这两个键**：
+
+```java
+Long pageId = toLong(meta.get("entity_id"));
+if (pageId == null) {
+    pageId = toLong(meta.get("page_id"));
+}
+if (pageId == null) {
+    continue;   // ← 1.4.x chunks 全部命中此分支被跳过
+}
+```
+
+`RagQueryHits.chunks()` 非空但 `results` 为空 → `LanguagePackQaServiceImpl`
+的「无引用」分支拼回答 → AI 输出无「已定位到课件页证据」卡片，前端引用
+按钮列表也是空。
+
+#### 证据
+
+- `docker exec java-oj-alethicode-rag` `/v1/rag/query/courseware` 直 curl
+  返回 7 条 chunk，每条 metadata 含 `language_pack_id`、`page_no`、
+  `file_path`，**不含** `entity_id` / `page_id`。
+- backend 日志没有任何 SQL 错误（说明根本没走到 `loadPageRow`）。
+- `docker logs java-oj-backend` 只看到 RAG 请求成功，但回答里没引用。
+
+#### 补丁
+
+`backend/.../PageRetrievalServiceImpl.java` 抽出 `resolvePageId()`：
+
+1. 优先按 `entity_id` / `page_id` 反查（兼容 LightRAG 1.3.x 与历史回填的 chunk）。
+2. fallback 按 `(language_pack_id, page_no)` 查 `language_pack_page`：
+   `SELECT id ... WHERE lp_id=? AND page_no=? ORDER BY chunk_index ASC, id ASC LIMIT 1`。
+3. 兜底用 `^language_pack/(\d+)/p(\d+)$` 解析原始 `file_path` 拿 (lpId, pageNo)。
+4. **必须**校验 `lpFromMeta == languagePackId`，避免跨课件包污染。
+
+`alethicode-rag/app/routes/query.py` 此前已经在 `_coerce_data` 注入了
+`language_pack_id` / `page_no`，本次修复只动 Java 一侧。
+
+#### 教训
+
+- LightRAG 升级是 `alethicode-rag` 与 Java backend 之间的契约变更点。
+  接入点是 `RagQueryHits.chunks().get(i).metadata()` 这个 `Map<String, Object>`，
+  改 schema 时**两侧必须同步**：alethicode-rag `_coerce_data` 写哪些键、
+  Java `PageRetrievalServiceImpl#resolvePageId` 读哪些键，两边的契约要在
+  `contracts/` 或 README 留一份。
+- 任何「LLM 拿不到课件原文」的现象，先去 alethicode-rag `/v1/rag/query/courseware`
+  直 curl 看 chunks 是否非空，再去 backend 看 `LanguagePackQaServiceImpl`
+  日志看 hits → results 转换是否丢失，**别一上来就改 prompt 或 LLM 模型**。
+- ECS 调试期间往 `PageRetrievalServiceImpl.java` 加 `__qa_debug__` log /
+  `__qa_debug__` JSON 这类临时日志非常有用，但**重建镜像前**必须 cleanup，
+  否则一旦 commit 进 git，noisy log 会污染生产日志。本次清理时同时删
+  了 ECS 上的 `*.bak` / `*.bak.*` 备份，避免 next deploy 把临时文件打进
+  镜像。
+

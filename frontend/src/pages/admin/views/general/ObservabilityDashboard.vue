@@ -412,8 +412,6 @@ export default {
 </script>
 
 <style scoped lang="less">
-@import url('https://fonts.googleapis.cn/css2?family=Fira+Code:wght@500;600&family=Fira+Sans:wght@400;500;600;700&display=swap');
-
 .view {
   --dashboard-blue-700: #2563eb;
   --dashboard-text-900: #0f172a;
@@ -421,7 +419,7 @@ export default {
   display: flex;
   flex-direction: column;
   gap: 24px;
-  font-family: 'Fira Sans', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   background:
     radial-gradient(circle at 16% 12%, rgba(59, 130, 246, 0.14), transparent 30%),
     radial-gradient(circle at 84% 8%, rgba(147, 197, 253, 0.2), transparent 28%),

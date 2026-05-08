@@ -735,6 +735,14 @@ export default {
     const coursewareDocuments = ref([])
     const coursewareDocumentsLoaded = ref(false)
     const coursewareDocumentsLoading = ref(false)
+    const knowledgeComponentItems = ref([])
+    const knowledgeComponentsLoaded = ref(false)
+    const knowledgeComponentsLoading = ref(false)
+    const learnerNotebookItems = ref([])
+    const learnerNotebooksLoaded = ref(false)
+    const learnerNotebooksLoading = ref(false)
+    let knowledgeComponentsLoadPromise = null
+    let learnerNotebooksLoadPromise = null
 
     /**
      * 通过 listQaPacks 反查当前 problem.language_pack_id 对应的课件包基础信息。
@@ -784,6 +792,90 @@ export default {
       }).finally(() => {
         coursewareDocumentsLoading.value = false
       })
+    }
+
+    function ensureKnowledgeComponentsLoaded () {
+      if (!props.languagePackId) {
+        knowledgeComponentsLoaded.value = true
+        knowledgeComponentItems.value = []
+        return Promise.resolve()
+      }
+      if (knowledgeComponentsLoaded.value) return Promise.resolve()
+      if (knowledgeComponentsLoadPromise) return knowledgeComponentsLoadPromise
+      knowledgeComponentsLoading.value = true
+      const requestedLanguagePackId = props.languagePackId
+      const loadPromise = api.getKcGraph(requestedLanguagePackId).then(res => {
+        if (String(props.languagePackId || '') !== String(requestedLanguagePackId || '')) return
+        const payload = res && res.data && res.data.data !== undefined ? res.data.data : (res ? res.data : {})
+        const nodes = Array.isArray(payload.nodes) ? payload.nodes : []
+        knowledgeComponentItems.value = nodes.map(node => {
+          const id = node && node.id != null ? String(node.id) : ''
+          return {
+            key: 'kc:' + id,
+            token: '@kc:' + id,
+            label: node && node.name ? node.name : ('知识点 ' + id),
+            desc: node && node.chapter_title ? node.chapter_title : '',
+            hoverPreview: node && node.description ? node.description : (node && node.chapter_title ? node.chapter_title : '')
+          }
+        }).filter(item => item.token !== '@kc:')
+        knowledgeComponentsLoaded.value = true
+      }).catch(err => {
+        if (String(props.languagePackId || '') !== String(requestedLanguagePackId || '')) return
+        console.warn('[UnifiedAgentPanel] load knowledge components failed:', err && err.message)
+        knowledgeComponentItems.value = []
+      }).finally(() => {
+        if (knowledgeComponentsLoadPromise === loadPromise) {
+          knowledgeComponentsLoading.value = false
+          knowledgeComponentsLoadPromise = null
+        }
+      })
+      knowledgeComponentsLoadPromise = loadPromise
+      return knowledgeComponentsLoadPromise
+    }
+
+    function buildKnowledgeComponentItems () {
+      return Array.isArray(knowledgeComponentItems.value) ? knowledgeComponentItems.value : []
+    }
+
+    function ensureLearnerNotebooksLoaded () {
+      if (learnerNotebooksLoaded.value) return Promise.resolve()
+      if (learnerNotebooksLoadPromise) return learnerNotebooksLoadPromise
+      learnerNotebooksLoading.value = true
+      const loadPromise = api.getLearnerNotebook({}).then(res => {
+        const payload = res && res.data && res.data.data !== undefined ? res.data.data : (res ? res.data : {})
+        const entries = Array.isArray(payload.entries) ? payload.entries : []
+        learnerNotebookItems.value = entries.map(entry => {
+          const id = entry && entry.id != null ? String(entry.id) : ''
+          const label = entry && (entry.title || entry.problem_title || entry.error_taxonomy)
+            ? (entry.title || entry.problem_title || entry.error_taxonomy)
+            : ('笔记 ' + id)
+          const desc = entry && (entry.reflection || entry.root_cause || entry.breakthrough_insight || entry.content)
+            ? (entry.reflection || entry.root_cause || entry.breakthrough_insight || entry.content)
+            : ''
+          return {
+            key: 'notebook:' + id,
+            token: '@notebook:' + id,
+            label,
+            desc: String(desc).slice(0, 80),
+            hoverPreview: String(desc).slice(0, 180)
+          }
+        }).filter(item => item.token !== '@notebook:')
+        learnerNotebooksLoaded.value = true
+      }).catch(err => {
+        console.warn('[UnifiedAgentPanel] load learner notebooks failed:', err && err.message)
+        learnerNotebookItems.value = []
+      }).finally(() => {
+        if (learnerNotebooksLoadPromise === loadPromise) {
+          learnerNotebooksLoading.value = false
+          learnerNotebooksLoadPromise = null
+        }
+      })
+      learnerNotebooksLoadPromise = loadPromise
+      return learnerNotebooksLoadPromise
+    }
+
+    function buildLearnerNotebookItems () {
+      return Array.isArray(learnerNotebookItems.value) ? learnerNotebookItems.value : []
     }
 
     function formatReferenceDescription (raw, cardType) {
@@ -877,14 +969,14 @@ export default {
     function buildCurrentCoursewareItems () {
       const lpId = props.languagePackId
       if (!lpId) return []
-      const pack = coursewarePack.value
+      const pack = coursewarePack.value || { id: lpId }
       const name = pack && pack.name ? pack.name : ('LP-' + lpId)
       const desc = pack && pack.description
         ? pack.description
         : (pack && pack.documents_count != null ? pack.documents_count + ' 份文档' : '整包 RAG 检索')
       return [{
         key: 'courseware-' + lpId,
-        token: '@courseware:' + lpId,
+        token: '@courseware:' + pack.id,
         label: '课件 · ' + name,
         desc,
         hoverPreview: desc
@@ -934,12 +1026,18 @@ export default {
         items: () => ensureCoursewareDocumentsLoaded().then(() => buildCoursewarePageItems())
       },
       {
-        key: 'phase2-placeholders',
-        group: '即将上线（Phase 2）',
-        items: () => [
-          { key: 'placeholder-kc', token: '@kc:<id>', label: '@kc', desc: '引用知识点节点', placeholder: true },
-          { key: 'placeholder-notebook', token: '@notebook:<id>', label: '@notebook', desc: '引用学习笔记条目', placeholder: true }
-        ]
+        key: 'knowledge-components',
+        group: '知识点 · 当前课程包',
+        maxInitialDisplay: 8,
+        lazyLoad: true,
+        items: () => ensureKnowledgeComponentsLoaded().then(() => buildKnowledgeComponentItems())
+      },
+      {
+        key: 'learner-notebooks',
+        group: '学习笔记',
+        maxInitialDisplay: 6,
+        lazyLoad: true,
+        items: () => ensureLearnerNotebooksLoaded().then(() => buildLearnerNotebookItems())
       }
     ]
 
@@ -1047,8 +1145,13 @@ export default {
       coursewarePackLoaded.value = false
       coursewareDocuments.value = []
       coursewareDocumentsLoaded.value = false
+      knowledgeComponentItems.value = []
+      knowledgeComponentsLoaded.value = false
+      knowledgeComponentsLoading.value = false
+      knowledgeComponentsLoadPromise = null
       composer.handlers.refreshProvider('coursewares')
       composer.handlers.refreshProvider('courseware-pages')
+      composer.handlers.refreshProvider('knowledge-components')
     })
 
     return {
@@ -1061,6 +1164,14 @@ export default {
       coursewareDocumentsLoaded: coursewareDocumentsLoaded,
       coursewareDocumentsLoading: coursewareDocumentsLoading,
       ensureCoursewareDocumentsLoaded: ensureCoursewareDocumentsLoaded,
+      knowledgeComponentItems: knowledgeComponentItems,
+      knowledgeComponentsLoaded: knowledgeComponentsLoaded,
+      knowledgeComponentsLoading: knowledgeComponentsLoading,
+      ensureKnowledgeComponentsLoaded: ensureKnowledgeComponentsLoaded,
+      learnerNotebookItems: learnerNotebookItems,
+      learnerNotebooksLoaded: learnerNotebooksLoaded,
+      learnerNotebooksLoading: learnerNotebooksLoading,
+      ensureLearnerNotebooksLoaded: ensureLearnerNotebooksLoaded,
       rawText: composer.rawText,
       atMenuVisible: composer.atMenuVisible,
       atQuery: composer.atQuery,

@@ -1,7 +1,7 @@
 FROM node:20.19-bullseye AS build
 WORKDIR /app
 COPY frontend/package*.json ./
-RUN npm ci --legacy-peer-deps
+RUN npm config set registry https://registry.npmmirror.com && npm ci --legacy-peer-deps
 COPY frontend ./
 RUN npm run build
 

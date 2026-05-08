@@ -1316,7 +1316,7 @@
         return Boolean(message && message.answer_json && message.answer_json.insufficient_evidence)
       },
       isGroundedMessage (message) {
-        return Boolean(message && message.answer_json && message.answer_json.grounded)
+        return Boolean(message && message.answer_json && message.answer_json.grounded && this.resolveCitations(message).length)
       },
       looksLikeOjProblemQuestion (question) {
         const normalized = this.normalizeQuestionForDetection(question)

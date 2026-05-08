@@ -274,19 +274,8 @@ public class LanguagePackQaServiceImpl implements LanguagePackQaService {
                        m.role,
                        m.content,
                        m.answer_json::text AS answer_json_text,
-                       retrieval.page_hit_json::text AS fallback_hit_json,
                        m.create_time
                 FROM language_pack_chat_message m
-                LEFT JOIN LATERAL (
-                    SELECT r.page_hit_json
-                    FROM language_pack_chat_retrieval_log r
-                    WHERE r.session_id = m.session_id
-                      AND r.create_time <= m.create_time
-                      AND jsonb_typeof(r.page_hit_json) = 'array'
-                      AND jsonb_array_length(r.page_hit_json) > 0
-                    ORDER BY r.create_time DESC, r.id DESC
-                    LIMIT 1
-                ) retrieval ON m.role = 'assistant'
                 WHERE m.session_id = ?
                 ORDER BY m.id ASC
                 """,
@@ -296,7 +285,6 @@ public class LanguagePackQaServiceImpl implements LanguagePackQaService {
                         rs.getString("role"),
                         rs.getString("content"),
                         rs.getString("answer_json_text"),
-                        rs.getString("fallback_hit_json"),
                         toInstant(rs.getTimestamp("create_time"))
                 ),
                 sessionId
@@ -776,7 +764,6 @@ public class LanguagePackQaServiceImpl implements LanguagePackQaService {
                                            String role,
                                            String content,
                                            String answerJsonText,
-                                           String fallbackHitJson,
                                            Instant createTime) {
         Map<String, Object> message = new LinkedHashMap<>();
         message.put("id", id);
@@ -784,7 +771,7 @@ public class LanguagePackQaServiceImpl implements LanguagePackQaService {
         message.put("role", role);
         message.put("content", safeString(content));
         if (answerJsonText != null && !answerJsonText.isBlank()) {
-            message.put("answer_json", normalizeAssistantAnswerPayload(parseJsonMap(answerJsonText), fallbackHitJson));
+            message.put("answer_json", parseJsonMap(answerJsonText));
         }
         message.put("create_time", createTime);
         if ("assistant".equals(role)) {
@@ -805,9 +792,7 @@ public class LanguagePackQaServiceImpl implements LanguagePackQaService {
 
     private Map<String, Object> storeAssistantAnswer(Long sessionId, GroundedAnswer answer) {
         Instant now = Instant.now();
-        String fallbackHitJson = findLatestRetrievalHitJson(sessionId, now);
-        Map<String, Object> answerPayload = normalizeAssistantAnswerPayload(answer.toMap(), fallbackHitJson);
-        String answerPayloadJson = toJson(answerPayload);
+        String answerPayloadJson = toJson(answer.toMap());
         Long assistantMessageId = jdbcTemplate.queryForObject(
                 """
                 INSERT INTO language_pack_chat_message(session_id, role, content, answer_json, create_time)
@@ -823,7 +808,7 @@ public class LanguagePackQaServiceImpl implements LanguagePackQaService {
                 "UPDATE language_pack_chat_session SET update_time = now() WHERE id = ?",
                 sessionId
         );
-        return messageRow(assistantMessageId, sessionId, "assistant", answer.answerMarkdown(), answerPayloadJson, null, now);
+        return messageRow(assistantMessageId, sessionId, "assistant", answer.answerMarkdown(), answerPayloadJson, now);
     }
 
     private Map<String, Object> packRow(Long id,
@@ -984,130 +969,6 @@ public class LanguagePackQaServiceImpl implements LanguagePackQaService {
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Failed to parse stored JSON payload", exception);
         }
-    }
-
-    private List<Map<String, Object>> parseJsonList(String rawJson) {
-        try {
-            return objectMapper.readValue(rawJson, new TypeReference<>() {
-            });
-        } catch (JsonProcessingException exception) {
-            throw new IllegalStateException("Failed to parse stored JSON array payload", exception);
-        }
-    }
-
-    private Map<String, Object> normalizeAssistantAnswerPayload(Map<String, Object> answerJson, String fallbackHitJson) {
-        if (answerJson == null || answerJson.isEmpty()) {
-            return answerJson;
-        }
-        if (hasNonEmptyCitations(answerJson) || asBoolean(answerJson.get("insufficient_evidence"))) {
-            return answerJson;
-        }
-        List<Map<String, Object>> fallbackCitations = buildCitationsFromHitJson(fallbackHitJson);
-        if (fallbackCitations.isEmpty()) {
-            return answerJson;
-        }
-        Map<String, Object> normalized = new LinkedHashMap<>(answerJson);
-        normalized.put("citations", fallbackCitations);
-        return normalized;
-    }
-
-    private boolean hasNonEmptyCitations(Map<String, Object> answerJson) {
-        Object citations = answerJson.get("citations");
-        return citations instanceof List<?> list && !list.isEmpty();
-    }
-
-    private boolean asBoolean(Object value) {
-        if (value instanceof Boolean boolValue) {
-            return boolValue;
-        }
-        if (value instanceof String textValue) {
-            return "true".equalsIgnoreCase(textValue.trim());
-        }
-        return false;
-    }
-
-    private List<Map<String, Object>> buildCitationsFromHitJson(String fallbackHitJson) {
-        if (fallbackHitJson == null || fallbackHitJson.isBlank()) {
-            return List.of();
-        }
-        List<Map<String, Object>> hits = parseJsonList(fallbackHitJson);
-        if (hits.isEmpty()) {
-            return List.of();
-        }
-
-        Map<String, Map<String, Object>> citationsByKey = new LinkedHashMap<>();
-        for (Map<String, Object> hit : hits) {
-            Long documentId = toLong(hit.get("document_id"));
-            Integer pageNo = toInteger(hit.get("page_no"));
-            if (documentId == null || pageNo == null) {
-                continue;
-            }
-            String key = documentId + ":" + pageNo;
-            if (citationsByKey.containsKey(key)) {
-                continue;
-            }
-            Map<String, Object> citation = new LinkedHashMap<>();
-            citation.put("document_id", documentId);
-            citation.put("document_title", safeString(asText(hit.get("document_title"))));
-            citation.put("page_no", pageNo);
-            citation.put("excerpt", safeString(asText(hit.get("excerpt"))));
-            citation.put("confidence", normalizeConfidence(hit.get("confidence"), hit.get("score")));
-            citationsByKey.put(key, citation);
-        }
-        return List.copyOf(citationsByKey.values());
-    }
-
-    private String findLatestRetrievalHitJson(Long sessionId, Instant beforeTime) {
-        return jdbcTemplate.query(
-                """
-                SELECT page_hit_json::text
-                FROM language_pack_chat_retrieval_log
-                WHERE session_id = ?
-                  AND create_time <= ?
-                  AND jsonb_typeof(page_hit_json) = 'array'
-                  AND jsonb_array_length(page_hit_json) > 0
-                ORDER BY create_time DESC, id DESC
-                LIMIT 1
-                """,
-                rs -> rs.next() ? rs.getString(1) : null,
-                sessionId,
-                Timestamp.from(beforeTime)
-        );
-    }
-
-    private Long toLong(Object value) {
-        if (value instanceof Number numberValue) {
-            return numberValue.longValue();
-        }
-        if (value instanceof String textValue && !textValue.trim().isBlank()) {
-            return Long.valueOf(textValue.trim());
-        }
-        return null;
-    }
-
-    private Integer toInteger(Object value) {
-        if (value instanceof Number numberValue) {
-            return numberValue.intValue();
-        }
-        if (value instanceof String textValue && !textValue.trim().isBlank()) {
-            return Integer.valueOf(textValue.trim());
-        }
-        return null;
-    }
-
-    private String asText(Object value) {
-        return value == null ? "" : String.valueOf(value);
-    }
-
-    private double normalizeConfidence(Object confidenceValue, Object scoreValue) {
-        Object numericValue = confidenceValue != null ? confidenceValue : scoreValue;
-        if (numericValue instanceof Number numberValue) {
-            return Math.round(numberValue.doubleValue() * 1000.0) / 1000.0;
-        }
-        if (numericValue instanceof String textValue && !textValue.trim().isBlank()) {
-            return Math.round(Double.parseDouble(textValue.trim()) * 1000.0) / 1000.0;
-        }
-        return 0.0;
     }
 
     private String buildPreviewUrl(Long languagePackId, Long documentId) {

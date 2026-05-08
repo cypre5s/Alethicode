@@ -69,6 +69,7 @@ export function useChatComposer(options) {
   const slashActiveIndex = ref(0)
   const historyCursor = ref(-1)
   const lazyLoadedKeys = new Set()
+  const providerVersions = new Map()
   const providerCache = ref({})
 
   const scopeKeyRef = isRef(options.scopeKey) ? options.scopeKey : ref(options.scopeKey || 'default')
@@ -82,40 +83,48 @@ export function useChatComposer(options) {
     return Boolean(unwrap(isInputBlockedSource))
   }
 
+  function getProviderVersion(key) {
+    return providerVersions.get(key) || 0
+  }
+
   function getProviderItems(provider) {
     if (!provider || typeof provider !== 'object') return []
+    const providerKey = provider.key
     if (typeof provider.items !== 'function') {
       return Array.isArray(provider.items) ? provider.items : []
     }
-    if (provider.lazyLoad && !lazyLoadedKeys.has(provider.key)) {
+    if (provider.lazyLoad && !lazyLoadedKeys.has(providerKey)) {
       try {
+        const loadVersion = getProviderVersion(providerKey)
         const result = provider.items()
         if (result && typeof result.then === 'function') {
           result.then(function (items) {
-            providerCache.value = Object.assign({}, providerCache.value, { [provider.key]: Array.isArray(items) ? items : [] })
-            lazyLoadedKeys.add(provider.key)
+            if (getProviderVersion(providerKey) !== loadVersion) return
+            providerCache.value = Object.assign({}, providerCache.value, { [providerKey]: Array.isArray(items) ? items : [] })
+            lazyLoadedKeys.add(providerKey)
           }).catch(function (err) {
-            console.warn('[useChatComposer] lazy provider failed:', provider.key, err && err.message)
-            providerCache.value = Object.assign({}, providerCache.value, { [provider.key]: [] })
-            lazyLoadedKeys.add(provider.key)
+            if (getProviderVersion(providerKey) !== loadVersion) return
+            console.warn('[useChatComposer] lazy provider failed:', providerKey, err && err.message)
+            providerCache.value = Object.assign({}, providerCache.value, { [providerKey]: [] })
+            lazyLoadedKeys.add(providerKey)
           })
-          return providerCache.value[provider.key] || []
+          return providerCache.value[providerKey] || []
         }
-        providerCache.value = Object.assign({}, providerCache.value, { [provider.key]: Array.isArray(result) ? result : [] })
-        lazyLoadedKeys.add(provider.key)
-        return providerCache.value[provider.key]
+        providerCache.value = Object.assign({}, providerCache.value, { [providerKey]: Array.isArray(result) ? result : [] })
+        lazyLoadedKeys.add(providerKey)
+        return providerCache.value[providerKey]
       } catch (err) {
-        console.warn('[useChatComposer] provider items() failed:', provider.key, err && err.message)
-        providerCache.value = Object.assign({}, providerCache.value, { [provider.key]: [] })
+        console.warn('[useChatComposer] provider items() failed:', providerKey, err && err.message)
+        providerCache.value = Object.assign({}, providerCache.value, { [providerKey]: [] })
         return []
       }
     }
-    if (providerCache.value[provider.key]) return providerCache.value[provider.key]
+    if (providerCache.value[providerKey]) return providerCache.value[providerKey]
     try {
       const items = provider.items()
       return Array.isArray(items) ? items : []
     } catch (err) {
-      console.warn('[useChatComposer] provider items() failed:', provider.key, err && err.message)
+      console.warn('[useChatComposer] provider items() failed:', providerKey, err && err.message)
       return []
     }
   }
@@ -404,6 +413,7 @@ export function useChatComposer(options) {
   }
 
   function refreshProvider(key) {
+    providerVersions.set(key, getProviderVersion(key) + 1)
     lazyLoadedKeys.delete(key)
     if (providerCache.value[key]) {
       const next = Object.assign({}, providerCache.value)

@@ -1,4 +1,3 @@
-/* eslint-env jest */
 /**
  * 输入框基础设施契约测试。
  *
@@ -71,6 +70,7 @@ const atMenuSource = readSource('../../src/pages/oj/components/chat/AtMentionMen
 const slashMenuSource = readSource('../../src/pages/oj/components/chat/SlashCommandMenu.vue')
 const hintBarSource = readSource('../../src/pages/oj/components/chat/ComposerHintBar.vue')
 const usageBarSource = readSource('../../src/pages/oj/components/chat/ContextUsageBar.vue')
+const qaPageSource = readSource('../../src/pages/oj/views/languagepack/LanguagePackQaPage.vue')
 
 describe('chat composer · composerStorage 静态契约', () => {
   test('导出 readDraft / writeDraft / readHistory / pushHistory / clearScope', () => {
@@ -420,6 +420,35 @@ describe('chat composer · useChatComposer 行为', () => {
     expect(groups.map(g => g.group)).toEqual(['会话卡片', '第 1 章 · 入门.pptx', '第 2 章 · 进阶.pptx'])
     expect(groups[0].items.map(it => it.token)).toEqual(['@card:C-V-001'])
   })
+
+  test('refreshProvider 后忽略旧 lazy provider Promise 的回写', async () => {
+    const resolvers = []
+    const c = makeComposer({
+      atProviders: [
+        {
+          key: 'knowledge-components',
+          group: '知识点',
+          lazyLoad: true,
+          items: () => new Promise(resolve => { resolvers.push(resolve) })
+        }
+      ]
+    })
+
+    c.handlers.onInput('@')
+    expect(c.atGroups.value).toEqual([])
+    c.handlers.refreshProvider('knowledge-components')
+    resolvers[0]([{ key: 'old', token: '@kc:old', label: '旧知识点' }])
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(c.atGroups.value).toEqual([])
+    expect(resolvers.length).toBe(2)
+    resolvers[1]([{ key: 'new', token: '@kc:new', label: '新知识点' }])
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(c.atGroups.value[0].items.map(item => item.token)).toEqual(['@kc:new'])
+  })
 })
 
 describe('chat composer · AtMentionMenu 静态契约', () => {
@@ -500,5 +529,12 @@ describe('chat composer · ContextUsageBar 静态契约', () => {
   test('达到 80% 时显示 /compact 提示按钮', () => {
     expect(usageBarSource).toContain('return this.ratio >= 0.8')
     expect(usageBarSource).toContain('/compact 整理上下文')
+  })
+})
+
+describe('language pack QA · citation display contract', () => {
+  test('grounded 状态必须同时有 citations，避免只显示已定位但没有引用按钮', () => {
+    expect(qaPageSource).toContain('isGroundedMessage (message)')
+    expect(qaPageSource).toContain('message.answer_json.grounded && this.resolveCitations(message).length')
   })
 })

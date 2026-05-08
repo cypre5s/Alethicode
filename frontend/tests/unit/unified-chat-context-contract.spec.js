@@ -1,5 +1,3 @@
-/* eslint-env jest */
-
 const fs = require('fs')
 const path = require('path')
 
@@ -15,7 +13,6 @@ const parseReferences = (() => {
   const transformed = source
     .replace(/export\s+default\s+parseReferences\s*$/m, '')
     .replace(/export\s+function\s+parseReferences/, 'function parseReferences')
-  // eslint-disable-next-line no-new-func
   return new Function(`${transformed}\nreturn parseReferences;`)()
 })()
 
@@ -73,6 +70,30 @@ describe('unified chat context (P3) contracts', () => {
     expect(panelSource).toContain('引用最近的知识点回顾卡片')
     expect(panelSource).toContain('rgba(255, 255, 255, 0.98)')
     expect(panelSource).toContain('#8b5cf6')
+  })
+
+  test('UnifiedAgentPanel exposes real @kc and @notebook providers instead of Phase 2 placeholders', () => {
+    const panelSource = readSource('../../src/pages/oj/views/problem/UnifiedAgentPanel.vue')
+    expect(panelSource).not.toContain('phase2-placeholders')
+    expect(panelSource).not.toContain('placeholder-kc')
+    expect(panelSource).not.toContain('placeholder-notebook')
+    expect(panelSource).not.toContain('引用知识点节点\', placeholder: true')
+    expect(panelSource).not.toContain('引用学习笔记条目\', placeholder: true')
+
+    expect(panelSource).toContain("key: 'knowledge-components'")
+    expect(panelSource).toContain("group: '知识点 · 当前课程包'")
+    expect(panelSource).toContain('maxInitialDisplay: 8')
+    expect(panelSource).toContain('ensureKnowledgeComponentsLoaded().then(() => buildKnowledgeComponentItems())')
+    expect(panelSource).toContain('const requestedLanguagePackId = props.languagePackId')
+    expect(panelSource).toContain('api.getKcGraph(requestedLanguagePackId)')
+    expect(panelSource).toContain("token: '@kc:' + id")
+
+    expect(panelSource).toContain("key: 'learner-notebooks'")
+    expect(panelSource).toContain("group: '学习笔记'")
+    expect(panelSource).toContain('maxInitialDisplay: 6')
+    expect(panelSource).toContain('ensureLearnerNotebooksLoaded().then(() => buildLearnerNotebookItems())')
+    expect(panelSource).toContain('api.getLearnerNotebook({})')
+    expect(panelSource).toContain("token: '@notebook:' + id")
   })
 
   test('workflowStateMachine tracks active conversation mode and refreshes after every run', () => {

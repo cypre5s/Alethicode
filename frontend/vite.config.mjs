@@ -1,4 +1,6 @@
 import fs from 'node:fs/promises'
+import path from 'node:path'
+import { createRequire } from 'node:module'
 import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
@@ -7,6 +9,58 @@ import {
   createDevServerConfig,
   resolveFrontend
 } from './vite.shared.mjs'
+
+const requireForVite = createRequire(import.meta.url)
+
+/**
+ * PDF.js 渲染含 CJK 字体或非内嵌 Type1 字体的 PDF 时必须读取 cmaps 与
+ * standard_fonts。两个目录共 ~3MB（cmaps 约 2.7MB，standard_fonts 约 200KB），
+ * 不适合 commit 进仓库，由本插件在 build 时从 node_modules 复制到
+ * `dist/static/pdfjs/`，dev 模式通过 middleware 直接代理 node_modules。
+ *
+ * 与 PdfPageViewer.vue 的 `PDFJS_ASSET_BASE = '<base>/static/pdfjs/'` 保持一致。
+ */
+function pdfjsAssetsPlugin() {
+  const PDFJS_DIRS = ['cmaps', 'standard_fonts']
+  let pdfjsRoot = null
+  function resolvePdfjsRoot() {
+    if (pdfjsRoot) return pdfjsRoot
+    pdfjsRoot = path.dirname(requireForVite.resolve('pdfjs-dist/package.json'))
+    return pdfjsRoot
+  }
+  return {
+    name: 'alethicode-pdfjs-assets',
+    configureServer(server) {
+      const root = resolvePdfjsRoot()
+      server.middlewares.use(async (req, res, next) => {
+        const url = req.url || ''
+        const match = url.match(/^\/static\/pdfjs\/(cmaps|standard_fonts)\/([^?#]+)/)
+        if (!match) { next(); return }
+        const filePath = path.join(root, match[1], match[2])
+        if (!filePath.startsWith(path.join(root, match[1]))) { next(); return }
+        try {
+          const data = await fs.readFile(filePath)
+          res.statusCode = 200
+          res.setHeader('Content-Type', 'application/octet-stream')
+          res.setHeader('Cache-Control', 'public, max-age=86400')
+          res.end(data)
+        } catch (_) {
+          next()
+        }
+      })
+    },
+    async writeBundle() {
+      const root = resolvePdfjsRoot()
+      const distRoot = resolveFrontend('dist/static/pdfjs')
+      await fs.mkdir(distRoot, { recursive: true })
+      for (const dir of PDFJS_DIRS) {
+        const src = path.join(root, dir)
+        const dst = path.join(distRoot, dir)
+        await fs.cp(src, dst, { recursive: true, force: true })
+      }
+    }
+  }
+}
 
 function createHistoryFallbackPlugin() {
   return {
@@ -57,6 +111,7 @@ export default defineConfig(({ command }) => {
     plugins: [
       vue(),
       createHistoryFallbackPlugin(),
+      pdfjsAssetsPlugin(),
       // 2C4G 容量优化（2026-04-30）：Service Worker 客户端缓存。把 GET 请求
       // 缓存推到每个学生的浏览器，跨用户走 Nginx proxy_cache，单用户走 SW，
       // 让 backend 收到的 GET 请求量降到原始的 ~10-20%。

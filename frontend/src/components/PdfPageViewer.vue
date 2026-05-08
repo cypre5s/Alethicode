@@ -9,10 +9,27 @@
 </template>
 
 <script>
-import * as pdfjsLib from 'pdfjs-dist'
-import workerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
+// 必须使用 pdfjs-dist 的 legacy build。modern build（默认 entry）从 5.5.52 起
+// 直接调用 ES2025 `Map.prototype.getOrInsertComputed` / `WeakMap.prototype.getOrInsertComputed`
+// （TC39 proposal-upsert），仅 Chrome 145+/Firefox 144+/Safari 26.2+ 支持，会让
+// 学生端在 renderPage 阶段抛 `TypeError: ...getOrInsertComputed is not a function`，
+// UI 上落到「页面渲染失败」。legacy build 通过 core-js 把这些 API 全部 polyfill，
+// 是 mozilla/pdf.js 官方对 broader compat 场景的推荐路径。
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
+import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.mjs?url'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
+
+// PDF.js 渲染包含 CJK 字体或非内嵌 Type1 字体的 PDF 时，需要 cmaps 与
+// standard_fonts 资源；缺这两个 base url，单页 render 阶段会抛
+// UnknownErrorException，UI 上落到「页面渲染失败」。课件 QA 的 PDF 由
+// LibreOffice 从 .pptx 转出，普遍依赖中文 cmap，所以这两条 url 必须显式传。
+// 资源由 vite-plugin pdfjsAssetsPlugin 在 build 时从 node_modules/pdfjs-dist
+// 复制到 dist/static/pdfjs/，dev mode 由同一个插件的 middleware 直接 serve。
+const PDFJS_ASSET_BASE_RAW = (import.meta.env && import.meta.env.BASE_URL) || '/'
+const PDFJS_ASSET_BASE = PDFJS_ASSET_BASE_RAW.replace(/\/+$/, '') + '/static/pdfjs/'
+const CMAP_URL = PDFJS_ASSET_BASE + 'cmaps/'
+const STANDARD_FONT_DATA_URL = PDFJS_ASSET_BASE + 'standard_fonts/'
 
 export default {
   name: 'PdfPageViewer',
@@ -66,7 +83,9 @@ export default {
         const pdfUrl = this.src.startsWith('/') ? window.location.origin + this.src : this.src
         const loadingTask = pdfjsLib.getDocument({
           url: pdfUrl,
+          cMapUrl: CMAP_URL,
           cMapPacked: true,
+          standardFontDataUrl: STANDARD_FONT_DATA_URL,
           enableXfa: false,
           withCredentials: true
         })

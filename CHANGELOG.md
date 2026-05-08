@@ -4,12 +4,49 @@
 
 ## [Unreleased] - 2026-05-07
 
+### 继续学习统计回放修复
+
+- 2026-05-08 **[修复/HomeDashboard 继续学习统计未回放历史提交]** ECS 上 root 用户已能在右侧“最近提交”看到注入的 AC / WA 记录，但左侧“继续学习”卡片仍长期显示 `已做题 0 / 已通过 0 / 掌握度 0%`。根因：前端 `HomeDashboard.vue` 的课程进度接口 `/api/course-progress/{languagePackId}` 只读取 `learner_course_progress`，而手工注入的数据只写入了 `submission` / `ai_learner_notebook`，没有经过正常判题链路去更新 `learner_kc_mastery` 与 `learner_course_progress`，导致右侧提交列表有数据、左侧统计仍是旧零值。修：`LearnerCourseProgressService` 在读取课程进度时，若发现该用户该语言包下 `learner_kc_mastery` 为空，则按 `submission -> ai_problem_kc_mapping -> language_pack_problem_mapping` 顺序回放历史提交，使用与实时掌握度一致的 `EMA_ALPHA=0.7` 重建 KC 掌握度，再用 upsert 刷新 `learner_course_progress`，并将 `last_activity_at` 对齐为最近一次真实提交时间；这样既修正首页继续学习卡片，也把相关学习画像链路一并补齐。
+- 2026-05-08 **[测试/回归]** 新增 `LearnerCourseProgressServiceTest`，先复现“已有提交但掌握度表为空时仍返回零进度”的失败用例，再验证历史回放后能返回 `problems_attempted / problems_solved / overall_mastery` 的重建结果。
+
+### Flyway 历史迁移校验修复
+
+- 2026-05-08 **[修复/ECS Flyway V2 checksum 漂移]** 部署到 ECS `47.111.165.48` 时，后端容器在 2026-05-08 12:06（Asia/Shanghai）开始持续重启，日志根因是 `Migration checksum mismatch for migration version 2`：本地把已执行过的 `V2__init_data.sql` 中 `website_name_shortcut` 从 `AIOJ` 直接改成了 `Alethicode`，而生产库 `flyway_schema_history` 已记录旧 checksum，Flyway 在 `validate` 阶段拒绝启动。修：还原 `V2__init_data.sql` 到原始 `AIOJ`，新增 `V94__website_name_shortcut_alethicode.sql` 用独立迁移更新 `sys_options.website_config.website_name_shortcut` 为 `Alethicode`，避免再次改写历史 migration。
+
+### 课件问答 RAG 引用归一化修复
+
+- 2026-05-07 **[修复/课件 RAG chunk metadata page_id 解析]** 学生端课件问答 / 做题页 AI 导学 / 错题分析的 RAG 检索全部返回空命中，AI 回答里没有任何 `已定位到课件页证据` 卡片与课件页引用按钮，对外表现为 LLM 不引用课件原文。根因：`alethicode-rag` 升级到 LightRAG 1.4.x 后，chunk metadata 不再带 `entity_id` / `page_id`，只保留 `file_path = "language_pack/{lpId}/p{pageNo}"`（由 `scripts/ops/rag_backfill.py` 写入），而 Java 侧 `PageRetrievalServiceImpl#retrieve` 仍然严格按 `meta.entity_id` 或 `meta.page_id` 反查 `language_pack_page`，两个键都缺失就 `continue`，所有 chunk 被跳过 → `RagQueryHits.chunks()` 非空但 `results` 为空，进入 `LanguagePackQaServiceImpl` 的"无引用"分支拼回答；alethicode-rag 端 `query.py#_coerce_data` 已经在 chunk metadata 里 `meta.update(_parse_courseware_path(fp))` 注入 `language_pack_id` + `page_no`，但 Java 没读这两个键。修：`PageRetrievalServiceImpl` 抽出 `resolvePageId(meta, languagePackId)`，先按 legacy `entity_id` / `page_id` 反查（兼容旧 chunk），失败时按 `(language_pack_id, page_no)` 反查 `language_pack_page`，仍失败用 `FILE_PATH_PATTERN = ^language_pack/(\\d+)/p(\\d+)$` 兜底从原始 `file_path` 解析；`lookupPageIdByPageNo` 新增 SQL `SELECT id FROM language_pack_page WHERE language_pack_id = ? AND page_no = ? ORDER BY chunk_index ASC, id ASC LIMIT 1`；`lpFromMeta` 必须等于当前 `languagePackId` 才接受，避免跨课件包污染。同步补 `import EmptyResultDataAccessException`、`Matcher` / `Pattern` 与新增 `toInteger(Object)` 工具方法。前端无改动。
+- 2026-05-07 **[验证/自测]** ECS 同步本地 clean 版（去掉调试期间的 `__qa_debug__` 日志与 `.bak` 备份）；`docker compose build backend && build alethicode-rag && up -d --force-recreate backend alethicode-rag`，三容器 healthy。浏览器实测 `http://47.111.165.48/language-pack-qa?ctx=eyJwIjoiNDMiLCJzIjoiMSJ9`：root admin 历史会话里 AI 回答正确包含「已定位到课件页证据」卡片，引用 `第二章：Python 语言基础(2).pptx · 第 51 页` / `第一章：计算工具与计算思维.pptx · 第 3 / 4 / 5 页` 共 4 条；右侧证据侧栏 `EVIDENCE PREVIEW` 同步显示第 51 页 PdfPageViewer 渲染（与上一个 PDF.js legacy 修复联动验证）。
+- 2026-05-07 **[修复/课件问答 grounded 与 citations 不一致]** ECS 上课件问答偶发显示「已定位到课件页证据」，但回答下方没有任何课件引用按钮。根因：`AnswerSynthesisServiceImpl#validateAnswer` 只要 RAG hits 非空就把 `GroundedAnswer.grounded` 置为 `true`，但 `citations` 只由模型返回的 `cited_page_nos` 与 hits 求交集生成；当模型漏填 `cited_page_nos` 或返回旧式 `citations[].page_no` 时，前端收到 `grounded=true, citations=[]`，于是只显示状态标签。修：后端先读取 `cited_page_nos`，为空时兼容旧式 `citations[].page_no`，再生成 citations；最终 `grounded` 只在 citations 非空时为 true，不再把全量 hits 伪装成引用。前端 `LanguagePackQaPage.isGroundedMessage` 同步要求 `grounded && citations.length > 0`，避免历史脏数据继续显示无引用的“已定位”标签。
+
+### 课件 PDF 预览渲染失败修复
+
+- 2026-05-07 **[修复/课件 PDF 预览 PDF.js 5.6 ES2025 依赖]** 学生端 `language-pack-qa` 引用预览与 `/language-pack-qa/viewer` 课件预览页所有非首页全部红字「页面渲染失败」。根因：仓库 `pdfjs-dist@^5.6.205` 默认入口 `import * as pdfjsLib from 'pdfjs-dist'` 走 modern build，自 PDF.js 5.5.52 起 `src/display/api.js` 与 `PDFObjects` 直接调用 ES2025 [TC39 proposal-upsert](https://github.com/tc39/proposal-upsert) 的 `Map.prototype.getOrInsertComputed` / `WeakMap.prototype.getOrInsertComputed`（参 [mozilla/pdf.js#20680](https://github.com/mozilla/pdf.js/issues/20680) 同一回归），仅 Chrome 145+/Firefox 144+/Safari 26.2+ 原生支持，当前生产用户浏览器（含 Cursor 内置 Electron 39 / Chromium 142）尚未提供该 API，单页 `pdfPage.render` 阶段抛 `TypeError: this[#ra].getOrInsertComputed is not a function`，`PdfPageViewer.renderPage` 的 catch 写入「页面渲染失败」。后端 preview 接口、`/static/pdfjs/cmaps/`、`/static/pdfjs/standard_fonts/` 全部 200，浏览器原生 PDF viewer 渲染同一文件第 51 页正常，进一步证实 PDF 文件与资源链路无问题。修：`frontend/src/components/PdfPageViewer.vue` 把 PDF.js 与 worker 的 import 切换到 `pdfjs-dist/legacy/build/pdf.mjs` 与 `pdfjs-dist/legacy/build/pdf.worker.mjs?url`（mozilla 官方对 broader compat 场景的推荐路径，legacy build 经 core-js 把 `getOrInsertComputed` 等 ES2025 API 全部 polyfill），并在 import 上方留注释说明触发条件与官方依据，避免后续误改回 modern build。`pdfjsAssetsPlugin` 复用 `pdfjs-dist` 包根目录下的 cmaps 与 standard_fonts，无需调整。
+- 2026-05-07 **[验证/自测]** ECS 现场 SSH + Cursor 内置浏览器联合验证：用 R root 真实 session 直 curl `/api/language-pack-qa/packs/43/documents/{186,187,188}/preview` 均返回 HTTP 200 + `application/pdf` + 有效 `%PDF-1.6` 头；为定位前端层错误临时把 `frontend/dist/PdfPageViewer-*.js` 的 catch 改写成把 `e.name`/`e.message` 同时写入 `this.error` 与 `document.title`（PATCH001/002/003 渐进重命名 + nginx `expires off` + `/admin/_unsw.html` 注销 SW 与清缓存），抓到铁证 `ERR:this[#ra].getOrInsertComputed is not a function | TypeError`。修复后 `docker compose build frontend && docker compose up -d --force-recreate frontend` 重建容器自动覆盖所有临时痕迹（dist / nginx config / sw.js 全部回退到镜像内容），新 chunk hash 为 `PdfPageViewer-D8V6VSps.js` / `pdf.worker-2htIQpfR.mjs` / `vendor-pdfjs-DuDC5Iqm.js`；浏览器再次访问 `/language-pack-qa/viewer?...&page=51` 正常显示 PPTX 第 51 页（"不同数据类型需要严格区分"）。
+
 ### 课件问答页新会话失效修复
 
 - 2026-05-07 **[修复/课件问答 setup 阶段污染 Vue publicProxy accessCache]** `LanguagePackQaPage.vue` 进入新会话后「发送」按钮始终 disabled、`@kc` 与 `@page` 候选始终为空。根因：`setup()` 内 `scopeKey = computed(() => ...proxy.selectedLanguagePackId...)` 在 `useChatComposer` 同步求值（`let activeScope = currentScope.value`）时立即访问 publicProxy 的 `selectedLanguagePackId`/`activeSessionId`，此刻 Options API 的 `data()` 还未运行，Vue 3 把 `accessCache[selectedLanguagePackId]` 标记为非 DATA 来源；之后 `data()` 初始化、`switchPack` 把 `this.$data.selectedLanguagePackId` 正确改成 `"43"`，但 `this.selectedLanguagePackId` 由于 cache 命中错误来源永远返回 `undefined`，`loadSessions` 在 `if (!this.selectedLanguagePackId) return` 处提前退出，`activeSessionId` 不被设置；`buildQaPageMentionItems` / `buildQaKcMentionItems` 同理短路。修：把 `scopeKey` 改为通过 `proxy.$data` 的 shallowReadonly 视图读 `selectedLanguagePackId` 与 `activeSessionId`，既不污染 publicProxy accessCache，也保留 reactive 追踪。`isInputBlocked` 仍用原 publicProxy 路径，因为它是 lazy computed，在 setup 阶段不会被求值。Probe 验证：修复前 `loadSessions_enter` 时 `pid:"undefined"`、`dataPid:null`；修复后 `loadSessions_enter` 时 `pid:"43"`、`dataPid:"43"`，会话列表自动激活、发送按钮可用、`@kc` 与 `@page` 候选正常加载。
 
+### Python 课程包从本地移植到 ECS（运维）
+
+- 2026-05-07 **[运维/Python 课程包移植 ECS]** 把本地 lbx 创建且未删除的 561 页 Python 课程包（`language_pack.id=43`，slug `1defa338-bf8a-425e-806a-17435ebc407a`，7 章/65 KC/46 示例/41 OJ 题）整体迁到 ECS `47.111.165.48`，作者改为新建的 `root` 超级管理员（`admin_type=Admin`，`problem_permission=All`）。链路：本地 `pg_dump` 23 张业务表 csv（`language_pack`/`_init_*`/`_document`/`_page`/`_chapter`/`_kc`/`_kc_page_mapping`/`_kc_prerequisite`/`_example`/`_example_kc_mapping`/`_problem_generation_log`/`_review_task`/`_problem_mapping` + `problem`/`problem_problem_tags`/`problem_tag`/`ai_knowledge_component`/`ai_problem_kc_mapping`） → 路径 `sed` 替换 `/home/cypress/Alethicode/deploy/data/language_pack/ → /data/language_pack/` → ECS 端按外键拓扑 `COPY FROM STDIN` 导入 + sequence `SETVAL` + `creator_id`/`problem.created_by_id` 全部回填 root.id；课件 PDF/PPTX/canonical/preview 共 421 MB 与 41 题 testcase 走 `rsync` 推到 `/opt/Alethicode/deploy/data/`。
+- 2026-05-07 **[运维/RAG 索引层全量迁移]** 选用方案 B 把本地 `alethicode` workspace 已索引完成的 LightRAG 数据整体上云，跳过 ECS 端 4-5 小时 LLM/embedding 重跑：本地 `pg_dump -t 'lightrag_*'` 11 张表 + `mgconsole DUMP DATABASE` 导出节点/边（DUMP 输出经 csv 双层引号反义后落盘），ECS 端 `psql` 与 `mgconsole` 顺序导入；导入后 PG 行数与本地一致（767 doc / 767 doc_chunks / 1943 doc_status / 764 entities / 698 relations / 3443 vdb_entity / 4713 vdb_relation），Memgraph workspace `alethicode` 节点 2108 边 2792 完全对齐；smoke `POST /v1/rag/query/courseware` 对「列表与字典的区别」/「if-else 条件判断」均返回高相关实体（列表类型/Python Dictionary/if-else Statement/Condition），P95 ≈ 9 s。本地 LP 43 的 561 页中 123 页 `lightrag_doc_status` 为 `failed`，error_msg 全部是 `Content already exists`（PDF 与 PPTX 同 hash 去重，预期行为）。
+- 2026-05-07 **[修复/ECS alethicode-rag 绕 PgBouncer]** ECS `deploy/.env` 追加 `ALETHICODE_RAG_POSTGRES_HOST=127.0.0.1` 与 `ALETHICODE_RAG_POSTGRES_PORT=5436`，让 RAG 容器走 PostgreSQL 直连而非 PgBouncer 6432。背景：LightRAG 1.4.15（asyncpg）默认依赖 prepared statements，与 PgBouncer transaction pool 不兼容，会抛 `DuplicatePreparedStatementError` / `server_login_retry`；同时 LightRAG `check_tables` 不带 `IF NOT EXISTS`，进程重启后再次 `initialize_storages()` 因表已存在而抛 `DuplicateTableError`。修复方案与 `deploy/docker-compose.yml` 既有 `ALETHICODE_RAG_POSTGRES_PORT` 覆盖点（CHANGELOG 2026-05-06）一致，本次只动 `.env`，未改 `docker-compose.yml`/源码。重建 alethicode-rag 容器并触发一次 `/v1/rag/index/pipeline/drain` 重建 11 张干净 schema，再导入 LightRAG dump 即恢复检索可用。
+- 2026-05-07 **[文档/AGENTS.md IP 不一致备注]** AGENTS.md 表格里"开发实例"登记的公网 IP 是 `47.111.165.48`，与下方"连接命令"段写的 `ssh -i wsl.pem root@47.98.184.170` 不一致；本次以表格 + 实际可达前端入口 `http://47.111.165.48/login` 为准操作（按工作原则不在此次任务范围内擅改 AGENTS.md，仅留 changelog 备注，后续可单独 PR 修订）。
+- 2026-05-07 **[运维/迁移脚本归档]** 一次性迁移脚本归档于 [`scripts/migrate-courseware-to-ecs/`](scripts/migrate-courseware-to-ecs/)：`dump_business.sh`（业务表 23 张 csv 导出 + 路径替换 + creator_id 置 NULL）、`dump_rag.sh`（lightrag pg_dump + memgraph DUMP DATABASE）、`ecs_import.sh`（ECS 端创建 root + 按拓扑顺序导入 + sequence SETVAL + creator_id/problem.created_by_id 回填 root）。脚本幂等，可在 ECS 残留情况下重跑。
+
 ### AI 导学拼装挑战入口与课件 @ 引用二级目录
 
+- 2026-05-07 **[新增/做题页 @kc 与 @notebook]** `UnifiedAgentPanel.vue` 的 @ 菜单移除「即将上线（Phase 2）」占位组，改为像 `LanguagePackQaPage.vue` 一样懒加载真实候选：`@kc:<id>` 来自当前题目 `languagePackId` 的 `api.getKcGraph(...)`，`@notebook:<id>` 来自当前登录学生的 `api.getLearnerNotebook({})`；发送链路继续复用 `parseReferences(text)` 与后端既有引用解析，不新增 API。新增前端契约测试确保做题页不再展示 placeholder，并覆盖真实 provider 与 token 构造。
+- 2026-05-07 **[修复/@ 菜单 lazy provider 缓存]** `useChatComposer.refreshProvider` 增加 provider 版本号，忽略刷新后才返回的旧 lazy Promise，避免切换课程包或会话时旧 `@kc` / `@notebook` 候选回写缓存；做题页 `@kc` / `@notebook` 初始展示上限对齐课件问答（8 / 6）。
+- 2026-05-07 **[部署/ECS 构建源]** 后端、前端与 RAG 镜像构建阶段切换到阿里云 apt / Maven / npm 源，减少 ECS 上 `docker compose build` 因外网依赖下载超时导致的部署失败风险；Python 依赖继续使用既有阿里云 PyPI 源。
+- 2026-05-07 **[修复/品牌名统一]** `V2__init_data.sql` 的 `website_name_shortcut` 初始化值统一为 `Alethicode`，并同步线上 `sys_options.website_config`，避免浏览器标签页继续显示旧缩写。
+- 2026-05-07 **[修复/ECS 前端字体源]** `ObservabilityDashboard.vue`、`UsageStats.vue` 与 admin 入口移除 Google Fonts 远程引用，改用系统字体栈，避免 ECS 前端镜像构建或首屏加载因字体源连接失败中断。
+- 2026-05-07 **[修复/ECS Flyway baseline]** 后端 Flyway 增加 `baseline-version: 0`，避免 `tutor-graph` 先创建 checkpoint 表后 schema 非空时 Flyway 默认 baseline 到 V1，跳过 `V1__init_schema.sql` 导致 `sys_options` 缺表。
+- 2026-05-07 **[修复/ECS Maven 镜像源]** 后端 Dockerfile 将 BuildKit cache mount 收窄到 `/root/.m2/repository`，并用 `-s /workspace/maven-settings.xml` 显式加载阿里云 Maven mirror，避免缓存挂载遮蔽 `settings.xml` 后回落到 `repo.maven.apache.org`。
+- 2026-05-07 **[部署/Python 基础镜像]** `tutor-graph` 与 `alethicode-rag` 基础镜像统一到 `python:3.12-slim`，满足服务 `requires-python >=3.11 / >=3.10` 约束，并便于 ECS 通过本地镜像导入绕开 Docker Hub 拉取超时。
+- 2026-05-07 **[部署/BuildKit 离线化]** 移除后端 Dockerfile 的外部 `docker/dockerfile:1.7` frontend 解析器声明，避免 ECS 构建阶段访问 Docker Hub 超时；继续使用 Docker 内置 frontend 与 BuildKit cache mount 构建后端镜像。
 - 2026-05-07 **[修复/Tutor /usage 500]** `GET /api/ai/tutor-workflow-sessions/{id}/usage` 在生产与本地都返回 500，触发链路是骨架代码后续的拼装挑战派发。根因：历史 V87 版本号被 `learning_health_summary_view.sql` 占用，后续替换为 `ai_tutor_session_token_usage` 时 Flyway history 仍记录 `success=true`，但实际 `ai_tutor_workflow_session` 没有 `tokens_used` / `tokens_limit` / `model_name` 三列，`InternalAITutorToolServiceImpl#getSessionUsage` 直接抛 SQL 异常。修：新增 `V93__ai_tutor_workflow_session_token_usage_columns.sql`，使用 `ADD COLUMN IF NOT EXISTS` 幂等补齐三列；不动 V87 历史 checksum，开发与生产一次启动即可对齐。
 - 2026-05-07 **[修复/快捷按钮图标]** AI 导学输入栏快捷按钮（题目导读 / 思路分析 / 骨架代码 / 教学可视化等）图标全部错位，因为 `UnifiedAgentPanel.vue#ICON_COMPONENTS` 没注册 `Grid` / `Collection` / `Document`，所有 backend `available_actions` 的图标都 fallback 到 `Lightning`。补齐三个图标到 `markRaw` 注册表，恢复正确视觉。
 - 2026-05-07 **[变更/拼装挑战入口下沉]** 把「拼装挑战」从输入栏快捷动作中移除，改成 `SkeletonCodeCard` 卡片底部的「有点难？试试拼装版」次级按钮：`isHiddenTutorAction` 增加 `key === 'parsons'` 屏蔽快捷入口，`SkeletonCodeCard.vue` 新增 `request-parsons` emit + 描边按钮样式；`UnifiedAgentPanel` 转发事件给 `Problem.vue#handleAgentRequestParsons`，复用既有 `dispatchWorkflowEvent('PARSONS')` 链路，避免双入口造成的语义冲突。
@@ -3379,16 +3416,16 @@
 - 2026-04-06 **[前端]** `api.js`：新增 `deleteLanguagePackQaSession` 和 `toggleLanguagePackQaSessionStarred` API 方法
 - 2026-04-06 **[前端]** `LanguagePackQaPage.vue`：会话列表每项右侧新增收藏（星标）和删除按钮，hover 时显示；收藏项左侧有金色边框标识，排序置顶；删除前弹出确认框
 
-### 品牌名统一：AIOJ → Alethicode
+### 品牌名统一为 Alethicode
 
-- 2026-04-06 **[后端]** `application.yml`：`website.name-shortcut` 由 `AIOJ` 改为 `Alethicode`
-- 2026-04-06 **[后端]** `AlethicodeProperties.java`：`nameShortcut` 默认值由 `"AIOJ"` 改为 `"Alethicode"`
-- 2026-04-06 **[后端]** `V2__init_data.sql`：初始化数据 `website_name_shortcut` 由 `AIOJ` 改为 `Alethicode`
-- 2026-04-06 **[前端]** `store/index.js`：`changeDomTitle` 的 fallback 缩写由 `'AIOJ'` 改为 `'Alethicode'`，浏览器标签页标题显示为 `Alethicode | xxx`
-- 2026-04-06 **[测试]** `PlatformContractControllerTest`、`SystemOptionServiceImplTest`、`AdminConfigControllerContractTest`：同步更新所有 `AIOJ` 断言和测试数据为 `Alethicode`
-- 2026-04-06 **[E2E]** `frontend/tests/e2e/visual/` 下全部 HTML 快照、`report.json`、`report.md`：AIOJ → Alethicode
+- 2026-04-06 **[后端]** `application.yml`：`website.name-shortcut` 统一为 `Alethicode`
+- 2026-04-06 **[后端]** `AlethicodeProperties.java`：`nameShortcut` 默认值统一为 `"Alethicode"`
+- 2026-04-06 **[后端]** `V2__init_data.sql`：初始化数据 `website_name_shortcut` 统一为 `Alethicode`
+- 2026-04-06 **[前端]** `store/index.js`：`changeDomTitle` 的 fallback 缩写统一为 `'Alethicode'`，浏览器标签页标题显示为 `Alethicode | xxx`
+- 2026-04-06 **[测试]** `PlatformContractControllerTest`、`SystemOptionServiceImplTest`、`AdminConfigControllerContractTest`：同步更新所有品牌名断言和测试数据为 `Alethicode`
+- 2026-04-06 **[E2E]** `frontend/tests/e2e/visual/` 下全部 HTML 快照、`report.json`、`report.md`：品牌名统一为 `Alethicode`
 - 2026-04-06 **[E2E]** `test_profile_page.py`、`test_with_firefox.py`：截图路径 `/home/cypress/aioj/` → `/home/cypress/alethicode/`
-- 2026-04-06 **[数据库]** `sys_options.website_config`：`website_name_shortcut` 由 `AIOJ` 更新为 `Alethicode`
+- 2026-04-06 **[数据库]** `sys_options.website_config`：`website_name_shortcut` 更新为 `Alethicode`
 
 ### 安全：课件问答 URL 参数加密
 

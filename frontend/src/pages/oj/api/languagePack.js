@@ -9,7 +9,7 @@ export default {
     return ajax('language-packs', 'get')
   },
   getVisibleLanguagePackList() {
-    return ajax('language-packs/visible', 'get')
+    return ajax('language-packs/visible', 'get', { params: { _t: Date.now() } })
   },
   getLanguagePackDetail(id) {
     return ajax(`language-packs/${id}`, 'get')
@@ -24,13 +24,13 @@ export default {
     return ajax(`language-packs/${languagePackId}/documents/${documentId}/pages/${pageNo}`, 'get')
   },
   getLanguagePackQaPacks() {
-    return ajax('language-pack-qa/packs', 'get')
+    return ajax('language-pack-qa/packs', 'get', { params: { _t: Date.now() } })
   },
   createLanguagePackQaSession(data) {
     return ajax('language-pack-qa/sessions', 'post', { data })
   },
   getLanguagePackQaSessions(params) {
-    return ajax('language-pack-qa/sessions', 'get', { params })
+    return ajax('language-pack-qa/sessions', 'get', { params: { ...params, _t: Date.now() } })
   },
   deleteLanguagePackQaSession(sessionId) {
     return ajax(`language-pack-qa/sessions/${sessionId}`, 'delete')

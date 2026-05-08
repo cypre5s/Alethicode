@@ -13,9 +13,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 @Transactional(readOnly = true)
@@ -150,8 +152,12 @@ public class AnswerSynthesisServiceImpl implements AnswerSynthesisService {
                 3. 课件中有相关内容时，在回答中自然提及课件页的内容；
                 4. 只拒答与 OJ 判题、题目提交、完整题解直接相关的请求。
                 5. 回答末尾以一个启发性问题结尾，引导学生进一步思考（例如"你觉得……会怎样？"或"如果……该怎么做？"）。
-                输出必须是 JSON 对象，包含：answer_markdown, insufficient_evidence。
+                输出必须是 JSON 对象，包含：answer_markdown, cited_page_nos, insufficient_evidence。
                 - answer_markdown：回答正文（Markdown 格式）。
+                - cited_page_nos：你在 answer_markdown 中真正使用到内容的页码列表（数组形式，元素为 int）。
+                  必须从给定「课件相关页」中已有的 page_no 里选；不引用任何课件页时返回空数组 []。
+                  不要把所有给定的 page_no 都列出来，只列你确实在回答中用了内容的那几页；
+                  这是给前端"已定位到课件页证据"卡片用的页码，列错或多列会让用户看到与回答无关的引用。
                 - insufficient_evidence：布尔值。仅当问题是 OJ 判题相关请求且必须拒答时设为 true，其余一律 false。
                 """.formatted(lang, lang);
     }
@@ -179,14 +185,19 @@ public class AnswerSynthesisServiceImpl implements AnswerSynthesisService {
     private GroundedAnswer validateAnswer(Map<String, Object> raw, List<PageRetrievalHit> hits) {
         String answerMarkdown = requireText(raw.get("answer_markdown"), "answer_markdown is required");
         boolean insufficientEvidence = extractBoolean(raw, "insufficient_evidence");
+        List<Integer> citedPageNos = extractCitedPageNos(raw.get("cited_page_nos"));
+        if (citedPageNos.isEmpty()) {
+            citedPageNos = extractLegacyCitationPageNos(raw.get("citations"));
+        }
 
         if (insufficientEvidence) {
             boolean hasSubstantiveAnswer = answerMarkdown.length() > 80
                     && !answerMarkdown.contains("无法回答")
                     && !answerMarkdown.contains("抱歉");
             if (hasSubstantiveAnswer && !hits.isEmpty()) {
-                log.info("QA synthesis: AI set insufficient_evidence=true but answer is substantive and hits exist; attaching retrieval citations");
-                return new GroundedAnswer(answerMarkdown, buildCitationsFromHits(hits), true, false, "");
+                log.info("QA synthesis: AI set insufficient_evidence=true but answer is substantive and hits exist; attaching cited citations");
+                List<Map<String, Object>> citations = buildCitationsFromHits(hits, citedPageNos);
+                return new GroundedAnswer(answerMarkdown, citations, !citations.isEmpty(), false, "");
             }
             if (hasSubstantiveAnswer) {
                 return new GroundedAnswer(answerMarkdown, List.of(), false, false, "");
@@ -199,16 +210,84 @@ public class AnswerSynthesisServiceImpl implements AnswerSynthesisService {
             return new GroundedAnswer(answerMarkdown, List.of(), false, false, "");
         }
 
-        return new GroundedAnswer(answerMarkdown, buildCitationsFromHits(hits), true, false, "");
+        List<Map<String, Object>> citations = buildCitationsFromHits(hits, citedPageNos);
+        return new GroundedAnswer(answerMarkdown, citations, !citations.isEmpty(), false, "");
     }
 
-    private List<Map<String, Object>> buildCitationsFromHits(List<PageRetrievalHit> hits) {
+    /**
+     * 从 LLM 输出的 {@code cited_page_nos} 字段抽取一组页码。
+     *
+     * <p>历史会话和老 LLM 没有这个字段，返回空列表；后续只在存在可展示 citations 时标记 grounded，
+     * 避免前端出现「已定位到课件页证据」但没有引用按钮的状态。
+     */
+    private List<Integer> extractCitedPageNos(Object rawValue) {
+        if (!(rawValue instanceof List<?> list)) {
+            return List.of();
+        }
+        List<Integer> result = new ArrayList<>(list.size());
+        for (Object element : list) {
+            if (element instanceof Number number) {
+                result.add(number.intValue());
+            } else if (element instanceof String text) {
+                try {
+                    result.add(Integer.parseInt(text.trim()));
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 兼容老模型偶尔返回的 {@code citations: [{page_no: ...}]} 结构。
+     *
+     * <p>这里只提取模型明确给出的页码，仍然会与 RAG hits 求交集；不会把全量 hits 当作引用。
+     */
+    private List<Integer> extractLegacyCitationPageNos(Object rawValue) {
+        if (!(rawValue instanceof List<?> list)) {
+            return List.of();
+        }
+        List<Integer> result = new ArrayList<>(list.size());
+        for (Object element : list) {
+            if (!(element instanceof Map<?, ?> citation)) {
+                continue;
+            }
+            Object pageNo = citation.get("page_no");
+            if (pageNo instanceof Number number) {
+                result.add(number.intValue());
+            } else if (pageNo instanceof String text) {
+                try {
+                    result.add(Integer.parseInt(text.trim()));
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 用 LLM 标注的 {@code cited_page_nos} 与 {@code hits} 求交集生成 citations。
+     *
+     * <p>未标 / 标空数组 / 全部 hallucinate（不在 hits.page_no 集合内）时返回空列表，
+     * 前端就不会显示无关的引用按钮；保留 hits 顺序，去重，避免一个页面在 hits 里多个 chunk
+     * 命中导致 UI 出现重复引用。
+     */
+    private List<Map<String, Object>> buildCitationsFromHits(List<PageRetrievalHit> hits, List<Integer> citedPageNos) {
+        if (citedPageNos == null || citedPageNos.isEmpty() || hits == null || hits.isEmpty()) {
+            return List.of();
+        }
+        Set<Integer> citedSet = new HashSet<>(citedPageNos);
+        Set<Integer> emittedPages = new HashSet<>();
         List<Map<String, Object>> citations = new ArrayList<>();
         for (PageRetrievalHit hit : hits) {
+            int pageNo = hit.pageNo();
+            if (!citedSet.contains(pageNo) || !emittedPages.add(pageNo)) {
+                continue;
+            }
             Map<String, Object> citation = new LinkedHashMap<>();
             citation.put("document_id", hit.documentId());
             citation.put("document_title", hit.documentTitle());
-            citation.put("page_no", hit.pageNo());
+            citation.put("page_no", pageNo);
             citation.put("excerpt", hit.excerpt());
             citation.put("confidence", Math.round(hit.score() * 1000.0) / 1000.0);
             citations.add(citation);
