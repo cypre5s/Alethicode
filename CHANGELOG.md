@@ -6,7 +6,7 @@
 
 ### 继续学习统计回放修复
 
-- 2026-05-08 **[修复/HomeDashboard 继续学习统计未回放历史提交]** ECS 上 root 用户已能在右侧“最近提交”看到注入的 AC / WA 记录，但左侧“继续学习”卡片仍长期显示 `已做题 0 / 已通过 0 / 掌握度 0%`。根因：前端 `HomeDashboard.vue` 的课程进度接口 `/api/course-progress/{languagePackId}` 只读取 `learner_course_progress`，而手工注入的数据只写入了 `submission` / `ai_learner_notebook`，没有经过正常判题链路去更新 `learner_kc_mastery` 与 `learner_course_progress`，导致右侧提交列表有数据、左侧统计仍是旧零值。修：`LearnerCourseProgressService` 在读取课程进度时，若发现该用户该语言包下 `learner_kc_mastery` 为空，则按 `submission -> ai_problem_kc_mapping -> language_pack_problem_mapping` 顺序回放历史提交，使用与实时掌握度一致的 `EMA_ALPHA=0.7` 重建 KC 掌握度，再用 upsert 刷新 `learner_course_progress`，并将 `last_activity_at` 对齐为最近一次真实提交时间；这样既修正首页继续学习卡片，也把相关学习画像链路一并补齐。
+- 2026-05-08 **[修复/HomeDashboard 继续学习统计未回放历史提交]** ECS 上 root 用户已能在右侧“最近提交”看到注入的 AC / WA 记录，但左侧“继续学习”卡片仍长期显示 `已做题 0 / 已通过 0 / 掌握度 0%`。根因：前端 `HomeDashboard.vue` 的课程进度接口 `/api/course-progress/{languagePackId}` 只读取 `learner_course_progress`，而手工注入的数据只写入了 `submission` / `ai_learner_notebook`，没有经过正常判题链路去更新 `learner_kc_mastery` 与 `learner_course_progress`，导致右侧提交列表有数据、左侧统计仍是旧零值。修：`LearnerCourseProgressService` 在读取课程进度时，若发现该用户该语言包下 `learner_kc_mastery` 为空，则按 `submission -> problem.statistic_info.language_pack_teaching.related_kc_ids -> language_pack_problem_mapping` 顺序回放历史提交，使用与实时掌握度一致的 `EMA_ALPHA=0.7` 重建语言包 KC 掌握度，再用 upsert 刷新 `learner_course_progress`，并将 `last_activity_at` 对齐为最近一次真实提交时间；这样既修正首页继续学习卡片，也把相关学习画像链路一并补齐。
 - 2026-05-08 **[测试/回归]** 新增 `LearnerCourseProgressServiceTest`，先复现“已有提交但掌握度表为空时仍返回零进度”的失败用例，再验证历史回放后能返回 `problems_attempted / problems_solved / overall_mastery` 的重建结果。
 
 ### Flyway 历史迁移校验修复

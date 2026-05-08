@@ -80,11 +80,12 @@ public class LearnerCourseProgressService {
 
     private void bootstrapMasteryFromSubmissionHistoryIfNeeded(Long userId, Long languagePackId) {
         List<Map<String, Object>> submissionRows = jdbcTemplate.queryForList("""
-            SELECT m.kc_id, s.result, s.create_time
+            SELECT kc.value::bigint AS kc_id, s.result, s.create_time
             FROM submission s
-            JOIN ai_problem_kc_mapping m
-              ON m.problem_id = s.problem_id
-             AND m.language_pack_id = ?
+            JOIN problem p ON p.id = s.problem_id
+            CROSS JOIN LATERAL jsonb_array_elements(
+                p.statistic_info->'language_pack_teaching'->'related_kc_ids'
+            ) AS kc(value)
             WHERE s.user_id = ?
               AND EXISTS (
                 SELECT 1
@@ -92,8 +93,9 @@ public class LearnerCourseProgressService {
                 WHERE lpm.problem_id = s.problem_id
                   AND lpm.language_pack_id = ?
               )
-            ORDER BY s.create_time ASC, s.id ASC, m.kc_id ASC
-            """, languagePackId, userId, languagePackId);
+              AND p.statistic_info->'language_pack_teaching' IS NOT NULL
+            ORDER BY s.create_time ASC, s.id ASC, kc.value::bigint ASC
+            """, userId, languagePackId);
 
         if (submissionRows.isEmpty()) {
             return;

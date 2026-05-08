@@ -61,9 +61,9 @@ class LearnerCourseProgressServiceTest {
         when(jdbcTemplate.queryForList(
                 argThat(sql -> sql != null
                         && sql.contains("FROM submission s")
-                        && sql.contains("JOIN ai_problem_kc_mapping m")
+                        && sql.contains("JOIN problem p ON p.id = s.problem_id")
+                        && sql.contains("related_kc_ids")
                         && sql.contains("ORDER BY s.create_time ASC")),
-                eq(LANGUAGE_PACK_ID),
                 eq(USER_ID),
                 eq(LANGUAGE_PACK_ID)
         )).thenReturn(List.of(
