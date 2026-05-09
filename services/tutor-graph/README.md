@@ -27,6 +27,10 @@ Tutor workflow is the **only** source of truth for LangGraph state. Java holds p
 | `TUTOR_GRAPH_REACT_ENABLED` | no | `false` | Tutor ReAct tool loop stays off per project policy |
 
 Postgres mode is mandatory in production. Memory mode skips the DB requirement but **loses all state on restart** and must never be used outside unit tests.
+When deployed with `deploy/docker-compose.yml`, the PostgreSQL checkpointer must connect
+directly to `postgres:5432`. Do not route `TUTOR_GRAPH_DATABASE_URI` through PgBouncer
+transaction pooling, because LangGraph's `psycopg` checkpointer uses pipeline /
+prepared-statement behavior that is bound to a single PostgreSQL backend connection.
 
 ### Single-worker requirement
 

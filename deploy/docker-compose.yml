@@ -362,8 +362,9 @@ services:
           memory: ${TUTOR_GRAPH_MEMORY_LIMIT:-512m}
     environment:
       TUTOR_GRAPH_CHECKPOINTER: ${TUTOR_GRAPH_CHECKPOINTER:-postgres}
-      # 2C4G 优化：默认走 PgBouncer:6432
-      TUTOR_GRAPH_DATABASE_URI: ${TUTOR_GRAPH_DATABASE_URI:-postgresql://onlinejudge:${DB_PASSWORD}@pgbouncer:6432/alethicode}
+      # LangGraph PostgreSQL checkpointer 使用 psycopg pipeline / prepared statements，
+      # 与 PgBouncer transaction pool 不兼容，必须直连 PostgreSQL。
+      TUTOR_GRAPH_DATABASE_URI: ${TUTOR_GRAPH_DATABASE_URI:-postgresql://onlinejudge:${DB_PASSWORD}@postgres:5432/alethicode}
       TUTOR_GRAPH_JAVA_TOOL_BASE_URL: ${TUTOR_GRAPH_JAVA_TOOL_BASE_URL:-http://backend:8080}
       TUTOR_GRAPH_INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:-dev-internal-key}
       TUTOR_GRAPH_INTERNAL_SERVICE_PREVIOUS_KEY: ${INTERNAL_SERVICE_PREVIOUS_KEY:-}
@@ -382,8 +383,6 @@ services:
       DEPLOYMENT_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-prod}
     depends_on:
       postgres:
-        condition: service_healthy
-      pgbouncer:
         condition: service_healthy
     ports:
       - "127.0.0.1:8100:8100"
