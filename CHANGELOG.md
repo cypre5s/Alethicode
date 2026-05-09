@@ -4,6 +4,11 @@
 
 ## [Unreleased] - 2026-05-07
 
+### 公测演示数据注入
+
+- 2026-05-09 **[新增/seed_demo_class.sql]** 新增 `scripts/seed/seed_demo_class.sql`：在 Python 课程包（`language_pack.id=43`）下创建演示班级 `demo_python_class_2026`「Python 公测演示班 (Demo)」，注入 25 名 `demo_stu_001..025` 学生（统一密码 `Alethicode2026!`）、783 条横跨 6 道题的混合提交、KC 掌握度与 `learner_course_progress`，并补 100 个 AI tutor session、300 条 trace_span / 201 条 card_emitted / 100 条 task_event / 24 条 quality_trend_score、22 条覆盖 5 种状态 4 种严重度的 beta_feedback。脚本完全幂等（按演示标识先清理再重建），用于让管理后台「学生学习数据 / 辅导总控 / 公测反馈」三个面板直接有数据可看。
+- 2026-05-09 **[运维/ECS demo seed]** 在 ECS `47.111.165.48` 通过 `docker exec java-oj-postgres psql -U onlinejudge -d alethicode -f /tmp/seed_demo_class.sql` 完成首次注入；同步在 `/opt/Alethicode/deploy/docker-compose.yml` 上把 `tutor-graph` 的 `TUTOR_GRAPH_DATABASE_URI` 默认值从 `pgbouncer:6432` 改回直连 `postgres:5432` 并移除 pgbouncer 的 healthy 依赖，重启 `java-oj-tutor-graph` 容器（healthy），消除做题页 AI 学习助手的 `prepared statement "_pg3_*" does not exist` 报错。
+
 ### AI 导学运行时修复
 
 - 2026-05-09 **[修复/ECS tutor-graph 绕 PgBouncer]** ECS 做题页 AI 学习助手任务执行失败，前端显示 `prepared statement "_pg3_4" does not exist`。根因：`tutor-graph` 的 LangGraph PostgreSQL checkpointer 通过 `psycopg` 使用 pipeline / prepared statements，`deploy/docker-compose.yml` 却默认把 `TUTOR_GRAPH_DATABASE_URI` 指到 PgBouncer transaction pool（`pgbouncer:6432`）；事务池会在请求间切换 PostgreSQL 后端连接，导致已准备的 statement 名字在另一条后端连接上不存在。修：`tutor-graph` compose 默认 URI 改为直连 `postgres:5432`，并移除对 PgBouncer healthy 的启动依赖；Java backend 仍继续走 PgBouncer 且保留 pgjdbc 关闭 prepared statement 的配置。
