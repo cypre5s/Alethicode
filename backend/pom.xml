@@ -109,12 +109,12 @@
         <dependency>
             <groupId>io.sentry</groupId>
             <artifactId>sentry-spring-boot-starter-jakarta</artifactId>
-            <version>7.18.0</version>
+            <version>7.22.6</version>
         </dependency>
         <dependency>
             <groupId>io.sentry</groupId>
             <artifactId>sentry-logback</artifactId>
-            <version>7.18.0</version>
+            <version>7.22.6</version>
         </dependency>
         <!-- Resilience4j Spring Boot 3 starter: RateLimiter / Retry / Bulkhead annotations -->
         <dependency>
