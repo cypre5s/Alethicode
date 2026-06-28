@@ -10,7 +10,7 @@ description = "Alethicode RAG microservice (FastAPI + LightRAG + PostgreSQL pgve
 # 本地开发环境仍需兼容 3.10，方便演示和回归脚本运行。
 requires-python = ">=3.10"
 dependencies = [
-    "lightrag-hku==1.4.15",
+    "lightrag-hku==1.5.4",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
     "pydantic>=2.9",
